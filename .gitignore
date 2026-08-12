@@ -1,0 +1,24 @@
+# 祕密
+.env
+.env.local
+*.key
+
+# Python 生成物
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+
+# 本地資料:含真人口語內容或個資,不進版控
+fixtures/local/
+outputs/
+*.log
+
+# 編輯器
+.vscode/
+.idea/
+.DS_Store

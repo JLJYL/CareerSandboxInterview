@@ -1,0 +1,9 @@
+{
+  "speaker": "",
+  "nextQuestion": "那份報表本來多久產一次?你改完之後差多少?",
+  "reaction": "嗯。",
+  "isFollowUp": true,
+  "shouldAdvance": false,
+  "topic": "自我介紹",
+  "notices": []
+}

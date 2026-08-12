@@ -1,0 +1,35 @@
+{
+  "sessionId": "itv_2026081202KQ",
+  "mode": "panel",
+  "openingQuestion": "請先自我介紹,然後說明你為什麼想投這個職位。",
+  "openingSpeaker": "HR 主管",
+  "openingTopic": "自我介紹",
+  "personas": [
+    {
+      "id": "hr",
+      "displayName": "HR 主管",
+      "role": "interviewer",
+      "blurb": "看人格特質與團隊適配。"
+    },
+    {
+      "id": "tech",
+      "displayName": "技術主管",
+      "role": "interviewer",
+      "blurb": "追問工具與方法細節。"
+    },
+    {
+      "id": "hiring",
+      "displayName": "用人主管",
+      "role": "interviewer",
+      "blurb": "追問成果與取捨判斷。"
+    }
+  ],
+  "interruptLines": [],
+  "interruptCap": 0,
+  "fallbackProbes": [
+    "可以再具體一點嗎?那個判斷你是看哪些數據下的?",
+    "團隊合作裡你遇過最大的衝突是什麼?",
+    "如果這個專案時程被砍一半,你會怎麼重排優先順序?"
+  ],
+  "notices": []
+}

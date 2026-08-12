@@ -1,0 +1,60 @@
+{
+  "mode": "single",
+  "context": {
+    "round": "初試",
+    "language": "中文",
+    "type": "行為",
+    "difficulty": "中等",
+    "groupInterviewers": 1,
+    "customRole": "資料分析實習生",
+    "customCompany": "某電商公司",
+    "customSeniority": "新鮮人",
+    "customIndustry": "電子商務",
+    "customJd": "協助建立銷售報表與資料清理,需具備 SQL 撰寫能力,能建立自動化報表流程,需與產品、工程團隊密切協作。"
+  },
+  "experiences": [
+    {
+      "id": "exp_001",
+      "title": "電商公司 資料分析實習",
+      "category": "實習",
+      "period": "2025/07 - 2025/09",
+      "role": "資料分析實習生",
+      "action": "用 SQL 重寫週報查詢,並排程自動產出",
+      "result": "週報產出時間由 4 小時縮短為 1 小時",
+      "learning": "學到先確認需求再動手寫查詢",
+      "description": "協助行銷部門建立銷售追蹤報表",
+      "tags": [
+        "SQL",
+        "報表自動化",
+        "跨部門溝通"
+      ]
+    },
+    {
+      "id": "exp_002",
+      "title": "系學會 行銷組",
+      "category": "社團",
+      "period": "2024/09 - 2025/06",
+      "role": "行銷組長",
+      "action": "經營系學會 IG,規劃聯名活動",
+      "result": "追蹤數由 0 成長至 1200",
+      "learning": "內容排程比單篇品質更重要",
+      "description": "負責系上活動的對外宣傳",
+      "tags": [
+        "社群經營",
+        "活動企劃"
+      ]
+    }
+  ],
+  "turns": [
+    {
+      "question": "請先簡單自我介紹",
+      "answer": "我是資管系大三的學生 過去在系學會做行銷 後來去電商公司實習做資料分析"
+    },
+    {
+      "question": "講一個你解決問題的經驗",
+      "answer": "我們辦過一場聯名活動 前期要決定推廣規模 我沒先測試就直接全推"
+    }
+  ],
+  "groupSays": [],
+  "speechStats": null
+}

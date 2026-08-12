@@ -1,0 +1,132 @@
+{
+  "mode": "single",
+  "faceDimensions": [
+    {
+      "letter": "內",
+      "name": "內容",
+      "score": 71,
+      "verdict": "有講到重點,但缺乏具體數字與亮點。",
+      "points": [
+        "自我介紹加 1-2 個量化成就",
+        "回答時多舉一個具體例子,少用空泛形容詞"
+      ],
+      "prosody": null
+    },
+    {
+      "letter": "構",
+      "name": "結構",
+      "score": 82,
+      "verdict": "邏輯清楚,但講失敗經歷時 STAR 的 Result 段常缺。",
+      "points": [
+        "講經歷一律用 STAR",
+        "結尾補一句我從中學到什麼"
+      ],
+      "prosody": null
+    },
+    {
+      "letter": "達",
+      "name": "表達",
+      "score": 70,
+      "verdict": "用詞直接,但口語填充詞偏多。",
+      "points": [
+        "重點句講完停半秒",
+        "減少嗯與那個的使用"
+      ],
+      "prosody": [
+        {
+          "label": "填充詞",
+          "value": "「嗯 / 那個」3 次"
+        }
+      ]
+    }
+  ],
+  "subScores": [
+    {
+      "name": "內容深度",
+      "score": 78
+    },
+    {
+      "name": "邏輯清晰度",
+      "score": 82
+    },
+    {
+      "name": "表達流暢度",
+      "score": 71
+    },
+    {
+      "name": "互動能力",
+      "score": 68
+    },
+    {
+      "name": "應變能力",
+      "score": 64
+    },
+    {
+      "name": "自信程度",
+      "score": 80
+    }
+  ],
+  "questionFeedbacks": [
+    {
+      "question": "請先簡單自我介紹",
+      "answer": "我是資管系大三的學生 過去在系學會做行銷 後來去電商公司實習做資料分析",
+      "comment": "有交代背景,但兩段經歷都停在做過什麼,沒有帶出成果。",
+      "better": "我是資管系大三,系學會行銷把 IG 從 0 經營到 1200 追蹤,實習時用 SQL 把週報產出從 4 小時縮到 1 小時。"
+    },
+    {
+      "question": "講一個你解決問題的經驗",
+      "answer": "我們辦過一場聯名活動 前期要決定推廣規模 我沒先測試就直接全推",
+      "comment": "情境與行動清楚,但沒有講結果,也沒有講學到什麼。",
+      "better": "補上一句:那次全推之後成效不如預期,後來我改成先小規模測試再放大。"
+    }
+  ],
+  "starParts": [
+    {
+      "key": "S",
+      "name": "情境 Situation",
+      "present": true,
+      "fromAnswer": "我們辦過一場聯名活動",
+      "hint": "有交代背景"
+    },
+    {
+      "key": "T",
+      "name": "任務 Task",
+      "present": true,
+      "fromAnswer": "前期要決定推廣規模",
+      "hint": "任務算清楚"
+    },
+    {
+      "key": "A",
+      "name": "行動 Action",
+      "present": true,
+      "fromAnswer": "我沒先測試就直接全推",
+      "hint": "行動講了,但偏簡略"
+    },
+    {
+      "key": "R",
+      "name": "結果 Result",
+      "present": false,
+      "fromAnswer": "",
+      "hint": "缺這段:結果數字 + 你學到什麼"
+    }
+  ],
+  "videoDims": [],
+  "collabDims": [],
+  "improvements": [
+    "自我介紹加 1-2 個量化成就",
+    "講經歷一律補上 Result 段",
+    "減少嗯與那個的使用"
+  ],
+  "missingPoints": [
+    {
+      "point": "用 SQL 把週報產出時間從 4 小時縮短為 1 小時",
+      "why": "這份 JD 明列需具備 SQL 撰寫能力與自動化報表流程,這是最直接的對應證據,整場沒有提到。"
+    },
+    {
+      "point": "協調行銷與工程兩邊的需求排程",
+      "why": "JD 要求與產品、工程團隊密切協作,這段可以證明你有跨部門經驗。"
+    }
+  ],
+  "resumeGrounded": true,
+  "notices": []
+}

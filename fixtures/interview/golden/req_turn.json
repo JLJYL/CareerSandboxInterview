@@ -1,0 +1,11 @@
+{
+  "answer": "我在實習的時候用 SQL 做了一些報表 幫行銷部門看銷售狀況",
+  "followUpIdx": 0,
+  "question": "請先簡單自我介紹",
+  "fallback": [
+    "這個判斷你是看哪些數據下的?"
+  ],
+  "askedTopics": [
+    "自我介紹"
+  ]
+}

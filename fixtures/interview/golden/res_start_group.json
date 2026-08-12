@@ -1,0 +1,44 @@
+{
+  "sessionId": "itv_2026081203MW",
+  "mode": "group",
+  "openingQuestion": "今天的討論題目是:公司要推新的會員制度,你們認為第一步該做什麼?",
+  "openingSpeaker": "主考官",
+  "openingTopic": "商業判斷",
+  "personas": [
+    {
+      "id": "moderator",
+      "displayName": "主考官",
+      "role": "moderator",
+      "blurb": "主持討論,不評論。"
+    },
+    {
+      "id": "peer_logic",
+      "displayName": "AI-邏輯",
+      "role": "peer",
+      "blurb": "質疑數據與母數。"
+    },
+    {
+      "id": "peer_assertive",
+      "displayName": "AI-強勢",
+      "role": "peer",
+      "blurb": "搶快,主張先做再修。"
+    },
+    {
+      "id": "peer_friendly",
+      "displayName": "AI-親切",
+      "role": "peer",
+      "blurb": "補位,傾向找共識。"
+    }
+  ],
+  "interruptLines": [
+    "我先講一下我的想法,我覺得應該先鎖定高價值客群。",
+    "打斷一下,我們時間不多,我直接給結論。",
+    "我補一句,這件事的順序我覺得反了。"
+  ],
+  "interruptCap": 3,
+  "fallbackProbes": [
+    "如果資源只夠做一件事,你會先砍掉哪個?",
+    "你剛剛提到的假設,有什麼資料可以支撐?"
+  ],
+  "notices": []
+}

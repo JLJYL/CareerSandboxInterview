@@ -1,0 +1,9 @@
+{
+  "speaker": "技術主管",
+  "nextQuestion": "工具是手段。講一次你用數據推翻原本決定的經驗。",
+  "reaction": "(技術主管點了點頭)",
+  "isFollowUp": true,
+  "shouldAdvance": false,
+  "topic": "資料分析",
+  "notices": []
+}

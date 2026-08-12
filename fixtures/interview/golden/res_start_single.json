@@ -1,0 +1,23 @@
+{
+  "sessionId": "itv_2026081201HZ",
+  "mode": "single",
+  "openingQuestion": "先請你用一分鐘自我介紹,重點放在跟資料分析相關的經驗。",
+  "openingSpeaker": "",
+  "openingTopic": "自我介紹",
+  "personas": [
+    {
+      "id": "interviewer_main",
+      "displayName": "面試官",
+      "role": "interviewer",
+      "blurb": "電商公司資料團隊,問題偏行為面。"
+    }
+  ],
+  "interruptLines": [],
+  "interruptCap": 0,
+  "fallbackProbes": [
+    "這個判斷你是看哪些數據下的?",
+    "如果時間只剩一半,你會先砍掉哪一段?",
+    "這件事你學到什麼,下次會怎麼做?"
+  ],
+  "notices": []
+}

@@ -1,0 +1,9 @@
+{
+  "speaker": "AI-邏輯",
+  "nextQuestion": "等等,這個數字的母數是多少?沒有對照組我不敢下結論。",
+  "reaction": "",
+  "isFollowUp": false,
+  "shouldAdvance": true,
+  "topic": "數據驗證",
+  "notices": []
+}
