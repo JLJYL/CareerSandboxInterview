@@ -16,12 +16,15 @@ import pytest
 from pydantic import ValidationError
 
 from app.contracts.interview_protocols import (
+    WHY_MUST_BE_JD_SIDE,
     CollabScorer,
     FakeCollabScorer,
     FakeGapComputer,
     FakeTranscriptAnalyzer,
     GapComputer,
+    JDInput,
     TranscriptAnalyzer,
+    Utterance,
 )
 from app.schemas.interview import (
     COLLAB_DIM_NAMES,
@@ -30,12 +33,15 @@ from app.schemas.interview import (
     SUB_SCORE_NAMES,
     CollabDimDTO,
     FaceDimensionDTO,
+    ReportRequest,
     ReportResponse,
     StartInterviewResponse,
     StarPartDTO,
     SubScoreDTO,
+    TurnDTO,
     TurnRequest,
     TurnResponse,
+    UtteranceDTO,
 )
 from app.schemas.interview_repair import (
     repair_report,
@@ -229,20 +235,101 @@ def test_fakes_satisfy_protocols() -> None:
 
 def test_gap_computer_returns_empty_without_resume() -> None:
     """履歷為空是正常情況,必須回空清單而不是拋例外。"""
-    assert FakeGapComputer().compute([], "任何 JD", "任何逐字稿") == []
+    assert FakeGapComputer().compute([], JDInput(description="任何 JD"), "任何逐字稿") == []
 
 
 def test_collab_scorer_returns_four_in_order() -> None:
-    rows = FakeCollabScorer().score(["我覺得先做市場調查", "同意前面那位"])
+    rows = FakeCollabScorer().score(
+        [
+            Utterance("user", "我覺得先做市場調查", 0, 3000),
+            Utterance("AI-邏輯", "母數是多少", 3000, 5000),
+            Utterance("user", "同意前面那位", 5500, 8000),
+        ]
+    )
     assert [r.name for r in rows] == list(COLLAB_DIM_NAMES)
 
 
 def test_gap_candidate_carries_evidence() -> None:
     """沒有 evidence,寫 why 時就只能靠 LLM 自由發揮,會捏造經歷。"""
-    for c in FakeGapComputer().compute([{"id": "exp_001"}], "JD", "逐字稿"):
+    for c in FakeGapComputer().compute([{"id": "exp_001"}], JDInput(), "逐字稿"):
         assert c.resume_evidence
         assert c.jd_evidence
-        assert c.resume_experience_id
+        assert c.resume_experience_ids
+
+
+# ---------------------------------------------------------------------------
+# 九、D1 異議定案後新增的檢查
+# ---------------------------------------------------------------------------
+
+
+def test_jd_input_keeps_required_skills_order() -> None:
+    """104 的 requiredSkills 排前面的較關鍵,A 的位置衰減依賴這個順序。"""
+    skills = ["SQL", "Python", "報表自動化"]
+    assert JDInput(required_skills=skills).required_skills == skills
+
+
+def test_jd_input_records_source() -> None:
+    """校準分佈(catalog)與正式分佈(extracted)要能分開統計。"""
+    assert JDInput().source == "extracted"
+    assert JDInput(source="catalog").source == "catalog"
+
+
+def test_mentioned_skills_returns_ids_not_display() -> None:
+    """join 鍵必須是帶命名空間的 skill_id,不是顯示字串。"""
+    for sid in FakeTranscriptAnalyzer().mentioned_skills("我用 SQL 跟 Python"):
+        assert sid.startswith(("sk:", "skm:")), f"{sid} 不是 skill_id"
+
+
+def test_gap_candidate_skill_id_joins_with_mentioned() -> None:
+    """兩邊的鍵必須同一個命名空間,否則差集永遠算不對。"""
+    for c in FakeGapComputer().compute([{"id": "e1"}], JDInput(), "x"):
+        assert c.skill_id.startswith(("sk:", "skm:"))
+        assert c.display
+
+
+def test_gap_candidate_kind_is_hard_or_soft() -> None:
+    """硬技能會被指名,軟技能只會被展演,兩者的漏講可信度不同。"""
+    kinds = {c.kind for c in FakeGapComputer().compute([{"id": "e1"}], JDInput(), "x")}
+    assert kinds <= {"hard", "soft"}
+    assert "soft" in kinds, "Fake 應涵蓋軟技能,否則 B 測不到過濾路徑"
+
+
+def test_text_stats_declares_segmentation() -> None:
+    """估算值要標示出來,否則 prompt 會把它當精確測量講。"""
+    a = FakeTranscriptAnalyzer()
+    assert a.text_stats("我是資管系。過去做行銷。").segmentation == "punctuation"
+    assert a.text_stats("我是資管系 過去做行銷").segmentation in {
+        "discourse_marker",
+        "unavailable",
+    }
+
+
+def test_utterance_carries_speaker_and_order() -> None:
+    """協作四項有三項需要發言者身分與時序。"""
+    u = Utterance("AI-邏輯", "母數是多少", 3000, 5000)
+    assert u.speaker_id == "AI-邏輯"
+    assert u.end_ms > u.start_ms
+
+
+def test_group_says_carries_all_speakers() -> None:
+    """群面請求必須包含 AI 同儕的發言,否則傾聽與回應算不出來。"""
+    req = ReportRequest.model_validate(_load("req_report_group"))
+    speakers = {u.speaker for u in req.group_says}
+    assert "user" in speakers
+    assert len(speakers) > 1, "只有使用者的發言,前一位發言者的內容不在場"
+
+
+def test_utterance_dto_defaults_are_safe() -> None:
+    """沒有計時資料時給 0,陣列順序仍可用。"""
+    u = UtteranceDTO(text="x")
+    assert u.speaker == "user"
+    assert u.start_ms == 0
+
+
+def test_why_rule_forbids_resume_narration() -> None:
+    """why 是 JD 側論證,不可敘述使用者在哪一段經歷做了什麼。"""
+    assert "jd_evidence" in WHY_MUST_BE_JD_SIDE
+    assert "禁止" in WHY_MUST_BE_JD_SIDE
 
 
 # ---------------------------------------------------------------------------
@@ -271,3 +358,49 @@ def test_start_response_seeds_first_topic() -> None:
 def test_asked_topics_defaults_to_empty() -> None:
     """欄位可省略。session 落地後由後端自行查詢,前端不必再帶。"""
     assert TurnRequest(answer="x").asked_topics == []
+
+
+def test_text_stats_declares_filler_reliability() -> None:
+    """引擎若做 disfluency removal,filler_count 反映的是後處理不是使用者。
+
+    不標示的話,流暢度會錨在一個恆為 0 的數字上,每個人拿到一樣的分數,
+    而且因為有硬數字撐著而看起來很客觀。
+    """
+    a = FakeTranscriptAnalyzer()
+    assert a.text_stats("嗯 那個 我是資管系").filler_reliability == "measured"
+    assert a.text_stats("我是資管系的學生").filler_reliability == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# 十、輸入方式:語音與打字的測量有效性不同
+# ---------------------------------------------------------------------------
+
+
+def test_turn_request_declares_input_mode() -> None:
+    """後端只收到文字,分不出是講的還是打的,必須由前端宣告。"""
+    assert TurnRequest(answer="x").input_mode == "unknown"
+    assert TurnRequest(answer="x", input_mode="voice").input_mode == "voice"
+
+
+def test_turn_dto_carries_input_mode() -> None:
+    """報告端要逐輪知道,因為一場面試可以混用兩種輸入。"""
+    assert TurnDTO(question="q", answer="a", input_mode="typed").input_mode == "typed"
+
+
+def test_utterance_carries_input_mode() -> None:
+    """群面同時有語音與文字輸入,搶話偵測需要打字停頓。"""
+    assert UtteranceDTO(text="x", input_mode="typed").input_mode == "typed"
+
+
+def test_input_mode_defaults_to_unknown_not_voice() -> None:
+    """預設不可以是 voice。前端沒宣告時當作打字保守處理,
+    寧可少講一個維度,也不要用量錯東西的分數指導使用者。"""
+    assert TurnDTO().input_mode == "unknown"
+    assert UtteranceDTO().input_mode == "unknown"
+
+
+def test_input_mode_rule_covers_the_four_affected_measures() -> None:
+    from app.schemas.interview import INPUT_MODE_RULE
+
+    for measure in ("filler_count", "segmentation", "表達流暢度", "prosody"):
+        assert measure in INPUT_MODE_RULE

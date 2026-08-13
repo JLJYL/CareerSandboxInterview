@@ -110,6 +110,11 @@ class TurnDTO(_Base):
 
     question: str = ""
     answer: str = ""
+    input_mode: str = "unknown"
+    """這段回答怎麼產生的:"voice" / "typed" / "unknown"。
+
+    四個測量的有效性取決於這一欄,見 InputMode 說明。
+    """
 
 
 class ExperienceDTO(_Base):
@@ -148,6 +153,66 @@ class InterviewContext(_Base):
     custom_seniority: str = "新鮮人"  # 新鮮人 / 1-3年 / 資深
     custom_industry: str = ""
     custom_jd: str = ""
+
+
+INPUT_MODE_RULE = """input_mode 的用途與規則。
+
+值域:"voice"(裝置端 SpeechRecognizer)/ "typed"(鍵盤)/ "unknown"。
+
+【為什麼需要】
+後端永遠只收到文字,分不出這段是講出來的還是打字打的。但有四個測量的
+有效性完全取決於這件事:
+
+  filler_count  語音時反映口語習慣;打字時恆為 0,反映的是「打字不會打嗯」
+  segmentation  語音時是 unavailable(中文 STT 無標點);打字時是 punctuation,
+                但那是鍵盤打的不是講的
+  表達流暢度     打字時量到的是打字習慣
+  prosody       打字時完全無意義
+
+最嚴重的後果是評分偏誤:打字的答案沒有填充詞、標點乾淨,會拿到「高」流暢度;
+認真用講的反而拿低分。在面試模擬器裡這是在獎勵錯誤的行為。
+
+【B 側規則】
+input_mode == "typed" 時:
+  - 表達流暢度不得以填充詞或標點為依據,改用內容面訊號
+  - prosody 一律不產出
+  - verdict 措辭不得宣稱評估了口語表現
+  - TextStats.filler_reliability 視為 "not_applicable",不採用 A 給的值
+
+input_mode == "unknown" 時比照 "typed" 保守處理。寧可少講一個維度,
+也不要用一個量錯東西的分數去指導使用者。
+
+【前端現況】
+資訊已經存在但被丟棄。群面兩個呼叫點傳的參數相同:
+
+    line 129  rememberInPageVoice(...) { t -> submitGroup(t, t) }   語音
+    line 210  submitGroup(said, said)                               打字
+
+只需在呼叫點各傳一個常數即可。一對一與 panel 目前沒有文字輸入,
+恆為 "voice";若之後補上文字備援(裝置不支援辨識時的降級路徑),
+這一欄就會同時有兩種值。
+"""
+
+
+class UtteranceDTO(_Base):
+    """群面的一則發言。鏡射前端需新增的 groupSays 結構。
+
+    【前端需配合修改】
+    目前 InterviewSession.groupSays 是 List<String>,且
+    InterviewLiveGroupScreen.submitGroup 只記錄使用者自己的發言,
+    AI 同儕的話進了畫面的 messages 但從未寫入 session。
+
+    協作四項有三項需要發言者身分與時序才算得出來,尤其「傾聽與回應」
+    要比對前一位發言者說了什麼——只記使用者的話,那份資訊根本不在場。
+
+    需請前端改為記錄所有發言者。messages 已帶 speaker 欄位,改動不大。
+    """
+
+    speaker: str = "user"  # "user" 或 persona 顯示名稱
+    text: str = ""
+    input_mode: str = "unknown"  # "voice" / "typed" / "unknown",僅 user 的發言有意義
+    start_ms: int = 0  # 毫秒,無計時資料時給 0,至少保住順序
+    end_ms: int = 0  # 毫秒,有值才算得出打斷
 
 
 class SpeechStats(_Base):
@@ -227,6 +292,8 @@ class TurnRequest(_Base):
     follow_up_idx: int = 0
     question: str = ""  # 本輪的題目
     fallback: list[str] = Field(default_factory=list)  # 對齊 A1 簽章
+    input_mode: str = "unknown"
+    """"voice"(裝置端 STT)/ "typed"(鍵盤)/ "unknown"。見 INPUT_MODE_RULE。"""
     asked_topics: list[str] = Field(default_factory=list)
     """本場已涵蓋的領域,前端累積 TurnResponse.topic 後回傳。
 
@@ -276,7 +343,11 @@ class ReportRequest(_Base):
     context: InterviewContext = Field(default_factory=InterviewContext)
     experiences: list[ExperienceDTO] = Field(default_factory=list)
     turns: list[TurnDTO] = Field(default_factory=list)
-    group_says: list[str] = Field(default_factory=list)  # 僅 group 使用
+    group_says: list[UtteranceDTO] = Field(default_factory=list)
+    """群面逐則發言,含發言者與時序。僅 group 模式使用。
+
+    元素型別由 str 改為 UtteranceDTO 的理由見 UtteranceDTO 說明。
+    前端 InterviewSession.groupSays 需同步改型別並記錄所有發言者。"""
     speech_stats: SpeechStats | None = None  # 前端補齊後才有
 
 

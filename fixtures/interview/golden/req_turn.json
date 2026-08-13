@@ -5,6 +5,7 @@
   "fallback": [
     "這個判斷你是看哪些數據下的?"
   ],
+  "inputMode": "unknown",
   "askedTopics": [
     "自我介紹"
   ]
