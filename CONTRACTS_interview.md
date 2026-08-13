@@ -174,6 +174,65 @@ InterviewReportScreen.kt:194      MockInterviewReportProvider.faceDimensions()
 
 第 1 項若不一致,把 `_Base` 的 `alias_generator` 拔掉即可,只需改一個地方。
 
+### 待前端配合(D1 異議定案後新增)
+
+`ReportRequest.groupSays` 的元素型別由 `String` 改為物件:
+
+```kotlin
+// 現況:InterviewSession.groupSays 是 List<String>,且只記使用者自己的發言
+fun submitGroup(visible: String, analyzed: String) {
+    InterviewSession.recordGroupSay(visible)   // AI 同儕的話只進 messages
+    ...
+}
+
+// 需改為記錄所有發言者
+data class Utterance(val speaker: String, val text: String,
+                     val startMs: Long = 0, val endMs: Long = 0)
+```
+
+理由:協作四項有三項需要發言者身分與時序。「傾聽與回應」要比對前一位
+發言者說了什麼,只記使用者的話,那份資訊根本不在場。
+`messages` 已帶 speaker 欄位,改動不大。W3 D3 群面接線前必須完成。
+
+### 輸入方式必須宣告(inputMode)
+
+後端只收到文字,分不出這段是講出來的還是打字打的。但有四個測量的有效性
+完全取決於這件事:`fillerCount`、`segmentation`、表達流暢度、`prosody`。
+
+最嚴重的後果是評分偏誤:打字的答案沒有填充詞、標點乾淨,會拿到「高」流暢度;
+認真用講的反而拿低分。在面試模擬器裡這是在獎勵錯誤的行為。
+
+已在三處加入 `inputMode`("voice" / "typed" / "unknown"):
+`TurnRequest`、`TurnDTO`、`UtteranceDTO`。預設是 `"unknown"`,不是 `"voice"`——
+前端未宣告時比照打字保守處理。
+
+**前端配合**:資訊已經存在但被丟棄,群面兩個呼叫點傳的參數相同。
+
+```kotlin
+// InterviewLiveGroupScreen.kt
+line 129  rememberInPageVoice(...) { t -> submitGroup(t, t) }   // 語音
+line 210  submitGroup(said, said)                              // 打字
+```
+
+只需在呼叫點各傳一個常數。一對一與 panel 目前沒有文字輸入,恆為 "voice";
+補上文字備援之後就會同時有兩種值。
+
+### STT 引擎(已定案,無選擇題)
+
+前端使用 Android 裝置端 `SpeechRecognizer`(`ui/components/InPageVoice.kt`,
+`languageTag = "zh-TW"`),音訊不出手機,後端永遠只收到文字。
+
+全 repo 無任何 whisper、雲端 STT、音訊上傳的跡象。不需要也不可能在
+Python 端安裝對應引擎——那是 Android 系統 API。
+
+**黃金測試集的逐字稿必須是構造的,不可用錄音產生。** 測試集要求
+`expected_missing` 精確,真人錄音內容不受控,答案卡不成立。
+真實樣本的角色是格式規格,不是資料來源。
+
+需從真實樣本讀出的特性:標點(預期無)、數字呈現方式、英文專有名詞轉寫
+(SQL / Sql / 音譯)、填充詞是否被吃掉、中英夾雜的空格處理。
+第三項對表面掃描命中率影響最大。
+
 ### 已知缺口:認證
 
 本服務與 CareerSandboxModule 獨立部署。前端 `ApiClient` 的攔截器會在每個請求

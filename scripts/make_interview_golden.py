@@ -37,6 +37,7 @@ from app.schemas.interview import (  # noqa: E402
     CollabDimDTO,
     TurnDTO,
     TurnRequest,
+    UtteranceDTO,
     TurnResponse,
     SUB_SCORE_NAMES,
 )
@@ -355,6 +356,22 @@ def build_report() -> None:
             improvements=["開場就先表態", "明確回應前一位發言者"],
             missing_points=[],
             resume_grounded=True,
+        ),
+    )
+
+    _dump(
+        "req_report_group",
+        ReportRequest(
+            mode="group",
+            context=CONTEXT,
+            experiences=EXPERIENCES,
+            turns=TURNS,
+            group_says=[
+                UtteranceDTO(speaker="主考官", text="今天的題目是公司要推新的會員制度", start_ms=0, end_ms=4200),
+                UtteranceDTO(speaker="user", text="我覺得第一步應該先做客群分析", start_ms=5000, end_ms=9100),
+                UtteranceDTO(speaker="AI-邏輯", text="可是這沒有數據支撐吧", start_ms=9100, end_ms=12000),
+                UtteranceDTO(speaker="user", text="我同意前面那位的說法 可以先做小規模驗證", start_ms=12500, end_ms=18000),
+            ],
         ),
     )
 

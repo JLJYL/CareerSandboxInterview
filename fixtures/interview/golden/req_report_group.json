@@ -1,5 +1,5 @@
 {
-  "mode": "single",
+  "mode": "group",
   "context": {
     "round": "初試",
     "language": "中文",
@@ -57,6 +57,35 @@
       "inputMode": "unknown"
     }
   ],
-  "groupSays": [],
+  "groupSays": [
+    {
+      "speaker": "主考官",
+      "text": "今天的題目是公司要推新的會員制度",
+      "inputMode": "unknown",
+      "startMs": 0,
+      "endMs": 4200
+    },
+    {
+      "speaker": "user",
+      "text": "我覺得第一步應該先做客群分析",
+      "inputMode": "unknown",
+      "startMs": 5000,
+      "endMs": 9100
+    },
+    {
+      "speaker": "AI-邏輯",
+      "text": "可是這沒有數據支撐吧",
+      "inputMode": "unknown",
+      "startMs": 9100,
+      "endMs": 12000
+    },
+    {
+      "speaker": "user",
+      "text": "我同意前面那位的說法 可以先做小規模驗證",
+      "inputMode": "unknown",
+      "startMs": 12500,
+      "endMs": 18000
+    }
+  ],
   "speechStats": null
 }
