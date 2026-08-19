@@ -1,0 +1,214 @@
+{
+ "case_id": "ivw-004",
+ "meta": {
+  "persona_id": "resume-013",
+  "job_source_id": "4cd0f",
+  "job_url": "https://www.104.com.tw/job/4cd0f",
+  "recording_id": "T2",
+  "recording_brief": "應徵前端工程師，請盡量把履歷上會的東西都講到；英文縮寫請用唸字母的方式講（H T M L、A J A X）",
+  "strata": [
+   "hard-skill-dominant",
+   "near-perfect-mention",
+   "stt-letter-split"
+  ],
+  "rationale": "受試者被要求講滿＋唸字母。gap 該接近空；若不空，多半是 normalize_for_scan 的字母黏合沒生效。",
+  "transcript_source": "stt",
+  "stt_engine": "Android SpeechRecognizer (zh-TW) / Galaxy S24 / Android 16 / Google App 17.44.15.ve.arm64",
+  "engine_filler_policy": "partial",
+  "engine_notes": [
+   "非詞彙填充音(嗯/呃)全數移除;詞彙型(那個/就是/然後)保留",
+   "停頓約 1–2 秒即自動送出,長回答必然被切成多段",
+   "已知語意反轉:「蠻有興趣」→「沒有興趣」,兩次獨立測試皆出現"
+  ],
+  "labels_verified": false,
+  "said_labeled": false,
+  "labeled_by": [
+   "A-draft"
+  ],
+  "double_labeled": false,
+  "speaker": "怡君（單一講者，全部六段）"
+ },
+ "resume": [
+  {
+   "id": "e1",
+   "title": "畢業專題 - 健康紀錄 App",
+   "category": "學業",
+   "timeRange": "2024.02 - 2024.06",
+   "description": "以 Kotlin 開發,完成期末公開展示",
+   "tags": [
+    "JavaScript",
+    "軟體程式設計",
+    "ASP.NET",
+    "C#",
+    "Git",
+    "Angular",
+    "AJAX",
+    "HTML/CSS"
+   ]
+  }
+ ],
+ "jd": {
+  "_job_id": "4cd0f",
+  "_source": "104",
+  "_url": "https://www.104.com.tw/job/4cd0f",
+  "title": "前端網頁工程師",
+  "company": "億力資訊股份有限公司",
+  "requiredSkills": [
+   "HTML",
+   "JavaScript",
+   "jQuery",
+   "CSS",
+   "ReactJS",
+   "VueJS",
+   "Angular"
+  ],
+  "description": "\n\n\n1. 熟悉主流網頁技術\n(  nodejs / vue / React / Angular / Bootstrap / HTML / CSS / JavaScript / JQuery / UI  ) \n\n2. 良好的溝通與傾聽技能。\n\n3. 可獨立或與團隊成員搭配合作。\n\n4. 喜歡接觸各類專案、金融科技、雲端服務產業\n\n\n\n\n"
+ },
+ "transcript_segments": [
+  "考官好我是黑人那我目前是台大資工碩二的學生然後是新北人腦袋碩士專題做了一個健康記錄的APP那這個APP呢在期末的時候有公開展示過",
+  "這個APP是用Collin開發的在前端的部分呢我是用JavaScript那時候還用了Andrew了這個框架而在版本控制的部分呢我們是用Gate在後端的部分呢我們有用到ASP點net搭配C Sharp那時候有做過ajex費同步處理在頁面的部分呢",
+  "我們是用HTML跟CsS做的哪順大議題我的成多益成績大概在715分左右那我面試這個前端工程師的工作呢是希望可以找到一個能快速成長的環境謝謝"
+ ],
+ "labels": {
+  "skills": {
+   "JavaScript": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "軟體程式設計": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "展演：描述前後端開發分工與實作"
+   },
+   "ASP.NET": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「有用到ASP點net」——「點」是 . 的口語形"
+   },
+   "C#": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「搭配C Sharp」——C Sharp 是 C# 的口語形，不是辨識錯誤"
+   },
+   "Git": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「版本控制的部分呢我們是用Gate」"
+   },
+   "Angular": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「那時候還用了Andrew了這個框架」——有獨立的詞元佔著框架名的位置，Andrew≈Angular 首音節相同，且 Angular 本來就是框架。比 T1 明確，因為 T1 那個位置是空的"
+   },
+   "AJAX": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「有做過ajex費同步處理」——ajex≈ajax，且「非同步」確認了語境"
+   },
+   "HTML/CSS": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "視覺設計": {
+    "has": 1,
+    "wants": 0,
+    "said": 0,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "MS SQL": {
+    "has": 1,
+    "wants": 0,
+    "said": 0,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "HTML": {
+    "has": 1,
+    "wants": 2,
+    "said": 2,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "jQuery": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "CSS": {
+    "has": 0,
+    "wants": 2,
+    "said": 2,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "ReactJS": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "VueJS": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   }
+  },
+  "alias_decisions": [
+   {
+    "resume_surface": "HTML/CSS",
+    "jd_surface": "HTML",
+    "heuristic": "履歷為 JD 字串的擴充形",
+    "decision": true,
+    "note": "HTML/CSS 是把兩個技能寫在一格，涵蓋 HTML"
+   },
+   {
+    "resume_surface": "HTML/CSS",
+    "jd_surface": "CSS",
+    "heuristic": "字串包含",
+    "decision": true,
+    "note": "同上，涵蓋 CSS"
+   }
+  ],
+  "gap_ranking": [],
+  "free_add_done": true
+ }
+}

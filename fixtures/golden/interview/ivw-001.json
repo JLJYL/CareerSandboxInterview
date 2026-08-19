@@ -1,0 +1,214 @@
+{
+ "case_id": "ivw-001",
+ "meta": {
+  "persona_id": "resume-013",
+  "job_source_id": "754pk",
+  "job_url": "https://www.104.com.tw/job/754pk",
+  "recording_id": "T1",
+  "recording_brief": "應徵前端工程師，正常發揮",
+  "strata": [
+   "hard-skill-dominant"
+  ],
+  "rationale": "基準線。全對照池最大交集（6 項），兩側都是專有名詞。這格若不漂亮，是實作壞了不是題目難。",
+  "transcript_source": "stt",
+  "stt_engine": "Android SpeechRecognizer (zh-TW) / Galaxy S24 / Android 16 / Google App 17.44.15.ve.arm64",
+  "engine_filler_policy": "partial",
+  "engine_notes": [
+   "非詞彙填充音(嗯/呃)全數移除;詞彙型(那個/就是/然後)保留",
+   "停頓約 1–2 秒即自動送出,長回答必然被切成多段",
+   "已知語意反轉:「蠻有興趣」→「沒有興趣」,兩次獨立測試皆出現"
+  ],
+  "labels_verified": false,
+  "said_labeled": false,
+  "labeled_by": [
+   "A-draft"
+  ],
+  "double_labeled": false,
+  "speaker": "怡君（單一講者，全部六段）"
+ },
+ "resume": [
+  {
+   "id": "e1",
+   "title": "畢業專題 - 健康紀錄 App",
+   "category": "學業",
+   "timeRange": "2024.02 - 2024.06",
+   "description": "以 Kotlin 開發,完成期末公開展示",
+   "tags": [
+    "JavaScript",
+    "軟體程式設計",
+    "ASP.NET",
+    "C#",
+    "Git",
+    "Angular",
+    "AJAX",
+    "HTML/CSS"
+   ]
+  }
+ ],
+ "jd": {
+  "_job_id": "754pk",
+  "_source": "104",
+  "_url": "https://www.104.com.tw/job/754pk",
+  "title": "軟體工程師/高級工程師 - 資訊中心 Software Engineer / Senior Engineer – Information Center",
+  "company": "華泰電子股份有限公司",
+  "requiredSkills": [
+   "軟體程式設計",
+   "MES工廠執行系統規劃管理",
+   "設計導入製造執行系統（MES）",
+   "Git",
+   "ASP.NET",
+   "C#",
+   "MS SQL",
+   "HTML",
+   "JavaScript",
+   "IIS",
+   "MES"
+  ],
+  "description": "❝ 跨領域/非相關科系(具相關經驗)➤ 等你來挑戰 ❞\n \n｜台灣半導體封測 前 ①⓪ 大廠｜\n⑴ 華泰 好 薪情 ☞ 年薪上看 16 個月\n⑵ 華泰 友 職涯 ☞ 專屬輔導員/HR服務窗口\n⑶ 華泰 善 生活 ☞ 福利平台10,000+ 家廠商任你逛\n(視營運狀況調整，固定或變動薪資因個人資歷或績效而異)\n\n\n【工作內容】\n1. MES系統與周邊系統程式維護、C#程式開發與問題排除\n2. 生產端作業流程討論、協調資源、需求訪談/分析，針對規格撰寫\n3. 系統效能分析與改善\n4. 跨系統資料交換介面、ETL開發\n5. 專案執行追蹤與管理\n\n※績效獎金及各項津貼另計※"
+ },
+ "transcript_segments": [
+  "考官好我覺得Alan那我現在就讀的是台大志工然後我是碩二的學生那我是新北人的那我目前做過這有成就感了一件事情是我的碩士專題做了一個健康紀錄的APP那個App",
+  "那這個健康紀錄的APP呢我們是用Collin開發的期末的時候呢有公開展示過前端的部分我是用加巴screen那時候我們也用了這個框架而版本控制的部分我們使用gats那頁面的部分是用HTML",
+  "頁面的部分呢我們是用HTML跟css做的那我在這個專案裡面負責的部分主要是前端的設計就是用HDMI跟CS做頁面的設計以及用Collin去開發說這些頁面跳轉的邏輯還有一些按鈕點擊的回饋等等好",
+  "那我覺得我很適合這份職位原因是因為我很我覺得我是一個很喜歡就是設計頁面然後讓這個頁面跟Apple變得更好會讓我有非常大成就感而且我很喜歡就是在第一版頁面設計出來之後然後根據使用者的回饋一直去改進改善然後讓我們的App",
+  "變得更好更完美"
+ ],
+ "labels": {
+  "skills": {
+   "JavaScript": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「前端的部分我是用加巴screen」——加巴≈java、screen≈script，位置與語境都對得上，是可辨識的走樣形"
+   },
+   "軟體程式設計": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "展演：「用Collin去開發這些頁面跳轉的邏輯還有按鈕點擊的回饋」是具體的程式開發行為描述"
+   },
+   "ASP.NET": {
+    "has": 2,
+    "wants": 2,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "要點卡要求不提，逐字稿無痕跡"
+   },
+   "C#": {
+    "has": 2,
+    "wants": 2,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "要點卡要求不提，逐字稿無痕跡"
+   },
+   "Git": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「版本控制的部分我們使用gats」——gats≈git，且前面就是「版本控制」"
+   },
+   "Angular": {
+    "has": 2,
+    "wants": 0,
+    "said": 1,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "★不計分。「我是用加巴screen那時候我們也用了這個框架」——「這個框架」是懸空指涉，暗示有個框架名被吃掉了，但也可能是指前面那個。判不出她講了沒有，硬標 2 或 0 都是編造"
+   },
+   "AJAX": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "要點卡要求不提，逐字稿無痕跡"
+   },
+   "HTML/CSS": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "視覺設計": {
+    "has": 1,
+    "wants": 0,
+    "said": 0,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "MS SQL": {
+    "has": 1,
+    "wants": 2,
+    "said": 0,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "HTML": {
+    "has": 1,
+    "wants": 2,
+    "said": 2,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "MES工廠執行系統規劃管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "設計導入製造執行系統（MES）": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "IIS": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "MES": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   }
+  },
+  "alias_decisions": [
+   {
+    "resume_surface": "HTML/CSS",
+    "jd_surface": "HTML",
+    "heuristic": "履歷為 JD 字串的擴充形",
+    "decision": true,
+    "note": "HTML/CSS 是把兩個技能寫在一格，涵蓋 HTML"
+   }
+  ],
+  "gap_ranking": [
+   "ASP.NET",
+   "C#"
+  ],
+  "free_add_done": true
+ }
+}

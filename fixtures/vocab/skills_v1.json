@@ -1,0 +1,2695 @@
+[
+ {
+  "skill_id": "sk:0b2600fadb",
+  "name_zh": "使用者體驗設計",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:0d61f8370c",
+  "name_zh": "C++",
+  "name_en": "C++",
+  "aliases": [
+   "C",
+   "C語言"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:11a492de9c",
+  "name_zh": "談判協商",
+  "name_en": "Negotiation",
+  "aliases": [
+   "談判協商"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.1.d"
+ },
+ {
+  "skill_id": "sk:174597ddd8",
+  "name_zh": "簡報表達",
+  "name_en": "Presentation",
+  "aliases": [
+   "簡報",
+   "簡報製作",
+   "口語簡報技巧",
+   "提案簡報",
+   "企畫及簡報能力"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:17f3e36292",
+  "name_zh": "技術設計",
+  "name_en": "Technology Design",
+  "aliases": [
+   "技術設計"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.3.b"
+ },
+ {
+  "skill_id": "sk:195af93fcc",
+  "name_zh": "需求分析",
+  "name_en": "",
+  "aliases": [
+   "需求分析"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:1cfaefa033",
+  "name_zh": "說服力",
+  "name_en": "Persuasion",
+  "aliases": [
+   "說服力"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.1.c"
+ },
+ {
+  "skill_id": "sk:20f068cdff",
+  "name_zh": "資料庫管理",
+  "name_en": "",
+  "aliases": [
+   "資料庫管理",
+   "資料庫管理概論"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:213998cf2c",
+  "name_zh": "品質管制分析",
+  "name_en": "Quality Control Analysis",
+  "aliases": [
+   "品質管制分析"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.3.m"
+ },
+ {
+  "skill_id": "sk:22a0f67def",
+  "name_zh": "軟體測試",
+  "name_en": "",
+  "aliases": [
+   "軟體測試",
+   "軟體測試概念"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:22d88c71f1",
+  "name_zh": "財務資源管理",
+  "name_en": "Management of Financial Resources",
+  "aliases": [
+   "財務資源管理"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.5.b"
+ },
+ {
+  "skill_id": "sk:2578b9afb0",
+  "name_zh": "系統評估",
+  "name_en": "Systems Evaluation",
+  "aliases": [
+   "系統評估"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.4.h"
+ },
+ {
+  "skill_id": "sk:2614da3164",
+  "name_zh": "組織能力",
+  "name_en": "",
+  "aliases": [
+   "組織能力"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:261e1784d6",
+  "name_zh": "團隊領導",
+  "name_en": "Leadership",
+  "aliases": [
+   "領導",
+   "領導能力",
+   "團隊激勵與領導技巧"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:275124bcd7",
+  "name_zh": "資料分析",
+  "name_en": "Data Analysis",
+  "aliases": [
+   "數據分析",
+   "數據分析技能",
+   "資料分析能力",
+   "數據分析相關知識",
+   "資料分析概論"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:2ae4405553",
+  "name_zh": "智慧財產權概論",
+  "name_en": "",
+  "aliases": [
+   "智慧財產權",
+   "智慧財產權概念",
+   "智慧財產權概論"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:2d58a8ddf0",
+  "name_zh": "協調合作",
+  "name_en": "Coordination",
+  "aliases": [
+   "協調合作"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.1.b"
+ },
+ {
+  "skill_id": "sk:3d51baf886",
+  "name_zh": "溝通協調",
+  "name_en": "Communication",
+  "aliases": [
+   "溝通",
+   "跨部門溝通",
+   "溝通協調能力"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:408612ac25",
+  "name_zh": "企業通訊與網路",
+  "name_en": "",
+  "aliases": [
+   "企業通訊與網路"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:4209c14379",
+  "name_zh": "機器學習",
+  "name_en": "Machine Learning",
+  "aliases": [
+   "AI",
+   "ML",
+   "人工智慧",
+   "深度學習",
+   "LLM"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:49a5ed638e",
+  "name_zh": "統計分析",
+  "name_en": "Statistics",
+  "aliases": [
+   "統計",
+   "統計檢定",
+   "統計學",
+   "統計分析概論"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:4c7b4f63f6",
+  "name_zh": "學習策略",
+  "name_en": "Learning Strategies",
+  "aliases": [
+   "學習策略"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.A.2.c"
+ },
+ {
+  "skill_id": "sk:4fb8c59492",
+  "name_zh": "五力分析",
+  "name_en": "",
+  "aliases": [
+   "五力分析"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:516c1d635e",
+  "name_zh": "口語表達",
+  "name_en": "Speaking",
+  "aliases": [
+   "口語表達"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.A.1.d"
+ },
+ {
+  "skill_id": "sk:526fa13f59",
+  "name_zh": "複雜問題解決",
+  "name_en": "Complex Problem Solving",
+  "aliases": [
+   "複雜問題解決"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.2.i"
+ },
+ {
+  "skill_id": "sk:5382070ca6",
+  "name_zh": "人力資源管理",
+  "name_en": "Management of Personnel Resources",
+  "aliases": [
+   "人力資源管理",
+   "人力資源管理概念",
+   "人力資源管理概論"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.5.d"
+ },
+ {
+  "skill_id": "sk:5384b25ce9",
+  "name_zh": "專案管理",
+  "name_en": "Project Management",
+  "aliases": [
+   "專案溝通/整合管理",
+   "專案時間/進度控管",
+   "專案管理能力",
+   "專案管理概念",
+   "專案管理概論",
+   "專案管理相關知識"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:579be4fb4e",
+  "name_zh": "閱讀理解",
+  "name_en": "Reading Comprehension",
+  "aliases": [
+   "閱讀理解"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.A.1.a"
+ },
+ {
+  "skill_id": "sk:579e3022db",
+  "name_zh": "系統分析",
+  "name_en": "Systems Analysis",
+  "aliases": [
+   "系統分析"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.4.g"
+ },
+ {
+  "skill_id": "sk:5b7a81bb83",
+  "name_zh": "主動學習",
+  "name_en": "Active Learning",
+  "aliases": [
+   "主動學習"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.A.2.b"
+ },
+ {
+  "skill_id": "sk:5c2ada9cd9",
+  "name_zh": "操作與控制",
+  "name_en": "Operation and Control",
+  "aliases": [
+   "操作與控制"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.3.h"
+ },
+ {
+  "skill_id": "sk:6cda5a55d9",
+  "name_zh": "社群媒體經營管理",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:6f60f1c44c",
+  "name_zh": "美學概念",
+  "name_en": "",
+  "aliases": [
+   "美學",
+   "美學概念",
+   "美學概論"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:6fa22a59eb",
+  "name_zh": "操作監控",
+  "name_en": "Operations Monitoring",
+  "aliases": [
+   "操作監控"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.3.g"
+ },
+ {
+  "skill_id": "sk:74e4e89692",
+  "name_zh": "書面表達",
+  "name_en": "Writing",
+  "aliases": [
+   "書面表達"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.A.1.c"
+ },
+ {
+  "skill_id": "sk:77467e4684",
+  "name_zh": "程式設計相關知識",
+  "name_en": "Programming",
+  "aliases": [
+   "程式設計",
+   "程式設計概念",
+   "程式設計概論",
+   "程式設計相關知識"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.3.e"
+ },
+ {
+  "skill_id": "sk:7816777082",
+  "name_zh": "教導指導",
+  "name_en": "Instructing",
+  "aliases": [
+   "教導指導"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.1.e"
+ },
+ {
+  "skill_id": "sk:7cbfa7a291",
+  "name_zh": "作業需求分析",
+  "name_en": "Operations Analysis",
+  "aliases": [
+   "作業需求分析"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.3.a"
+ },
+ {
+  "skill_id": "sk:8455aa0cba",
+  "name_zh": "設備選用",
+  "name_en": "Equipment Selection",
+  "aliases": [
+   "設備選用"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.3.c"
+ },
+ {
+  "skill_id": "sk:84f8139ff0",
+  "name_zh": "程式語言",
+  "name_en": "",
+  "aliases": [
+   "程式語言",
+   "程式語言概念"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:8ac4700eb1",
+  "name_zh": "持續學習",
+  "name_en": "",
+  "aliases": [
+   "持續學習"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:8fe60e1278",
+  "name_zh": "數學運用",
+  "name_en": "Mathematics",
+  "aliases": [
+   "數學運用"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.A.1.e"
+ },
+ {
+  "skill_id": "sk:923fb32990",
+  "name_zh": "物力資源管理",
+  "name_en": "Management of Material Resources",
+  "aliases": [
+   "物力資源管理"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.5.c"
+ },
+ {
+  "skill_id": "sk:93668ae3e9",
+  "name_zh": "資訊安全",
+  "name_en": "",
+  "aliases": [
+   "資訊安全",
+   "資訊安全概念",
+   "資訊安全概論",
+   "資訊安全相關知識"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:9a3e836144",
+  "name_zh": "維修",
+  "name_en": "Repairing",
+  "aliases": [
+   "維修"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.3.l"
+ },
+ {
+  "skill_id": "sk:9aa8415c41",
+  "name_zh": "資料結構",
+  "name_en": "",
+  "aliases": [
+   "資料結構",
+   "資料結構概論"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:9f4294778c",
+  "name_zh": "溝通能力",
+  "name_en": "",
+  "aliases": [
+   "溝通能力"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:aecb1cfd42",
+  "name_zh": "策略規劃",
+  "name_en": "Strategic Planning",
+  "aliases": [
+   "策略",
+   "商業策略",
+   "策略思維",
+   "企業策略規劃概念"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:aff4a67fa5",
+  "name_zh": "資訊管理",
+  "name_en": "",
+  "aliases": [
+   "資訊管理"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:b142c93fe3",
+  "name_zh": "監督與評估",
+  "name_en": "Monitoring",
+  "aliases": [
+   "監督與評估"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.A.2.d"
+ },
+ {
+  "skill_id": "sk:b4265fafc6",
+  "name_zh": "設備安裝",
+  "name_en": "Installation",
+  "aliases": [
+   "設備安裝"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.3.d"
+ },
+ {
+  "skill_id": "sk:bf0c5da7b6",
+  "name_zh": "顧客關係管理",
+  "name_en": "",
+  "aliases": [
+   "顧客關係管理",
+   "顧客關係管理概念"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:bfd3770418",
+  "name_zh": "品質管理",
+  "name_en": "",
+  "aliases": [
+   "品質管理",
+   "品質管理概念",
+   "品質管理概論"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:c0bb31b118",
+  "name_zh": "主動聆聽",
+  "name_en": "Active Listening",
+  "aliases": [
+   "主動聆聽"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.A.1.b"
+ },
+ {
+  "skill_id": "sk:c6509a1590",
+  "name_zh": "風險管理",
+  "name_en": "",
+  "aliases": [
+   "風險管理",
+   "風險管理概念",
+   "風險管理概論"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:c89fc04f65",
+  "name_zh": "故障排除",
+  "name_en": "Troubleshooting",
+  "aliases": [
+   "故障排除"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.3.k"
+ },
+ {
+  "skill_id": "sk:c8ff59c5f9",
+  "name_zh": "科學應用",
+  "name_en": "Science",
+  "aliases": [
+   "科學應用"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.A.1.f"
+ },
+ {
+  "skill_id": "sk:cc8576cd6c",
+  "name_zh": "社會覺察",
+  "name_en": "Social Perceptiveness",
+  "aliases": [
+   "社會覺察"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.1.a"
+ },
+ {
+  "skill_id": "sk:cd3eef9736",
+  "name_zh": "軟體程式設計",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:cdd1a93579",
+  "name_zh": "報表製作",
+  "name_en": "Reporting",
+  "aliases": [
+   "報表",
+   "報表彙整與管理",
+   "商業報表設計",
+   "業績與管理報表撰寫"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:d119a1d0dd",
+  "name_zh": "問題分析與解決能力",
+  "name_en": "",
+  "aliases": [
+   "問題分析與解決能力"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:d4d2db8a2f",
+  "name_zh": "時間管理",
+  "name_en": "Time Management",
+  "aliases": [
+   "時間管理"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.5.a"
+ },
+ {
+  "skill_id": "sk:dd4bd5bf13",
+  "name_zh": "判斷與決策",
+  "name_en": "Judgment and Decision Making",
+  "aliases": [
+   "判斷與決策"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.4.e"
+ },
+ {
+  "skill_id": "sk:e33d1d3c26",
+  "name_zh": "衝突管理",
+  "name_en": "",
+  "aliases": [
+   "衝突管理",
+   "衝突管理概念",
+   "衝突管理概論"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "sk:ee3a625ff2",
+  "name_zh": "服務導向",
+  "name_en": "Service Orientation",
+  "aliases": [
+   "服務導向"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.1.f"
+ },
+ {
+  "skill_id": "sk:f4387c0deb",
+  "name_zh": "批判性思考",
+  "name_en": "Critical Thinking",
+  "aliases": [
+   "批判性思考"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.A.2.a"
+ },
+ {
+  "skill_id": "sk:fa2cb95096",
+  "name_zh": "設備維護",
+  "name_en": "Equipment Maintenance",
+  "aliases": [
+   "設備維護"
+  ],
+  "ucan_code": "",
+  "onet_code": "2.B.3.j"
+ },
+ {
+  "skill_id": "skm:095cfe0f0e",
+  "name_zh": "品牌知名度推廣",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:0a112817b8",
+  "name_zh": "網路活動規劃與執行",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:0d5591d63e",
+  "name_zh": "Outlook",
+  "name_en": "Outlook",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:1916ed00d6",
+  "name_zh": "視覺設計相關知識",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:2151c363c5",
+  "name_zh": "行政事務處理",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:23524be9db",
+  "name_zh": "Java",
+  "name_en": "Java",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:2f84417a9e",
+  "name_zh": "CSS",
+  "name_en": "CSS",
+  "aliases": [
+   "CSS3"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:3cbcd90adc",
+  "name_zh": "Word",
+  "name_en": "Word",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:3f7227146e",
+  "name_zh": "Vue.js",
+  "name_en": "Vue.js",
+  "aliases": [
+   "Vue",
+   "VueJS"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:421f614d18",
+  "name_zh": "Illustrator",
+  "name_en": "Illustrator",
+  "aliases": [
+   "Adobe Illustrator"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:4235227b51",
+  "name_zh": "Python",
+  "name_en": "Python",
+  "aliases": [
+   "python3"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:4685afd896",
+  "name_zh": "繪圖工具與軟體操作",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:46f1a0bd55",
+  "name_zh": "Git",
+  "name_en": "Git",
+  "aliases": [
+   "GitHub"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:54387b5e52",
+  "name_zh": "產品策略",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:56fd94149f",
+  "name_zh": "內容創作",
+  "name_en": "Content Creation",
+  "aliases": [
+   "內容行銷",
+   "內容經營",
+   "文案撰寫"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:58101fced5",
+  "name_zh": "Adobe Photoshop",
+  "name_en": "Adobe Photoshop",
+  "aliases": [
+   "Photoshop"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:5db9598d8c",
+  "name_zh": "使用者訪談",
+  "name_en": "User Interview",
+  "aliases": [
+   "用戶訪談",
+   "使用者研究",
+   "用戶研究"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:63327bca64",
+  "name_zh": "資料視覺化",
+  "name_en": "Data Visualization",
+  "aliases": [
+   "圖表製作",
+   "Tableau",
+   "Power BI"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:6776057944",
+  "name_zh": "廣告企劃案╱文案撰寫",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:6b810c90aa",
+  "name_zh": "React",
+  "name_en": "React",
+  "aliases": [
+   "ReactJS",
+   "React.js"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:6ff305bf3e",
+  "name_zh": "A/B 測試",
+  "name_en": "A/B Testing",
+  "aliases": [
+   "AB測試",
+   "A/B測試",
+   "AB Test"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:73698e6b5a",
+  "name_zh": "網頁語法撰寫",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:75bf98b9ba",
+  "name_zh": "行銷策略擬定",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:787256cc41",
+  "name_zh": "Canva",
+  "name_en": "Canva",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:7f18f56853",
+  "name_zh": "全端開發",
+  "name_en": "Full Stack Development",
+  "aliases": [
+   "全端",
+   "Full Stack",
+   "Fullstack"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:90de35a580",
+  "name_zh": "Node.js",
+  "name_en": "Node.js",
+  "aliases": [
+   "NodeJS"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:950a39b6c2",
+  "name_zh": "HTML",
+  "name_en": "HTML",
+  "aliases": [
+   "HTML5"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:9fa73c8d09",
+  "name_zh": "市場調查企劃與執行",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:a05ae9d020",
+  "name_zh": "使用者介面設計",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:ac2801a3ff",
+  "name_zh": "Zeplin",
+  "name_en": "Zeplin",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:b66806f4d5",
+  "name_zh": "Instagram",
+  "name_en": "Instagram",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:b6e13ad53d",
+  "name_zh": "JavaScript",
+  "name_en": "JavaScript",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:cb43ccfde3",
+  "name_zh": "品牌行銷管理",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:ce7d0b4886",
+  "name_zh": "行銷宣傳預算編製與控管",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:cf00d4dc1b",
+  "name_zh": "設計表現能力",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:d2834b0bcc",
+  "name_zh": "Figma",
+  "name_en": "Figma",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:d455be4adf",
+  "name_zh": "Excel",
+  "name_en": "Excel",
+  "aliases": [
+   "Microsoft Excel",
+   "試算表"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:dace6f5c8f",
+  "name_zh": "PowerPoint",
+  "name_en": "PowerPoint",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:db1dfd45b1",
+  "name_zh": "SQL",
+  "name_en": "SQL",
+  "aliases": [
+   "MS SQL",
+   "MySQL",
+   "PostgreSQL",
+   "SQLite",
+   "T-SQL",
+   "資料庫查詢"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:e2399fc891",
+  "name_zh": "軟體工程系統開發",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:f1dda22f6c",
+  "name_zh": "Claude",
+  "name_en": "Claude",
+  "aliases": [
+   "Anthropic Claude"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:f3eea55526",
+  "name_zh": "ERP 系統",
+  "name_en": "ERP Systems",
+  "aliases": [
+   "鼎新",
+   "正航"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:f5b072ee39",
+  "name_zh": "電腦排版設計",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:d8ae63a123",
+  "name_zh": "文件或資料輸入建檔處理",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 147
+ },
+ {
+  "skill_id": "skm:02b0560336",
+  "name_zh": "產品介紹及解說銷售",
+  "name_en": "",
+  "aliases": [
+   "產品介紹"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 143
+ },
+ {
+  "skill_id": "skm:bd3d3b1078",
+  "name_zh": "櫃檯門市接待與需求服務",
+  "name_en": "",
+  "aliases": [
+   "櫃檯門市接待"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 128
+ },
+ {
+  "skill_id": "skm:01cd3abab8",
+  "name_zh": "文書處理╱排版能力",
+  "name_en": "",
+  "aliases": [
+   "文書處理"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 121
+ },
+ {
+  "skill_id": "skm:c8035867c5",
+  "name_zh": "電話接聽與人員接待事項",
+  "name_en": "",
+  "aliases": [
+   "電話接聽"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 111
+ },
+ {
+  "skill_id": "skm:d6e21a3d20",
+  "name_zh": "文件收發與檔案管理",
+  "name_en": "",
+  "aliases": [
+   "文件收發"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 97
+ },
+ {
+  "skill_id": "skm:81697318f2",
+  "name_zh": "文件檔案資料處理、轉換及整合工作",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 90
+ },
+ {
+  "skill_id": "skm:5d46c0d51f",
+  "name_zh": "客訴案件處理",
+  "name_en": "",
+  "aliases": [
+   "客訴案件"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 76
+ },
+ {
+  "skill_id": "skm:ef8790881d",
+  "name_zh": "業績目標分配與績效達成",
+  "name_en": "",
+  "aliases": [
+   "業績目標分配"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 52
+ },
+ {
+  "skill_id": "skm:9c93bdab16",
+  "name_zh": "貨品包裝作業",
+  "name_en": "",
+  "aliases": [
+   "貨品包裝"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 51
+ },
+ {
+  "skill_id": "skm:26f21cec96",
+  "name_zh": "理貨╱揀貨╱補貨作業",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 50
+ },
+ {
+  "skill_id": "skm:b6025c4fee",
+  "name_zh": "業務或通路開發",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 45
+ },
+ {
+  "skill_id": "skm:0b6afec617",
+  "name_zh": "客戶資料更新維護",
+  "name_en": "",
+  "aliases": [
+   "客戶資料更新"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 44
+ },
+ {
+  "skill_id": "skm:77e9583b71",
+  "name_zh": "倉庫貨物標示╱置放╱盤點",
+  "name_en": "",
+  "aliases": [
+   "倉庫貨物標示"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 43
+ },
+ {
+  "skill_id": "skm:006feb4870",
+  "name_zh": "具備人力資源相關知識",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 40
+ },
+ {
+  "skill_id": "skm:e08f2fff15",
+  "name_zh": "客戶情報蒐集",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 40
+ },
+ {
+  "skill_id": "skm:2d457b859f",
+  "name_zh": "Windows 10",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 38
+ },
+ {
+  "skill_id": "skm:3a1b7eb567",
+  "name_zh": "商品進貨入庫作業",
+  "name_en": "",
+  "aliases": [
+   "商品進貨入庫"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 34
+ },
+ {
+  "skill_id": "skm:9ccb397210",
+  "name_zh": "商品收貨╱退貨作業",
+  "name_en": "",
+  "aliases": [
+   "商品收貨"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 34
+ },
+ {
+  "skill_id": "skm:90dcd5fc6a",
+  "name_zh": "管理行事曆與會議協調安排",
+  "name_en": "",
+  "aliases": [
+   "管理行事曆"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 33
+ },
+ {
+  "skill_id": "skm:57c5573e9f",
+  "name_zh": "勞工保險相關法規",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 32
+ },
+ {
+  "skill_id": "skm:084fbea106",
+  "name_zh": "執行日常招募業務",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 31
+ },
+ {
+  "skill_id": "skm:b7467d77ec",
+  "name_zh": "專案溝通╱整合管理",
+  "name_en": "",
+  "aliases": [
+   "專案溝通"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 30
+ },
+ {
+  "skill_id": "skm:98245d37b7",
+  "name_zh": "會計核算和帳務處理",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 27
+ },
+ {
+  "skill_id": "skm:9ec550620e",
+  "name_zh": "Adobe Acrobat",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 27
+ },
+ {
+  "skill_id": "skm:8c7fcb14c5",
+  "name_zh": "簽收╱驗收作業",
+  "name_en": "",
+  "aliases": [
+   "簽收╱驗收"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 26
+ },
+ {
+  "skill_id": "skm:c7ebd41ec4",
+  "name_zh": "採購並維護辦公事物及庶務用品",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 25
+ },
+ {
+  "skill_id": "skm:10be270b5f",
+  "name_zh": "結帳作業與帳務處理",
+  "name_en": "",
+  "aliases": [
+   "結帳作業"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 25
+ },
+ {
+  "skill_id": "skm:b4ebe3ce15",
+  "name_zh": "短影音",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 23
+ },
+ {
+  "skill_id": "skm:b7585ee149",
+  "name_zh": "面試技巧",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 21
+ },
+ {
+  "skill_id": "skm:4803e6b9e6",
+  "name_zh": "Line",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 21
+ },
+ {
+  "skill_id": "skm:dfcffcd6fd",
+  "name_zh": "達成產能及出貨目標",
+  "name_en": "",
+  "aliases": [
+   "達成產能"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 20
+ },
+ {
+  "skill_id": "skm:4b2debb613",
+  "name_zh": "提案與簡報技巧",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 20
+ },
+ {
+  "skill_id": "skm:e78bad2493",
+  "name_zh": "績效與薪酬管理",
+  "name_en": "",
+  "aliases": [
+   "績效與薪酬"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 18
+ },
+ {
+  "skill_id": "skm:3f8ff2eddb",
+  "name_zh": "國際貿易基本概念",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 18
+ },
+ {
+  "skill_id": "skm:48cb8c9742",
+  "name_zh": "倉儲系統維護與管理",
+  "name_en": "",
+  "aliases": [
+   "倉儲系統維護"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 17
+ },
+ {
+  "skill_id": "skm:7f5c437480",
+  "name_zh": "會計或審計專業知識",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 16
+ },
+ {
+  "skill_id": "skm:0702188f73",
+  "name_zh": "零用金管理",
+  "name_en": "",
+  "aliases": [
+   "零用金"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 16
+ },
+ {
+  "skill_id": "skm:1583eb3ed0",
+  "name_zh": "業績目標達成",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 16
+ },
+ {
+  "skill_id": "skm:75e952af43",
+  "name_zh": "專案規劃執行╱範圍管理",
+  "name_en": "",
+  "aliases": [
+   "專案規劃執行"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 16
+ },
+ {
+  "skill_id": "skm:f1a0433927",
+  "name_zh": "專案時間╱進度控管",
+  "name_en": "",
+  "aliases": [
+   "專案時間"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 16
+ },
+ {
+  "skill_id": "skm:f3e3156b24",
+  "name_zh": "文書處理軟體操作",
+  "name_en": "",
+  "aliases": [
+   "文書處理軟體"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 14
+ },
+ {
+  "skill_id": "skm:a0c6522ec4",
+  "name_zh": "食材貯存管理",
+  "name_en": "",
+  "aliases": [
+   "食材貯存"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 14
+ },
+ {
+  "skill_id": "skm:528f9a3e70",
+  "name_zh": "食物製前準備",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 14
+ },
+ {
+  "skill_id": "skm:07724aed72",
+  "name_zh": "人員培訓、激勵、輔導與管理",
+  "name_en": "",
+  "aliases": [
+   "人員培訓"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 14
+ },
+ {
+  "skill_id": "skm:290f2ebd40",
+  "name_zh": "招募任用制度設計",
+  "name_en": "",
+  "aliases": [
+   "招募任用制度"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 14
+ },
+ {
+  "skill_id": "skm:d83dc45ac3",
+  "name_zh": "代辦會計相關事項",
+  "name_en": "",
+  "aliases": [
+   "代辦會計相關"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 14
+ },
+ {
+  "skill_id": "skm:3ebcf56d78",
+  "name_zh": "庫存管理規劃作業",
+  "name_en": "",
+  "aliases": [
+   "庫存管理規劃"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 14
+ },
+ {
+  "skill_id": "skm:9ab2adb010",
+  "name_zh": "門市餐飲管理",
+  "name_en": "",
+  "aliases": [
+   "門市餐飲"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 14
+ },
+ {
+  "skill_id": "skm:e3611e6218",
+  "name_zh": "輸入資料與原始文件檔案比對審核",
+  "name_en": "",
+  "aliases": [
+   "輸入資料"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 13
+ },
+ {
+  "skill_id": "skm:d85544fce4",
+  "name_zh": "Facebook",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 13
+ },
+ {
+  "skill_id": "skm:c82b171b4c",
+  "name_zh": "AutoCAD",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 12
+ },
+ {
+  "skill_id": "skm:90cf4d2412",
+  "name_zh": "編製帳務報表",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 12
+ },
+ {
+  "skill_id": "skm:5505ee96e1",
+  "name_zh": "日常檢查及異常狀況初步研判",
+  "name_en": "",
+  "aliases": [
+   "日常檢查"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 12
+ },
+ {
+  "skill_id": "skm:4fb43e98b3",
+  "name_zh": "貨物運送與資材配送",
+  "name_en": "",
+  "aliases": [
+   "貨物運送"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 12
+ },
+ {
+  "skill_id": "skm:d86cf69a8b",
+  "name_zh": "Google Analytics",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 12
+ },
+ {
+  "skill_id": "skm:24bbf5ce14",
+  "name_zh": "規劃、組織、指導及協調組織內部行政作業",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 11
+ },
+ {
+  "skill_id": "skm:fef6553372",
+  "name_zh": "負責文件更新、發行、審核與跟催作業",
+  "name_en": "",
+  "aliases": [
+   "負責文件更新"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 11
+ },
+ {
+  "skill_id": "skm:ebe4f447bd",
+  "name_zh": "Internet Explorer",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 11
+ },
+ {
+  "skill_id": "skm:2ec8c4a1c1",
+  "name_zh": "了解皮膚構造與特性",
+  "name_en": "",
+  "aliases": [
+   "了解皮膚構造"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 11
+ },
+ {
+  "skill_id": "skm:c74ce1944f",
+  "name_zh": "廣告創意發想與提案",
+  "name_en": "",
+  "aliases": [
+   "廣告創意發想"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 10
+ },
+ {
+  "skill_id": "skm:19f45d61c9",
+  "name_zh": "預算編製與成本控管",
+  "name_en": "",
+  "aliases": [
+   "預算編製"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 10
+ },
+ {
+  "skill_id": "skm:e50bd726d1",
+  "name_zh": "行銷製作物規劃與執行",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 10
+ },
+ {
+  "skill_id": "skm:66db086fee",
+  "name_zh": "廣告效益評估",
+  "name_en": "",
+  "aliases": [
+   "廣告效益"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 10
+ },
+ {
+  "skill_id": "skm:2dba9b9ec7",
+  "name_zh": "產品進銷存統計分析",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 10
+ },
+ {
+  "skill_id": "skm:539f627e43",
+  "name_zh": "商品採購作業",
+  "name_en": "",
+  "aliases": [
+   "商品採購"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 10
+ },
+ {
+  "skill_id": "skm:08f8794188",
+  "name_zh": "實體活動規劃與執行",
+  "name_en": "",
+  "aliases": [
+   "實體活動規劃"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 10
+ },
+ {
+  "skill_id": "skm:7a88c282bc",
+  "name_zh": "薪資與績效獎酬辦法設計",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 10
+ },
+ {
+  "skill_id": "skm:062926b764",
+  "name_zh": "飲料調製",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 10
+ },
+ {
+  "skill_id": "skm:68d2bc8aca",
+  "name_zh": "財務報表製作",
+  "name_en": "",
+  "aliases": [
+   "財務報表"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 9
+ },
+ {
+  "skill_id": "skm:ced0484133",
+  "name_zh": "操作控制及故障排除",
+  "name_en": "",
+  "aliases": [
+   "操作控制"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 9
+ },
+ {
+  "skill_id": "skm:37dacd600a",
+  "name_zh": "專案成本╱品質╱風險管理",
+  "name_en": "",
+  "aliases": [
+   "專案成本"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 9
+ },
+ {
+  "skill_id": "skm:4405d874de",
+  "name_zh": "協商談判能力",
+  "name_en": "",
+  "aliases": [
+   "協商談判"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 9
+ },
+ {
+  "skill_id": "skm:d85aeab379",
+  "name_zh": "市場調查資料分析與報告撰寫",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 9
+ },
+ {
+  "skill_id": "skm:a2ca281d14",
+  "name_zh": "熟悉進出口業務",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 9
+ },
+ {
+  "skill_id": "skm:933749427f",
+  "name_zh": "吧台前置作業準備",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 9
+ },
+ {
+  "skill_id": "skm:507b04eca6",
+  "name_zh": "工作任務╱業績項目分配",
+  "name_en": "",
+  "aliases": [
+   "工作任務"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:f06c6cd379",
+  "name_zh": "ISO 9000",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:e65f8eb2db",
+  "name_zh": "盤點作業規劃執行",
+  "name_en": "",
+  "aliases": [
+   "盤點作業規劃"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:c88eb8237e",
+  "name_zh": "作業系統基本操作",
+  "name_en": "",
+  "aliases": [
+   "作業系統基本"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:c2b172300b",
+  "name_zh": "電腦繪圖軟體操作",
+  "name_en": "",
+  "aliases": [
+   "電腦繪圖軟體"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:62239e6c0f",
+  "name_zh": "ChatGPT",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:d7da41306e",
+  "name_zh": "系統架構規劃與維護",
+  "name_en": "",
+  "aliases": [
+   "系統架構規劃"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:407ac9a693",
+  "name_zh": "數位媒體行銷",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:7b158eef32",
+  "name_zh": "專案管理架構及專案說明",
+  "name_en": "",
+  "aliases": [
+   "專案管理架構"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:69d1d61583",
+  "name_zh": "網站企劃能力",
+  "name_en": "",
+  "aliases": [
+   "網站企劃"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:ec2698910c",
+  "name_zh": "產品營運",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:831dea2e45",
+  "name_zh": "供應商尋找及評選執行",
+  "name_en": "",
+  "aliases": [
+   "供應商尋找"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:2eab8a5690",
+  "name_zh": "Mac OS",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:6ab278042a",
+  "name_zh": "Windows 7",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:5575cd723b",
+  "name_zh": "維持產線正常運轉並跟催生產進度",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 8
+ },
+ {
+  "skill_id": "skm:83f95a6317",
+  "name_zh": "廚房器具使用維護",
+  "name_en": "",
+  "aliases": [
+   "廚房器具使用"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:3210f04f6c",
+  "name_zh": "督導人員工作績效",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:bbd732eec7",
+  "name_zh": "所得稅結算申報",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:cd8c7650b8",
+  "name_zh": "負責生產製程管制與調配",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:7f70e37674",
+  "name_zh": "資訊設備環境設定",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:a75f8e8293",
+  "name_zh": "安排出貨管理及統計",
+  "name_en": "",
+  "aliases": [
+   "安排出貨管理"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:1bdf605991",
+  "name_zh": "iOS",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:f590b4fda2",
+  "name_zh": "jQuery",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:526a0f6c31",
+  "name_zh": "臉部保養技巧",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:00f2cdbc24",
+  "name_zh": "採購談判與議價技巧",
+  "name_en": "",
+  "aliases": [
+   "採購談判"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:ebbb6b9bf4",
+  "name_zh": "供應商資料管理維護",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:3ae5cd6860",
+  "name_zh": "Premiere",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:ed9f10c582",
+  "name_zh": "異業合作規劃與執行",
+  "name_en": "",
+  "aliases": [
+   "異業合作規劃"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:061be38d56",
+  "name_zh": "職務分析與職等設計",
+  "name_en": "",
+  "aliases": [
+   "職務分析"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:cc911ec4ff",
+  "name_zh": "資料庫程式設計",
+  "name_en": "",
+  "aliases": [
+   "資料庫程式"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:74c7765af6",
+  "name_zh": "採購對帳作業",
+  "name_en": "",
+  "aliases": [
+   "採購對帳"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 7
+ },
+ {
+  "skill_id": "skm:946e14e839",
+  "name_zh": "編制財務報告",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:f15746e331",
+  "name_zh": "部門績效目標管理",
+  "name_en": "",
+  "aliases": [
+   "部門績效目標"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:5d959c6a35",
+  "name_zh": "庶務採購管理與策略規劃",
+  "name_en": "",
+  "aliases": [
+   "庶務採購管理"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:7ff4389584",
+  "name_zh": "資料備份與復原",
+  "name_en": "",
+  "aliases": [
+   "資料備份"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:f444ce4abf",
+  "name_zh": "安裝與維護網路安全系統",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:9729a4842c",
+  "name_zh": "倉管流程訂定與管理",
+  "name_en": "",
+  "aliases": [
+   "倉管流程訂定"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:42655b3191",
+  "name_zh": "電商營運",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:7ae7127591",
+  "name_zh": "各式影片剪接後製作業",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:2d937217af",
+  "name_zh": "各式封面設計",
+  "name_en": "",
+  "aliases": [
+   "各式封面"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:ad9eea5c5c",
+  "name_zh": "系統整合分析",
+  "name_en": "",
+  "aliases": [
+   "系統整合"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:cf8db19b76",
+  "name_zh": "Google關鍵字廣告",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:76392bb106",
+  "name_zh": "基礎潔膚╱卸妝技巧",
+  "name_en": "",
+  "aliases": [
+   "基礎潔膚"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:5af4bfb111",
+  "name_zh": "系統架構規劃",
+  "name_en": "",
+  "aliases": [
+   "系統架構"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:06d92f0ef4",
+  "name_zh": "產品包裝設計",
+  "name_en": "",
+  "aliases": [
+   "產品包裝"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:36765b44f8",
+  "name_zh": "廚房設備維護管理",
+  "name_en": "",
+  "aliases": [
+   "廚房設備維護"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:de6a7e7fbd",
+  "name_zh": "提出製程計畫與產能分配掌握",
+  "name_en": "",
+  "aliases": [
+   "提出製程計畫"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:934a1aa9a3",
+  "name_zh": "廣告業務銷售能力",
+  "name_en": "",
+  "aliases": [
+   "廣告業務銷售"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:d3cc8505d2",
+  "name_zh": "機械加工設備之維護保養",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:9e0da8438e",
+  "name_zh": "ASP.NET",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:0e30829e2c",
+  "name_zh": "簡報軟體操作",
+  "name_en": "",
+  "aliases": [
+   "簡報軟體"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:d7efa19fbe",
+  "name_zh": "C#",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:4962db5b1c",
+  "name_zh": "基本按摩手法",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:661e79ce07",
+  "name_zh": "研討會／講座活動規劃與執行",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:cda009c115",
+  "name_zh": "人力規劃控管",
+  "name_en": "",
+  "aliases": [
+   "人力規劃"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 6
+ },
+ {
+  "skill_id": "skm:df9ad67b7d",
+  "name_zh": "稅務規劃與稅報╱納稅事項",
+  "name_en": "",
+  "aliases": [
+   "稅務規劃"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:9b5045edb5",
+  "name_zh": "車輛清潔保管與檢修",
+  "name_en": "",
+  "aliases": [
+   "車輛清潔保管"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:02cae171ad",
+  "name_zh": "用人管理",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:95b4455335",
+  "name_zh": "員工教育訓練與需求分析",
+  "name_en": "",
+  "aliases": [
+   "員工教育訓練"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:19c05cd224",
+  "name_zh": "Windows XP",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:519e1c4792",
+  "name_zh": "新產品與進出貨檢驗",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:8c4731f1a5",
+  "name_zh": "Windows 11",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:0d937b1d0f",
+  "name_zh": "系統維護操作",
+  "name_en": "",
+  "aliases": [
+   "系統維護"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:2d7bfe7262",
+  "name_zh": "資產管理制度與流程規劃",
+  "name_en": "",
+  "aliases": [
+   "資產管理制度"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:0cd938b6aa",
+  "name_zh": "資產移轉／盤點管理規劃",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:98f162bf5d",
+  "name_zh": "公關活動規劃與執行",
+  "name_en": "",
+  "aliases": [
+   "公關活動規劃"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:8f43febdee",
+  "name_zh": "廣告設計概念",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:d88946b678",
+  "name_zh": "SEO",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:76a2c5dc04",
+  "name_zh": "排盤與食品裝飾",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:9117e01796",
+  "name_zh": "提出生產標準改良方案",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:72e4906d48",
+  "name_zh": "食品包裝作業",
+  "name_en": "",
+  "aliases": [
+   "食品包裝"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:fdaecb6fa5",
+  "name_zh": "進出口作業流程控管",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:999bc6b183",
+  "name_zh": "SAP",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:e0cbf84182",
+  "name_zh": "教育訓練總體規劃與績效評估",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:1d3c65b2b0",
+  "name_zh": "Google Tag Manager",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:edc9f0a5a5",
+  "name_zh": "Linux",
+  "name_en": "",
+  "aliases": [],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:511347da41",
+  "name_zh": "工廠管理能力",
+  "name_en": "",
+  "aliases": [
+   "工廠管理"
+  ],
+  "source": "jobs_all.requiredSkills",
+  "jd_frequency": 5
+ },
+ {
+  "skill_id": "skm:a34a6659bc",
+  "name_zh": "AJAX",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 1
+ },
+ {
+  "skill_id": "skm:c31c335ef3",
+  "name_zh": "Angular",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 2
+ },
+ {
+  "skill_id": "skm:9d241da73e",
+  "name_zh": "EDM",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 3
+ },
+ {
+  "skill_id": "skm:8a7a460f63",
+  "name_zh": "Google Data Studio",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 3
+ },
+ {
+  "skill_id": "skm:688d96a6ee",
+  "name_zh": "HTML/CSS",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 0
+ },
+ {
+  "skill_id": "skm:5da5acf461",
+  "name_zh": "IIS",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 1
+ },
+ {
+  "skill_id": "skm:002543019e",
+  "name_zh": "MES",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 3
+ },
+ {
+  "skill_id": "skm:5f2f360f07",
+  "name_zh": "MES工廠執行系統規劃管理",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 2
+ },
+ {
+  "skill_id": "skm:9e727fdd3a",
+  "name_zh": "Project",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 2
+ },
+ {
+  "skill_id": "skm:73f8aa718a",
+  "name_zh": "中文打字",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 0
+ },
+ {
+  "skill_id": "skm:2901009aa4",
+  "name_zh": "公關新聞稿撰寫與報導",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 3
+ },
+ {
+  "skill_id": "skm:b30bd6eb52",
+  "name_zh": "專案人力資源管理",
+  "name_en": "",
+  "aliases": [
+   "專案人力資源"
+  ],
+  "source": "interview_golden_set",
+  "jd_frequency": 4
+ },
+ {
+  "skill_id": "skm:7f17635482",
+  "name_zh": "帳務處理",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 0
+ },
+ {
+  "skill_id": "skm:4b7e395595",
+  "name_zh": "政府專案執行",
+  "name_en": "",
+  "aliases": [
+   "政府專案"
+  ],
+  "source": "interview_golden_set",
+  "jd_frequency": 4
+ },
+ {
+  "skill_id": "skm:80ff2ed10d",
+  "name_zh": "文中系統",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 4
+ },
+ {
+  "skill_id": "skm:71a89a2b8e",
+  "name_zh": "會計或審計",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 0
+ },
+ {
+  "skill_id": "skm:f3a2401f31",
+  "name_zh": "會計核算和帳務",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 0
+ },
+ {
+  "skill_id": "skm:091471e5e3",
+  "name_zh": "產品定位",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 4
+ },
+ {
+  "skill_id": "skm:9d8a978805",
+  "name_zh": "稅務業務處理",
+  "name_en": "",
+  "aliases": [
+   "稅務業務"
+  ],
+  "source": "interview_golden_set",
+  "jd_frequency": 4
+ },
+ {
+  "skill_id": "skm:76fb4d30dc",
+  "name_zh": "網路程式設計",
+  "name_en": "",
+  "aliases": [
+   "網路程式"
+  ],
+  "source": "interview_golden_set",
+  "jd_frequency": 4
+ },
+ {
+  "skill_id": "skm:189f301e78",
+  "name_zh": "視覺設計",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 0
+ },
+ {
+  "skill_id": "skm:18bdb82b7f",
+  "name_zh": "設計導入製造執行系統（MES）",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 1
+ },
+ {
+  "skill_id": "skm:55c13e24bb",
+  "name_zh": "遊戲營運",
+  "name_en": "",
+  "aliases": [],
+  "source": "interview_golden_set",
+  "jd_frequency": 1
+ }
+]

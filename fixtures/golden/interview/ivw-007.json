@@ -1,0 +1,206 @@
+{
+ "case_id": "ivw-007",
+ "meta": {
+  "persona_id": "resume-140",
+  "job_source_id": "92o3z",
+  "job_url": "https://www.104.com.tw/job/92o3z",
+  "recording_id": "T4",
+  "recording_brief": "應徵企劃職，請多講故事和感受，**不要**刻意提到任何技能或工具名稱",
+  "strata": [
+   "mixed-skill",
+   "near-zero-mention"
+  ],
+  "rationale": "受試者被要求不提任何技能名稱。gap 該接近交集全集——測天花板。",
+  "transcript_source": "stt",
+  "stt_engine": "Android SpeechRecognizer (zh-TW) / Galaxy S24 / Android 16 / Google App 17.44.15.ve.arm64",
+  "engine_filler_policy": "partial",
+  "engine_notes": [
+   "非詞彙填充音(嗯/呃)全數移除;詞彙型(那個/就是/然後)保留",
+   "停頓約 1–2 秒即自動送出,長回答必然被切成多段",
+   "已知語意反轉:「蠻有興趣」→「沒有興趣」,兩次獨立測試皆出現"
+  ],
+  "labels_verified": false,
+  "said_labeled": false,
+  "labeled_by": [
+   "A-draft"
+  ],
+  "double_labeled": false,
+  "speaker": "怡君（單一講者，全部六段）"
+ },
+ "resume": [
+  {
+   "id": "e1",
+   "title": "圖書館",
+   "category": "社團",
+   "timeRange": "2025.07",
+   "description": "完成 60 小時書籍上架與櫃檯支援",
+   "tags": [
+    "專案管理",
+    "專案時間",
+    "中文打字",
+    "Word",
+    "Excel",
+    "簡報製作"
+   ]
+  },
+  {
+   "id": "e2",
+   "title": "課程專題 - 在地品牌行銷企劃",
+   "category": "學業",
+   "timeRange": "2025.02 - 2025.06",
+   "description": "訪談 3 位消費者並產出企劃書",
+   "tags": []
+  },
+  {
+   "id": "e3",
+   "title": "餐廳外場",
+   "category": "工作",
+   "timeRange": "2023.09 - 2024.06",
+   "description": "假日尖峰時段外場服務與帶位",
+   "tags": []
+  }
+ ],
+ "jd": {
+  "_job_id": "92o3z",
+  "_source": "104",
+  "_url": "https://www.104.com.tw/job/92o3z",
+  "title": "遊戲營運企劃助理",
+  "company": "美商時豪科技股份有限公司",
+  "requiredSkills": [
+   "社群媒體經營管理",
+   "網路活動規劃與執行",
+   "產品營運",
+   "遊戲營運",
+   "Excel",
+   "Outlook",
+   "PowerPoint",
+   "Word",
+   "Windows 10"
+  ],
+  "description": "我們正在尋找對遊戲、社群與活動營運有興趣的夥伴，協助團隊執行遊戲活動、社群宣傳、公告上架與日常營運工作。此職缺適合細心、邏輯清楚，願意從營運執行開始累積經驗的人。\n\n 工作內容\n1.協助遊戲活動規劃與執行，包含活動規則整理、時程確認與上線追蹤。\n2.協助社群平台內容排程與發布，包含 FB、LINE、IG、官網等渠道。\n3.協助整理活動素材需求，並與美術、客服及相關部門溝通確認。\n4.協助後台設定、公告上架、推播設定與活動資料更新。\n5.協助整理得獎名單、活動紀錄、玩家資料與日常營運報表。\n6.主管交辦之其他營運相關事項。\n\n必備條件\n1.對遊戲產業、社群經營或活動企劃有興趣。\n2.細心負責，能確認文字、時間、數字與活動內容正確性。\n3.具備基本 Excel / Google Sheets 操作能力。\n4.具備良好溝通能力，能與不同部門協作。\n5.願意學習遊戲營運流程與後台操作。"
+ },
+ "transcript_segments": [
+  "哈囉烤乾好我是Victor那我現在是就讀中正大學行留大室的學生然後是嘉義人對我之前的行銷企劃專題做的事跟再定品牌行銷企劃有關的那我們那時候有訪台的三位消費者最後有產出一份企劃書",
+  "那我印像當中比較深刻是就是在行銷企劃專題的過程當中由組員有拖延的情形那我當時呢就是覺得很不太好因為我們專題是有一個最後繳交期限的那有處員在拖延的話會導致我們整個大進度Delay非常嚴重那所以我當下心情是有點焦慮",
+  "喔那後來就是因為我覺得還是要有人挺身而出去處理這件事情所以我當下就是有私下傳訊息跟那個組員說明就是我們現在專案的時辰的安排的情況然後有跟他說他的工作內容希望他可以就是在某個期限之前完成他的工作這樣然後就是有稍微的",
+  "有稍微的提醒一下這位組員然後來結果就是他有在期限之前完成他的工作然後我們的最後的企劃報告案也有非常順利的繳交所以這個這個小插曲就是有被好好的只是解決掉了這樣",
+  "那我之前也有過就是在圖書館當志工跟在餐廳外場打工的經驗那我印像還有還有一個故事就是印象的深刻的是在餐廳外場的時候我有一次負責假日尖峰時段的代位",
+  "然後那時候是非常的忙然後黃卵就是前台的跟後台的人大家都各自有各這個工作然後再加上顧客就是又一直進來那那時候就是我是負責代位的人所以我要同時面臨的就是顧客給我的壓力跟那個壓力這樣子",
+  "對但我當下也沒有就是非常的緊張就是我就只是一一的把我的工作做好只是現在要帶後馬牌就是有抽號碼拍的顧客然後進場然後就是每一個每組顧客都好好的處理然後好好的帶位然後最後呢就是也撐過了這個尖峰時刻也沒有出現什麼",
+  "也沒有在那時候就是有也沒有出現什麼特別的緊急情況或插曲之類的就是一切都順順利利的然後撐過了這個尖峰時刻"
+ ],
+ "labels": {
+  "skills": {
+   "專案管理": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "同上，展演成立"
+   },
+   "專案時間": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "★要點卡要求不提任何技能名，她確實沒提——但她「跟組員說明現在專案的時辰[時程]的安排」「希望他在某個期限之前完成」，展演成立。這格證明了『不指名』與『不展演』是兩件事，near-zero-mention 分層只擋得住前者"
+   },
+   "中文打字": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Word": {
+    "has": 2,
+    "wants": 2,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "要求不提，確實沒提"
+   },
+   "Excel": {
+    "has": 2,
+    "wants": 2,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "要求不提，確實沒提"
+   },
+   "簡報製作": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Outlook": {
+    "has": 1,
+    "wants": 2,
+    "said": 0,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "社群媒體經營管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "網路活動規劃與執行": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "產品營運": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "遊戲營運": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "PowerPoint": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Windows 10": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   }
+  },
+  "alias_decisions": [],
+  "gap_ranking": [
+   "Excel",
+   "Word"
+  ],
+  "free_add_done": true
+ }
+}

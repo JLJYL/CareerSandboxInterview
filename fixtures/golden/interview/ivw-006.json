@@ -1,0 +1,431 @@
+{
+ "case_id": "ivw-006",
+ "meta": {
+  "persona_id": "resume-140",
+  "job_source_id": "8wz3o",
+  "job_url": "https://www.104.com.tw/job/8wz3o",
+  "recording_id": "T3",
+  "recording_brief": "應徵專案管理職，正常發揮",
+  "strata": [
+   "soft-skill-dominant",
+   "jd-prose-heavy",
+   "huge-required-list"
+  ],
+  "rationale": "同段逐字稿換 JD。該 JD 有 31 項 requiredSkills、872 字散文——測 JD 位置衰減在長清單上會不會把尾巴壓到失去意義。",
+  "transcript_source": "stt",
+  "stt_engine": "Android SpeechRecognizer (zh-TW) / Galaxy S24 / Android 16 / Google App 17.44.15.ve.arm64",
+  "engine_filler_policy": "partial",
+  "engine_notes": [
+   "非詞彙填充音(嗯/呃)全數移除;詞彙型(那個/就是/然後)保留",
+   "停頓約 1–2 秒即自動送出,長回答必然被切成多段",
+   "已知語意反轉:「蠻有興趣」→「沒有興趣」,兩次獨立測試皆出現"
+  ],
+  "labels_verified": false,
+  "said_labeled": false,
+  "labeled_by": [
+   "A-draft"
+  ],
+  "double_labeled": false,
+  "speaker": "怡君（單一講者，全部六段）"
+ },
+ "resume": [
+  {
+   "id": "e1",
+   "title": "圖書館",
+   "category": "社團",
+   "timeRange": "2025.07",
+   "description": "完成 60 小時書籍上架與櫃檯支援",
+   "tags": [
+    "專案管理",
+    "專案時間",
+    "中文打字",
+    "Word",
+    "Excel",
+    "簡報製作"
+   ]
+  },
+  {
+   "id": "e2",
+   "title": "課程專題 - 在地品牌行銷企劃",
+   "category": "學業",
+   "timeRange": "2025.02 - 2025.06",
+   "description": "訪談 3 位消費者並產出企劃書",
+   "tags": []
+  },
+  {
+   "id": "e3",
+   "title": "餐廳外場",
+   "category": "工作",
+   "timeRange": "2023.09 - 2024.06",
+   "description": "假日尖峰時段外場服務與帶位",
+   "tags": []
+  }
+ ],
+ "jd": {
+  "_job_id": "8wz3o",
+  "_source": "104",
+  "_url": "https://www.104.com.tw/job/8wz3o",
+  "title": "產品行銷專案經理(遠端工作)",
+  "company": "大野山有限公司",
+  "requiredSkills": [
+   "專案人力資源管理",
+   "專案溝通╱整合管理",
+   "專案規劃執行╱範圍管理",
+   "專案成本╱品質╱風險管理",
+   "專案時間╱進度控管",
+   "專案管理架構及專案說明",
+   "預算編製與成本控管",
+   "提案與簡報技巧",
+   "行銷製作物規劃與執行",
+   "廣告企劃案╱文案撰寫",
+   "品牌行銷管理",
+   "網站企劃能力",
+   "網路活動規劃與執行",
+   "數位媒體行銷",
+   "產品策略",
+   "產品營運",
+   "行銷策略擬定",
+   "產品定位",
+   "Canva",
+   "Facebook",
+   "Instagram",
+   "PowerPoint",
+   "Project",
+   "短影音",
+   "Line",
+   "EDM",
+   "Excel",
+   "Google Analytics",
+   "Google關鍵字廣告",
+   "SEO",
+   "Google Data Studio"
+  ],
+  "description": "【職位定位】\n我們正在尋找一位能整合資源、推動專案的產品行銷專案經理。你將擔任品牌的產品行銷中樞，負責統籌新品上市流程、指揮設計／廣告／KOL／SEO 外包團隊、協調平台 PM 與業務，把產品力轉化為一致的商品內容、通路活動與銷售素材。此職位採完全遠端，重視專案推進力與跨部門協調能力。\n\n【主要工作內容】\n\n1. 新品上市專案統籌（核心）\n主導新品上市流程：市場與競品觀察、目標客群設定、商品定位、定價建議與上市節奏。\n整合上市素材包與通路上架資料，追蹤上市後銷售表現、平台回饋與改善方向。\n\n2. 跨部門與外包協作\n對接設計、廣告投手、KOL、SEO 等外包單位，定義需求、審稿並追蹤進度。\n協調平台 PM 與業務，確保素材、價格、文案與品牌定位一致。\n\n3. 通路活動與平台協作\n與平台 PM 共同規劃年度促銷月曆（中秋、年菜、年中慶、雙 11 等檔期）。\n審查活動主軸、促銷商品組合、文案與圖片，並檢討活動成效與優化方向。\n\n4. 產品資料與品牌把關\n建立並維護主力商品資料庫、產品賣點表與 FAQ。\n把關商品文案、商品頁與外部合作內容的正確性與品牌調性。\n5. B2B 業務賦能\n規劃產品規格書、業務訓練手冊、企業採購手冊與業務簡報。\n\n\n\n我們是一個從牧場端到銷售端都自己經營的食品自有品牌，也是一個正在傳統產業中持續創新的年輕團隊。這裡不是大公司裡被切得很細的小螺絲，而是一個看得到市場、碰得到產品、也能直接參與品牌成長的小舞台。我們重視績效，也願意給夥伴嘗試與修正的空間。\n\n在這裡，你可以接觸到電商營運、商品企劃、數據分析、顧客洞察與品牌內容建置，並且有大量真實銷售資料與忠實客戶回饋作為行銷研究的基礎。公司每年也持續安排內訓與外訓，包含經營管理、行銷、數據、產品與各領域的學習資源，適合想要自我挑戰、持續成長的人。\n\n我們已經走過從 0 開始的階段，累積了一批相信品牌的忠實客戶，也還有很大的發揮空間等著一起開拓。工作型態以遠端為主，我們期待找到能自我管理、主動溝通、願意共同學習成長的好隊友，和我們一起把這個品牌做得更好。"
+ },
+ "transcript_segments": [
+  "大家好我是中正大學行留大四的學生那我是嘉義人我之前能做過一個課程的專題是有關在地品牌的行銷企劃那時候有訪談了三位消費者最後有產出一份企劃書",
+  "那我們那時候的分公是一個主總共有四個人那我負責的部分是約訪談的時間然後還有統整一些前期會需要用到資料等等那如果我們主當中有人在拖延的話我就會直接傳訊息跟那位組員說然後並且給他設定一個daylight",
+  "對然後會想要設一個在LINE然後讓那位拖延的組員就是可以希望他可以在那個期限之前完成那在那之前他想要怎麼拖延都是可以的只是他必須要在那個期限之前把他的那些工作都做好這樣子",
+  "那我個人也有在圖書館當過志工的經驗服務學習大概60個小時那我也有曾經在餐廳的外場打エ然後負責假日的時候的尖峰帶位的那我自己在尖峰帶位的時候是",
+  "我們在尖峰時段代位會需要先抽號碼牌然後一先來厚道的順序代位進去對那但當然一定要考慮到就是每一組客人他們來的時候的人數那人數上如果假設現在有一個兩人味的那就是讓兩人兩人",
+  "有兩人味的空位那就是讓兩人一組的顧客然後號碼牌又是比較前面的人先進去這樣子我同時也首word還有Excel以及簡報製作的謝謝"
+ ],
+ "labels": {
+  "skills": {
+   "專案管理": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "★展演。分工（總共四個人、我負責約訪談與統整資料）＋進度介入（傳訊息、設期限）＋交付（產出企劃書）"
+   },
+   "專案時間": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "★展演。「我負責的部分是約訪談的時間」「有人在拖延就直接傳訊息並且給他設定一個daylight[deadline]」「希望他在那個期限之前完成」——排程、設期限、追延遲，三件都做到了，一次都沒說出那四個字"
+   },
+   "中文打字": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "無痕跡"
+   },
+   "Word": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "Excel": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "簡報製作": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「我同時也首[熟]word還有Excel以及簡報製作」"
+   },
+   "Outlook": {
+    "has": 1,
+    "wants": 0,
+    "said": 0,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案人力資源管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案溝通╱整合管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案規劃執行╱範圍管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案成本╱品質╱風險管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案時間╱進度控管": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案管理架構及專案說明": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "預算編製與成本控管": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "提案與簡報技巧": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "行銷製作物規劃與執行": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "廣告企劃案╱文案撰寫": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "品牌行銷管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "網站企劃能力": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "網路活動規劃與執行": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "數位媒體行銷": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "產品策略": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "產品營運": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "行銷策略擬定": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "產品定位": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Canva": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Facebook": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Instagram": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "PowerPoint": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Project": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "短影音": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Line": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "⚠假陽性測資。「會想要設一個在LINE」實際是「設一個 deadline」被切成「在LINE」。表面掃描會抓到 line 並記成技能 Line——這是 STT 造成的假陽性，正解是 0"
+   },
+   "EDM": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Google Analytics": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Google關鍵字廣告": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "SEO": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Google Data Studio": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   }
+  },
+  "alias_decisions": [
+   {
+    "resume_surface": "專案管理",
+    "jd_surface": "專案管理架構及專案說明",
+    "heuristic": "JD 為履歷字串的擴充形（前綴截斷）",
+    "decision": false,
+    "note": "★不同技能。前者是做專案的能力，後者是「能說明專案管理架構」的知識性要求（面試會被問方法論）。前綴相同但職能不同，比照 golden_pairs.v1「財務報表製作≠報表彙整與管理」的保守判法"
+   },
+   {
+    "resume_surface": "專案時間",
+    "jd_surface": "專案時間╱進度控管",
+    "heuristic": "JD 為履歷字串的擴充形（前綴截斷）",
+    "decision": true,
+    "note": "履歷是 104 技能表的前綴截斷形，同一個技能"
+   }
+  ],
+  "gap_ranking": [],
+  "free_add_done": true
+ }
+}

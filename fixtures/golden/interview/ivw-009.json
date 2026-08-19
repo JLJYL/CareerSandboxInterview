@@ -1,0 +1,243 @@
+{
+ "case_id": "ivw-009",
+ "meta": {
+  "persona_id": "resume-079",
+  "job_source_id": "92ho1",
+  "job_url": "https://www.104.com.tw/job/92ho1",
+  "recording_id": "T6",
+  "recording_brief": "應徵財務主管職，請講快一點、口語一點，不要停頓修飾",
+  "strata": [
+   "dense-jargon",
+   "heavy-disfluency"
+  ],
+  "rationale": "口語快講版，填充詞會很多。同時驗 text_stats 的填充詞計數與 segmentation 標記是否誠實。",
+  "transcript_source": "stt",
+  "stt_engine": "Android SpeechRecognizer (zh-TW) / Galaxy S24 / Android 16 / Google App 17.44.15.ve.arm64",
+  "engine_filler_policy": "partial",
+  "engine_notes": [
+   "非詞彙填充音(嗯/呃)全數移除;詞彙型(那個/就是/然後)保留",
+   "停頓約 1–2 秒即自動送出,長回答必然被切成多段",
+   "已知語意反轉:「蠻有興趣」→「沒有興趣」,兩次獨立測試皆出現"
+  ],
+  "labels_verified": false,
+  "said_labeled": false,
+  "labeled_by": [
+   "A-draft"
+  ],
+  "double_labeled": false,
+  "speaker": "怡君（單一講者，全部六段）"
+ },
+ "resume": [
+  {
+   "id": "e1",
+   "title": "補習班",
+   "category": "工作",
+   "timeRange": "2022.09 - 2023.06",
+   "description": "帶 2 位國中生數學,規劃每週複習進度",
+   "tags": [
+    "帳務處理",
+    "會計核算和帳務",
+    "會計或審計",
+    "Outlook",
+    "財務報表製作",
+    "稅務業務處理",
+    "PowerPoint",
+    "Excel"
+   ]
+  },
+  {
+   "id": "e2",
+   "title": "攝影社",
+   "category": "社團",
+   "timeRange": "2025.09 - 2026.06",
+   "description": "安排 4 次社課與外拍行程",
+   "tags": []
+  }
+ ],
+ "jd": {
+  "_job_id": "92ho1",
+  "_source": "104",
+  "_url": "https://www.104.com.tw/job/92ho1",
+  "title": "★ 高雄生麗【行政會計專員】★",
+  "company": "生麗國際股份有限公司",
+  "requiredSkills": [
+   "財務報表製作",
+   "代辦會計相關事項",
+   "結帳作業與帳務處理",
+   "會計核算和帳務處理",
+   "編製帳務報表",
+   "櫃檯門市接待與需求服務",
+   "Excel",
+   "Outlook",
+   "PowerPoint",
+   "Word",
+   "文中系統"
+  ],
+  "description": "※固定周休二日(平日出勤時段11:00~19:30，周六若遇課程活動以早班出勤，採當周平日排休)。\n\n1. 負責日常帳務處理及資料登錄，具備基本會計概念，能細心核對各項帳務資料。\n2. 使用 ERP 系統製作傳票、資料建檔、Key In、歸檔及相關帳務管理作業。\n3. 辦理銀行存款及相關金融往來事務。\n4. 收發、整理及保管各項原始憑證，並定期彙整相關資料。\n5. 熟悉 Excel、Word 等文書處理軟體，協助各項報表製作與資料分析整理。\n6. 負責行政文件管理、資料建檔及檔案維護，確保文件完整且有系統地保存。\n7. 協助櫃檯行政作業、訂單收件及出貨相關事宜。\n8. 協助處理公司日常行政事務及跨部門支援工作。\n9. 維護辦公環境整潔與秩序，營造良好工作環境。\n10. 完成主管交辦事項，並能獨立執行相關行政會計工作。\n\n職務需求：\n\n• 具基本會計知識或相關工作經驗者佳。\n• 熟悉 Excel、Word 等 Office 軟體操作。\n• 細心負責、具良好數字概念及資料整理能力。\n• 具主動積極的工作態度，能配合團隊合作。\n• 具良好溝通能力及時間管理能力。"
+ },
+ "transcript_segments": [
+  "大家好我是我是看那我現在是陽明交大會計師大事的學生我是台北人啊我有做過你家教然後是就是會要緋兩個國中生數學然後幫他們規劃複習進度這樣子",
+  "然後我有在做財務報表然後就是會用到什麼Excel然後outlook這些都會這是都有用過這樣然後對是就是所以財務報表的地方我就是我覺得我是還蠻熟的",
+  "然後就是然後那個就是我我也是算一次的幹部對然後我們之前社團會只是會辦授課有辦四次射客然後還有一些就是外拍的活動這樣子對然後就是",
+  "為什麼我會比較適合這個職位這個 應該是因為我就是有做過財務報表的經驗吧就是應該是我我是覺得我這個部分我們可以的對那在其他的就是其他的方面就是我不太確定"
+ ],
+ "labels": {
+  "skills": {
+   "帳務處理": {
+    "has": 2,
+    "wants": 1,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag） + jd.description",
+    "note": "JD 散文提及：「負責日常帳務處理及資料登錄，具備基本會計概念，能細心核對各項帳務資料」→ 請判定 nice-to-have(1) 或明確要求(2)",
+    "said_note": "要點卡要求不提，逐字稿無痕跡"
+   },
+   "會計核算和帳務": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "會計或審計": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Outlook": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "財務報表製作": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「然後我有在做財務報表」，第四段再次出現"
+   },
+   "稅務業務處理": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "PowerPoint": {
+    "has": 2,
+    "wants": 2,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "★要點卡要求提到，但她**實際沒講**——不是轉寫錯誤。這是「要點卡≠said」的實例，照實標 0"
+   },
+   "Excel": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "所得稅結算申報": {
+    "has": 1,
+    "wants": 0,
+    "said": 0,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "代辦會計相關事項": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "結帳作業與帳務處理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "會計核算和帳務處理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "編製帳務報表": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "櫃檯門市接待與需求服務": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Word": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "文中系統": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   }
+  },
+  "alias_decisions": [
+   {
+    "resume_surface": "帳務處理",
+    "jd_surface": "結帳作業與帳務處理",
+    "heuristic": "字串包含",
+    "decision": false,
+    "note": "★不同技能。結帳作業是期末關帳的特定流程，帳務處理是日常記帳。字串包含不代表職能相同，保守判"
+   },
+   {
+    "resume_surface": "帳務處理",
+    "jd_surface": "會計核算和帳務處理",
+    "heuristic": "字串包含",
+    "decision": true,
+    "note": "帳務處理是後者的核心動作，實務上同一件事"
+   },
+   {
+    "resume_surface": "會計核算和帳務",
+    "jd_surface": "會計核算和帳務處理",
+    "heuristic": "JD 為履歷字串的擴充形（前綴截斷）",
+    "decision": true,
+    "note": "前綴截斷形，同一個技能"
+   }
+  ],
+  "gap_ranking": [
+   "PowerPoint"
+  ],
+  "free_add_done": true
+ }
+}

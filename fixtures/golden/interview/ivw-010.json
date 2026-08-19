@@ -1,0 +1,224 @@
+{
+ "case_id": "ivw-010",
+ "meta": {
+  "persona_id": "resume-079",
+  "job_source_id": "92u21",
+  "job_url": "https://www.104.com.tw/job/92u21",
+  "recording_id": "T5",
+  "recording_brief": "應徵財會助理，正常發揮",
+  "strata": [
+   "cross-domain-overlap"
+  ],
+  "rationale": "會計履歷配行政助理 JD，交集落在 Excel/Word/報表這類通用技能。測通用技能會不會在排序上壓過專業技能。",
+  "transcript_source": "stt",
+  "stt_engine": "Android SpeechRecognizer (zh-TW) / Galaxy S24 / Android 16 / Google App 17.44.15.ve.arm64",
+  "engine_filler_policy": "partial",
+  "engine_notes": [
+   "非詞彙填充音(嗯/呃)全數移除;詞彙型(那個/就是/然後)保留",
+   "停頓約 1–2 秒即自動送出,長回答必然被切成多段",
+   "已知語意反轉:「蠻有興趣」→「沒有興趣」,兩次獨立測試皆出現"
+  ],
+  "labels_verified": false,
+  "said_labeled": false,
+  "labeled_by": [
+   "A-draft"
+  ],
+  "double_labeled": false,
+  "speaker": "怡君（單一講者，全部六段）"
+ },
+ "resume": [
+  {
+   "id": "e1",
+   "title": "補習班",
+   "category": "工作",
+   "timeRange": "2022.09 - 2023.06",
+   "description": "帶 2 位國中生數學,規劃每週複習進度",
+   "tags": [
+    "帳務處理",
+    "會計核算和帳務",
+    "會計或審計",
+    "Outlook",
+    "財務報表製作",
+    "稅務業務處理",
+    "PowerPoint",
+    "Excel"
+   ]
+  },
+  {
+   "id": "e2",
+   "title": "攝影社",
+   "category": "社團",
+   "timeRange": "2025.09 - 2026.06",
+   "description": "安排 4 次社課與外拍行程",
+   "tags": []
+  }
+ ],
+ "jd": {
+  "_job_id": "92u21",
+  "_source": "104",
+  "_url": "https://www.104.com.tw/job/92u21",
+  "title": "會計行政助理",
+  "company": "頂耀實業有限公司",
+  "requiredSkills": [
+   "文件或資料輸入建檔處理",
+   "報表彙整與管理",
+   "管理行事曆與會議協調安排",
+   "行政事務處理",
+   "電話接聽與人員接待事項",
+   "零用金管理",
+   "負責文件更新、發行、審核與跟催作業",
+   "Word",
+   "Excel"
+  ],
+  "description": "1. 負責一般文書資料處理及歸檔工作。\n2. 進出貨帳及會計帳建檔。\n3. 協助處理庶務性行政工作。\n4. 簡單零用金管理。\n5. 郵件物件寄送及簡易銀行業務處理。\n6.協助訂購餐點。\n7. 負責辦公室環境與設備之清潔與維護。\n\n"
+ },
+ "transcript_segments": [
+  "大家好我是can那我現在是陽明交大會計系大士的學生我是台北人那我之前有做過補習班家教的工作那是公共內容是帶兩位國中生的數學並且每週幫他們規劃複習的進度",
+  "那再安排就是他們的複習進度的過程當中我覺得這裡對我來所以是一件非常有挑戰性的事情因為要考慮到這位學生他們的學習的吸收能力還有他們的負荷量然後來安排他們每一週學習的章節的內容跟 程度我覺得這也是要考慮到他們自己的一些個人的一些方面學習方面的這個能力所以這作來所以是一個非常有挑戰性的工作",
+  "好那我也有擔任過剩一色幹部那在擔任幹部過程當中 有辦過四次射刻跟參與過一些外拍的活動那我也有做 未滿熟悉做財務報表類的工作然後跟Excel",
+  "那我覺得我為什麼會很適合這個助理的這份工作呢原 因是因為我覺得我擔任過家教的這個算是輔助輔助國 中生學習的這個資源的職位然後我也有擔任過算一下 的幹部所以我覺得我對於在安排事情上還有做財務報 表的以及Excel工具上的應用我覺得我是非常適合應徵"
+ ],
+ "labels": {
+  "skills": {
+   "帳務處理": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "無痕跡"
+   },
+   "會計核算和帳務": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "無痕跡"
+   },
+   "會計或審計": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Outlook": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "財務報表製作": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「我也有做未滿熟悉做財務報表類的工作」，第四段再次出現「做財務報表的以及Excel工具上的應用」"
+   },
+   "稅務業務處理": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "要點卡要求不提，逐字稿無痕跡"
+   },
+   "PowerPoint": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "無痕跡"
+   },
+   "Excel": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "所得稅結算申報": {
+    "has": 1,
+    "wants": 0,
+    "said": 0,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "文件或資料輸入建檔處理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "報表彙整與管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "管理行事曆與會議協調安排": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "行政事務處理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "電話接聽與人員接待事項": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "零用金管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "負責文件更新、發行、審核與跟催作業": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "Word": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   }
+  },
+  "alias_decisions": [],
+  "gap_ranking": [],
+  "free_add_done": true
+ }
+}
