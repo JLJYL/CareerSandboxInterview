@@ -217,6 +217,26 @@ line 210  submitGroup(said, said)                              // 打字
 只需在呼叫點各傳一個常數。一對一與 panel 目前沒有文字輸入,恆為 "voice";
 補上文字備援之後就會同時有兩種值。
 
+### 逐字稿分段必須保留(answerSegments)
+
+Android STT 停頓 1–2 秒就自動送出,一次回答必然被切成數段,實測每段 69–86 字。
+
+**前端目前只收第一段。** `InterviewLiveIndividualScreen.kt:173` 與
+`InterviewLivePanelScreen.kt:110` 的守衛是 `answer.isNotBlank()`,
+而 `InPageVoice.onResults` 之後沒有重啟聆聽。實測損失 75–87%,
+且技術詞幾乎全部落在第 2 段以後(第 1 段是「考官好我是誰、哪間學校」的開場白)。
+
+三處要改:
+
+```kotlin
+// 1. onResults 累加片段,使用者仍在錄音就重啟聆聽
+// 2. 守衛從「已有答案」改成「已按下送出」
+// 3. 面試官不可在第一段之後就開始追問(目前 delay(1500) 就回應了)
+```
+
+送到後端時以 `answerSegments` 帶原始片段,`answer` 用 `\n` 接起來供顯示。
+段界是 `TextStats.segmentation = "stt_segment"` 的來源,用空字串接會靜默遺失。
+
 ### STT 引擎(已定案,無選擇題)
 
 前端使用 Android 裝置端 `SpeechRecognizer`(`ui/components/InPageVoice.kt`,

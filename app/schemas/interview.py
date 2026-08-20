@@ -113,7 +113,22 @@ class TurnDTO(_Base):
     input_mode: str = "unknown"
     """這段回答怎麼產生的:"voice" / "typed" / "unknown"。
 
-    四個測量的有效性取決於這一欄,見 InputMode 說明。
+    四個測量的有效性取決於這一欄,見 INPUT_MODE_RULE。
+    """
+
+    answer_segments: list[str] = Field(default_factory=list)
+    """STT 逐段送出的原始片段。有值時以此為準,answer 僅供顯示。
+
+    【為什麼要顯式帶,而不是靠 answer 用換行接的慣例】
+    Android STT 停頓 1–2 秒就自動送出,一次回答必然被切成數段,
+    實測每段 69–86 字。段界是實測的語流邊界,是 TextStats 的
+    segmentation="stt_segment" 的來源。
+
+    若只靠「answer 用 \n 接」的口頭約定,有人改成用空字串或空白接時,
+    邊界資訊會靜默消失,而且要到校準數字對不上才會發現。
+    這是同一類問題的第四次:測量的有效性取決於一個沒有被宣告的來源。
+
+    為空時後端退回以 \n 切分 answer。
     """
 
 
