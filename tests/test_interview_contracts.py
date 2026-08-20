@@ -17,8 +17,8 @@ from pydantic import ValidationError
 
 from app.contracts.interview_protocols import (
     WHY_MUST_BE_JD_SIDE,
-    CollabScorer,
-    FakeCollabScorer,
+    CollabObserver,
+    FakeCollabObserver,
     FakeGapComputer,
     FakeTranscriptAnalyzer,
     GapComputer,
@@ -230,7 +230,7 @@ def test_mode_rejects_unknown_value() -> None:
 def test_fakes_satisfy_protocols() -> None:
     assert isinstance(FakeTranscriptAnalyzer(), TranscriptAnalyzer)
     assert isinstance(FakeGapComputer(), GapComputer)
-    assert isinstance(FakeCollabScorer(), CollabScorer)
+    assert isinstance(FakeCollabObserver(), CollabObserver)
 
 
 def test_gap_computer_returns_empty_without_resume() -> None:
@@ -238,8 +238,8 @@ def test_gap_computer_returns_empty_without_resume() -> None:
     assert FakeGapComputer().compute([], JDInput(description="任何 JD"), "任何逐字稿") == []
 
 
-def test_collab_scorer_returns_four_in_order() -> None:
-    rows = FakeCollabScorer().score(
+def test_collab_observer_returns_four_in_order() -> None:
+    rows = FakeCollabObserver().observe(
         [
             Utterance("user", "我覺得先做市場調查", 0, 3000),
             Utterance("AI-邏輯", "母數是多少", 3000, 5000),
@@ -247,6 +247,40 @@ def test_collab_scorer_returns_four_in_order() -> None:
         ]
     )
     assert [r.name for r in rows] == list(COLLAB_DIM_NAMES)
+
+
+def test_collab_observer_never_assigns_level() -> None:
+    """A 只交可觀察值,等第由 B 的 LLM 對照 BARS 指派。
+
+    level 是 None 不是 0——0 分與未評分在報告上是兩件完全不同的事。
+    """
+    rows = FakeCollabObserver().observe([Utterance("user", "x")])
+    assert all(r.level is None for r in rows)
+
+
+def test_collab_signals_degrade_without_speaker_info() -> None:
+    """輸入只有使用者發言時,兩個維度算不出來,要空 signals 加 evidence 說明。
+
+    前端 groupSays 尚未改成記錄所有發言者之前,這是預期狀態。
+    """
+    rows = {r.name: r for r in FakeCollabObserver().observe([Utterance("user", "x")])}
+    assert rows["傾聽與回應"].signals == {}
+    assert "無法比對" in rows["傾聽與回應"].evidence
+
+
+def test_collab_prohibits_volume_indicators() -> None:
+    """發言次數不可當等第依據——那是在自動化 babble 偏誤。"""
+    from app.contracts.interview_protocols import COLLAB_PROHIBITED_INDICATORS
+
+    for kw in ("發言次數", "babble", "打斷次數"):
+        assert kw in COLLAB_PROHIBITED_INDICATORS
+
+
+def test_group_report_without_rubric_shows_nothing() -> None:
+    """rubric 未到位時不補 0 分。補四個 0 會讓使用者以為協作全部拿 0。"""
+    r = repair_report(ReportResponse(mode="group", resume_grounded=True))
+    assert r.collab_dims == []
+    assert any("協作評分尚未啟用" in n for n in r.notices)
 
 
 def test_gap_candidate_carries_evidence() -> None:
