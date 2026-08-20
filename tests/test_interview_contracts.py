@@ -404,3 +404,35 @@ def test_input_mode_rule_covers_the_four_affected_measures() -> None:
 
     for measure in ("filler_count", "segmentation", "表達流暢度", "prosody"):
         assert measure in INPUT_MODE_RULE
+
+
+# ---------------------------------------------------------------------------
+# 十一、W1 交接後的合約增補
+# ---------------------------------------------------------------------------
+
+
+def test_mentioned_skills_accepts_candidate_set() -> None:
+    """W2 履歷條件式模糊匹配需要把搜尋範圍限縮到履歷技能集。"""
+    a = FakeTranscriptAnalyzer()
+    assert a.mentioned_skills("我用 SQL 跟 Python") == {"sk:sql", "sk:python"}
+    assert a.mentioned_skills("我用 SQL 跟 Python", {"sk:sql"}) == {"sk:sql"}
+
+
+def test_mentioned_skills_candidates_defaults_to_none() -> None:
+    """W1 行為不變,向後相容。"""
+    assert FakeTranscriptAnalyzer().mentioned_skills("我用 Excel") == {"sk:excel"}
+
+
+def test_turn_dto_carries_answer_segments() -> None:
+    """段界是實測的語流邊界,靠 \\n 慣例會靜默遺失。"""
+    t = TurnDTO(question="q", answer="甲\n乙", answer_segments=["甲", "乙"])
+    assert t.answer_segments == ["甲", "乙"]
+    assert TurnDTO(question="q", answer="甲").answer_segments == []
+
+
+def test_demonstration_threshold_separates_behaviour_from_claim() -> None:
+    """展演門檻兩邊共用,定義不一致的話評測結果無法解釋。"""
+    from app.contracts.interview_protocols import DEMONSTRATION_THRESHOLD
+
+    for kw in ("具體行為", "自我宣稱", "只能推論"):
+        assert kw in DEMONSTRATION_THRESHOLD
