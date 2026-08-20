@@ -1,0 +1,70 @@
+{
+  "version": "stt_confusions.v1",
+  "note": "Android on-device SpeechRecognizer(zh-TW) 實測轉寫對照。素材出處:STT_TERM_PROBE 單次實測,零生成內容。這不只是測試資料——safe 區的條目應直接補進 skills_v1.json 的 aliases,那是正式環境的修復。",
+  "device": {
+    "model": "Galaxy S24",
+    "android": "16",
+    "google_app": "17.44.15.ve.arm64",
+    "probe_date": "2026-08-16",
+    "runs": 1
+  },
+
+  "_caveat": "n=1。實測已觀察到同一句兩次結果不一致(四年級→大事、怡君→李宜君),代表部分詞彙轉寫不穩定。單次觀察不足以判定穩定性,不要把這張表當成確定的映射,它是已知會發生的變體清單。",
+
+  "_comment_safe": "安全別名:轉寫形本身不是任何真實技能,直接加進 aliases 不會誤傷。",
+  "safe_aliases": {
+    "gate": "Git",
+    "jerry": "jQuery",
+    "a-x": "AJAX",
+    "ax": "AJAX",
+    "msc庫": "MS SQL",
+    "msc": "MS SQL",
+    "asp打net": "ASP.NET",
+    "c sharp": "C#",
+    "view js": "VueJS",
+    "react js": "ReactJS",
+    "報表會診": "報表彙整與管理"
+  },
+
+  "_comment_colliding": "碰撞別名:轉寫形**本身就是另一個真實技能或實體**。不能無條件加進 aliases——那會讓 Android 這個技能永遠被誤判成 Angular。必須用履歷做條件判定,見 gap.py 的 resolve_confusions。",
+  "colliding_aliases": {
+    "Android": {
+      "means": "Angular",
+      "why": "STT 把 Angular 轉成 Android,但 Android 本身是常見技能",
+      "rule": "只有當履歷有 Angular 且沒有 Android 時才改判"
+    },
+    "Google Maps": {
+      "means": "Google Analytics",
+      "why": "非諧音,是被替換成同品牌的另一個產品",
+      "rule": "只有當履歷有 Google Analytics 且沒有 Google Maps 時才改判"
+    },
+    "頂新": {
+      "means": "鼎新",
+      "why": "同音,而頂新是另一家真實企業",
+      "rule": "頂新通常不會是技能表條目,但仍照條件判定以免意外"
+    }
+  },
+
+  "_comment_verified": "實測轉寫正確、不需別名的詞。記錄下來是為了下次換裝置重測時能比對差異。",
+  "verified_ok": [
+    "JavaScript", "CSS", "HTML", "Excel", "PowerPoint", "Word", "Outlook",
+    "SEO", "EDM", "MES", "IIS", "Windows 10", "Canva", "Instagram", "Facebook",
+    "文中系統", "財務報表製作", "帳務處理", "稅務業務處理", "專案時間╱進度控管",
+    "簡報製作", "視覺設計"
+  ],
+
+  "_comment_filler": "填充詞抑制實測。原稿 vs 轉寫逐詞比對的結果。",
+  "filler_policy": {
+    "verdict": "partial",
+    "removed": { "嗯": [5, 0], "呃": [5, 0] },
+    "kept": { "那個": [2, 2], "就是": [7, 8], "然後": [1, 3] },
+    "note": "非詞彙填充音全數移除(部分轉成「而」);詞彙型填充詞完整保留,甚至因斷詞而超計。結論:流暢度維度沒有死,只是變窄——FILLERS 應縮減為只含詞彙型,filler_count 才是誠實的測量。"
+  },
+
+  "_comment_other": "其他影響設計的觀察。",
+  "engine_behaviour": {
+    "auto_submit_on_pause": "停頓約 1–2 秒即判定結束並送出,長回答必然被切成多段。代表 transcript 實際上是多段而非單一字串。",
+    "semantic_reversal": "「蠻有興趣」→「沒有興趣」,兩次獨立測試都出現,非偶發。語意反轉是這個產品最危險的失效模式——它會讓評分針對使用者沒說過的話。",
+    "instability": "同句多次結果不一致(四年級→大事、怡君→李宜君),部分詞彙轉寫不穩定。"
+  }
+}

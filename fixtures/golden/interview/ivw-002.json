@@ -1,0 +1,229 @@
+{
+ "case_id": "ivw-002",
+ "meta": {
+  "persona_id": "resume-013",
+  "job_source_id": "935gh",
+  "job_url": "https://www.104.com.tw/job/935gh",
+  "recording_id": "T1",
+  "recording_brief": "應徵前端工程師，正常發揮",
+  "strata": [
+   "hard-skill-dominant",
+   "jd-prose-heavy"
+  ],
+  "rationale": "同一段逐字稿換 JD，隔離 JD 變因。desc 555 字，測散文掃描。",
+  "transcript_source": "stt",
+  "stt_engine": "Android SpeechRecognizer (zh-TW) / Galaxy S24 / Android 16 / Google App 17.44.15.ve.arm64",
+  "engine_filler_policy": "partial",
+  "engine_notes": [
+   "非詞彙填充音(嗯/呃)全數移除;詞彙型(那個/就是/然後)保留",
+   "停頓約 1–2 秒即自動送出,長回答必然被切成多段",
+   "已知語意反轉:「蠻有興趣」→「沒有興趣」,兩次獨立測試皆出現"
+  ],
+  "labels_verified": true,
+  "said_labeled": true,
+  "labeled_by": [
+   "A-draft",
+   "B-review"
+  ],
+  "double_labeled": false,
+  "speaker": "怡君（單一講者，全部六段）"
+ },
+ "resume": [
+  {
+   "id": "e1",
+   "title": "畢業專題 - 健康紀錄 App",
+   "category": "學業",
+   "timeRange": "2024.02 - 2024.06",
+   "description": "以 Kotlin 開發,完成期末公開展示",
+   "tags": [
+    "JavaScript",
+    "軟體程式設計",
+    "ASP.NET",
+    "C#",
+    "Git",
+    "Angular",
+    "AJAX",
+    "HTML/CSS"
+   ]
+  }
+ ],
+ "jd": {
+  "_job_id": "935gh",
+  "_source": "104",
+  "_url": "https://www.104.com.tw/job/935gh",
+  "title": "【A005】TypeScript前端工程師",
+  "company": "一騰資訊服務股份有限公司",
+  "requiredSkills": [
+   "軟體程式設計",
+   "網路程式設計",
+   "視覺設計相關知識",
+   "HTML",
+   "CSS",
+   "Angular",
+   "Git",
+   "jQuery",
+   "AJAX",
+   "LLM"
+  ],
+  "description": "喜歡TypeScript嗎？熱愛把設計變成美麗又好用的畫面嗎？\n我們正在尋找對前端技術有熱情、擅長TypeScript開發的你，一起加入我們的開發團隊！\n\n【工作內容】\n1. 使用TypeScript開發基於LLM的金融應用前端界面\n2. 根據設計規格實現用戶界面和交互功能\n3. 開發與LLM API交互的前端組件及功能\n4. 實現AI聊天界面、數據可視化和相關UI元素\n5. 優化前端性能和用戶體驗\n6. 與團隊協作完成指定開發任務\n7. 進行代碼測試和問題修復\n\n【我們希望你】\n熟練使用TypeScript進行前端開發（2年以上經驗）\n熟悉React、Vue或Angular等前端框架（至少一種）\n了解RESTful API和前後端數據交互\n具備良好的HTML/CSS基礎\n有使用前端狀態管理工具的經驗（Redux、Vuex 等）\n能夠根據設計實現界面和交互功能\n\n【加分條件】\n有金融科技或類似行業開發經驗\n了解或使用過LLM API（如OpenAI、Claude等）\n有開發聊天界面或AI應用的經驗\n熟悉流式數據處理和展示技術\n國際化和多語言支持經驗\n具備良好的英語溝通能力\n\n【在這裡你可以】\n● 參與銀行系統專案，成為進入金融業的絕佳跳板\n● 專注技術、工作生活平衡，擁有穩定長期的專案合作環境"
+ },
+ "transcript_segments": [
+  "考官好我覺得Alan那我現在就讀的是台大志工然後我是碩二的學生那我是新北人的那我目前做過這有成就感了一件事情是我的碩士專題做了一個健康紀錄的APP那個App",
+  "那這個健康紀錄的APP呢我們是用Collin開發的期末的時候呢有公開展示過前端的部分我是用加巴screen那時候我們也用了這個框架而版本控制的部分我們使用gats那頁面的部分是用HTML",
+  "頁面的部分呢我們是用HTML跟css做的那我在這個專案裡面負責的部分主要是前端的設計就是用HDMI跟CS做頁面的設計以及用Collin去開發說這些頁面跳轉的邏輯還有一些按鈕點擊的回饋等等好",
+  "那我覺得我很適合這份職位原因是因為我很我覺得我是一個很喜歡就是設計頁面然後讓這個頁面跟Apple變得更好會讓我有非常大成就感而且我很喜歡就是在第一版頁面設計出來之後然後根據使用者的回饋一直去改進改善然後讓我們的App",
+  "變得更好更完美"
+ ],
+ "labels": {
+  "skills": {
+   "JavaScript": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「前端的部分我是用加巴screen」——加巴≈java、screen≈script，位置與語境都對得上，是可辨識的走樣形"
+   },
+   "軟體程式設計": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "展演：「用Collin去開發這些頁面跳轉的邏輯還有按鈕點擊的回饋」是具體的程式開發行為描述"
+   },
+   "ASP.NET": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "要點卡要求不提，逐字稿無痕跡"
+   },
+   "C#": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "要點卡要求不提，逐字稿無痕跡"
+   },
+   "Git": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「版本控制的部分我們使用gats」——gats≈git，且前面就是「版本控制」"
+   },
+   "Angular": {
+    "has": 2,
+    "wants": 2,
+    "said": 1,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "★不計分。「我是用加巴screen那時候我們也用了這個框架」——「這個框架」是懸空指涉，暗示有個框架名被吃掉了，但也可能是指前面那個。判不出她講了沒有，硬標 2 或 0 都是編造"
+   },
+   "AJAX": {
+    "has": 2,
+    "wants": 2,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "要點卡要求不提，逐字稿無痕跡"
+   },
+   "HTML/CSS": {
+    "has": 2,
+    "wants": 1,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag） + jd.description",
+    "note": "JD 散文提及：「具備良好的HTML/CSS基礎」→ 請判定 nice-to-have(1) 或明確要求(2)",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "視覺設計": {
+    "has": 1,
+    "wants": 0,
+    "said": 0,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "MS SQL": {
+    "has": 1,
+    "wants": 0,
+    "said": 0,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "HTML": {
+    "has": 1,
+    "wants": 2,
+    "said": 2,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "網路程式設計": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "視覺設計相關知識": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "CSS": {
+    "has": 0,
+    "wants": 2,
+    "said": 2,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "jQuery": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "LLM": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   }
+  },
+  "alias_decisions": [
+   {
+    "resume_surface": "HTML/CSS",
+    "jd_surface": "HTML",
+    "heuristic": "履歷為 JD 字串的擴充形",
+    "decision": true,
+    "note": "HTML/CSS 是把兩個技能寫在一格，涵蓋 HTML"
+   },
+   {
+    "resume_surface": "HTML/CSS",
+    "jd_surface": "CSS",
+    "heuristic": "字串包含",
+    "decision": true,
+    "note": "同上，涵蓋 CSS"
+   }
+  ],
+  "gap_ranking": [
+   "AJAX"
+  ],
+  "free_add_done": true
+ }
+}

@@ -1,0 +1,260 @@
+{
+ "case_id": "ivw-005",
+ "meta": {
+  "persona_id": "resume-140",
+  "job_source_id": "8u1w8",
+  "job_url": "https://www.104.com.tw/job/8u1w8",
+  "recording_id": "T3",
+  "recording_brief": "應徵專案管理職，正常發揮",
+  "strata": [
+   "soft-skill-dominant"
+  ],
+  "rationale": "★核心格。專業交集只有『專案管理』『專案時間』兩項且都是截斷形，另有三項通用文書技能。表面掃描在這格該近乎全滅——語意段非選配的證據。註：交集 2 是 persona 真實天花板（它只有兩個專案類技能），不是選材失誤。",
+  "transcript_source": "stt",
+  "stt_engine": "Android SpeechRecognizer (zh-TW) / Galaxy S24 / Android 16 / Google App 17.44.15.ve.arm64",
+  "engine_filler_policy": "partial",
+  "engine_notes": [
+   "非詞彙填充音(嗯/呃)全數移除;詞彙型(那個/就是/然後)保留",
+   "停頓約 1–2 秒即自動送出,長回答必然被切成多段",
+   "已知語意反轉:「蠻有興趣」→「沒有興趣」,兩次獨立測試皆出現"
+  ],
+  "labels_verified": true,
+  "said_labeled": true,
+  "labeled_by": [
+   "A-draft",
+   "B-review"
+  ],
+  "double_labeled": false,
+  "speaker": "怡君（單一講者，全部六段）"
+ },
+ "resume": [
+  {
+   "id": "e1",
+   "title": "圖書館",
+   "category": "社團",
+   "timeRange": "2025.07",
+   "description": "完成 60 小時書籍上架與櫃檯支援",
+   "tags": [
+    "專案管理",
+    "專案時間",
+    "中文打字",
+    "Word",
+    "Excel",
+    "簡報製作"
+   ]
+  },
+  {
+   "id": "e2",
+   "title": "課程專題 - 在地品牌行銷企劃",
+   "category": "學業",
+   "timeRange": "2025.02 - 2025.06",
+   "description": "訪談 3 位消費者並產出企劃書",
+   "tags": []
+  },
+  {
+   "id": "e3",
+   "title": "餐廳外場",
+   "category": "工作",
+   "timeRange": "2023.09 - 2024.06",
+   "description": "假日尖峰時段外場服務與帶位",
+   "tags": []
+  }
+ ],
+ "jd": {
+  "_job_id": "8u1w8",
+  "_source": "104",
+  "_url": "https://www.104.com.tw/job/8u1w8",
+  "title": "專案管理師/副理/經理",
+  "company": "社團法人臺灣產學策進會",
+  "requiredSkills": [
+   "專案成本╱品質╱風險管理",
+   "專案時間╱進度控管",
+   "專案規劃執行╱範圍管理",
+   "專案溝通╱整合管理",
+   "專案管理架構及專案說明",
+   "政府專案執行",
+   "提案與簡報技巧",
+   "公關新聞稿撰寫與報導",
+   "市場調查企劃與執行",
+   "市場調查資料分析與報告撰寫",
+   "Excel",
+   "PowerPoint",
+   "Word"
+  ],
+  "description": "你是「發現問題」的人還是「解決問題」的人？\n臺灣數位內容看似光芒萬丈，有技術、有人才，每次作品端出來都酷炫到不行；但若要說已經形成一個完整的「產業」，其實還有一段路要走。而我們正是走在這條路上，試圖撥開迷霧，探尋可發展的方向並設定前行的座標。\n我們正在尋找一位喜歡挖掘問題根源，也樂於實驗解方的夥伴，不只能提出內容切角與策略，更能和團隊一起產出有觀點又有趣的規劃。\n身為一位專案經理，你需要全心投入專案，與創作團隊彼此刺激，同時也要能跳脫出來，從專案管理的視角拉開格局、推進進度。可能這一小時你還在和團隊腦力激盪，下一秒就得抽離身體拉住自己，盯緊流程、抓住細節。\n如果你喜歡打團體戰，也享受看著世界一點一點改變的樣子，就把履歷丟過來，一起玩真的吧！\n\n【工作內容】\n因應公司發展目標，參與各式專案工作，工作項目可能包含：\n•資料蒐集與整理\n•市場觀察與鑑賞\n•計畫與策略制定\n•提案設計與pitch\n\n"
+ },
+ "transcript_segments": [
+  "大家好我是中正大學行留大四的學生那我是嘉義人我之前能做過一個課程的專題是有關在地品牌的行銷企劃那時候有訪談了三位消費者最後有產出一份企劃書",
+  "那我們那時候的分公是一個主總共有四個人那我負責的部分是約訪談的時間然後還有統整一些前期會需要用到資料等等那如果我們主當中有人在拖延的話我就會直接傳訊息跟那位組員說然後並且給他設定一個daylight",
+  "對然後會想要設一個在LINE然後讓那位拖延的組員就是可以希望他可以在那個期限之前完成那在那之前他想要怎麼拖延都是可以的只是他必須要在那個期限之前把他的那些工作都做好這樣子",
+  "那我個人也有在圖書館當過志工的經驗服務學習大概60個小時那我也有曾經在餐廳的外場打エ然後負責假日的時候的尖峰帶位的那我自己在尖峰帶位的時候是",
+  "我們在尖峰時段代位會需要先抽號碼牌然後一先來厚道的順序代位進去對那但當然一定要考慮到就是每一組客人他們來的時候的人數那人數上如果假設現在有一個兩人味的那就是讓兩人兩人",
+  "有兩人味的空位那就是讓兩人一組的顧客然後號碼牌又是比較前面的人先進去這樣子我同時也首word還有Excel以及簡報製作的謝謝"
+ ],
+ "labels": {
+  "skills": {
+   "專案管理": {
+    "has": 2,
+    "wants": 1,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag） + jd.description",
+    "note": "JD 散文提及：「身為一位專案經理，你需要全心投入專案，與創作團隊彼此刺激，同時也要能跳脫出來，從專案管理的視角拉開格局、推進進度」→ 請判定 nice-to-have(1) 或明確要求(2)，成員B:我覺得是1，因為這段話是描述專案經理的工作內容，並沒有明確要求應徵者必須具備專案管理的技能",
+    "said_note": "★展演。分工（總共四個人、我負責約訪談與統整資料）＋進度介入（傳訊息、設期限）＋交付（產出企劃書）"
+   },
+   "專案時間": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "★展演。「我負責的部分是約訪談的時間」「有人在拖延就直接傳訊息並且給他設定一個daylight[deadline]」「希望他在那個期限之前完成」——排程、設期限、追延遲，三件都做到了，一次都沒說出那四個字"
+   },
+   "中文打字": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "無痕跡"
+   },
+   "Word": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "Excel": {
+    "has": 2,
+    "wants": 2,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "簡報製作": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「我同時也首[熟]word還有Excel以及簡報製作」"
+   },
+   "Outlook": {
+    "has": 1,
+    "wants": 0,
+    "said": 0,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案成本╱品質╱風險管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案時間╱進度控管": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案規劃執行╱範圍管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案溝通╱整合管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案管理架構及專案說明": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "政府專案執行": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "提案與簡報技巧": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "公關新聞稿撰寫與報導": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "市場調查企劃與執行": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "市場調查資料分析與報告撰寫": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "PowerPoint": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   }
+  },
+  "alias_decisions": [
+   {
+    "resume_surface": "專案管理",
+    "jd_surface": "專案管理架構及專案說明",
+    "heuristic": "JD 為履歷字串的擴充形（前綴截斷）",
+    "decision": false,
+    "note": "★不同技能。前者是做專案的能力，後者是「能說明專案管理架構」的知識性要求（面試會被問方法論）。前綴相同但職能不同，比照 golden_pairs.v1「財務報表製作≠報表彙整與管理」的保守判法"
+   },
+   {
+    "resume_surface": "專案時間",
+    "jd_surface": "專案時間╱進度控管",
+    "heuristic": "JD 為履歷字串的擴充形（前綴截斷）",
+    "decision": true,
+    "note": "履歷是 104 技能表的前綴截斷形，同一個技能"
+   }
+  ],
+  "gap_ranking": [],
+  "free_add_done": true
+ }
+}

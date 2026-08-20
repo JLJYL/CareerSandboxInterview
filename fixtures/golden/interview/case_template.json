@@ -1,0 +1,60 @@
+{
+  "case_id": "ivw-001",
+  "meta": {
+    "resume_ref": "fixtures/samples/resume_02.json",
+    "job_ref": "jobs_all:104-8f3a91c2",
+    "transcript_source": "stt",
+    "stt_engine": "TODO-填實際引擎與版本",
+    "has_punctuation": false,
+    "speaker": "外部受試者 P1",
+    "strata": ["hard-skill-dominant", "no-punctuation"],
+    "labeled_by": ["A"],
+    "double_labeled": false,
+    "labeled_at": "2026-08-11"
+  },
+
+  "_comment_resume": "履歷與 JD 直接內嵌，不要只放 ref。黃金集要能單獨重跑，上游資料改版時它得是不動的基準。",
+  "resume": {
+    "skills": ["Python", "SQL"],
+    "experiences": [
+      {
+        "title": "資料分析實習",
+        "tags": ["資料視覺化", "跨部門溝通", "專案時間/進度控管"],
+        "description": "負責每日資料 ETL 與儀表板維護"
+      }
+    ]
+  },
+
+  "jd": {
+    "requiredSkills": ["Python", "SQL", "資料視覺化", "專案管理"],
+    "description": "需要能跟不同部門溝通協調的人。熟悉自動化排程尤佳。"
+  },
+
+  "_comment_transcript": "STT 原始輸出，一個字都不要修。錯字、無標點、重複語都是資料的一部分。",
+  "transcript": "呃那個我在上一份實習的時候基本上就是負責整個資料的處理流程那時候我是用 python 寫排程去把每天的資料抓下來然後就是存進資料庫後來因為主管想看趨勢所以我就用 tableau 做了一個儀表板那個大概讓他們每週省下三個小時的人工整理時間然後我也有跟業務那邊的同事一起討論他們真正想看什麼指標",
+
+  "_comment_labels": "三格全部人工標。2=明確 1=模糊(不計分) 0=沒有。漏講正解由三格推出,機器不參與。",
+  "_label_rules": {
+    "has": "履歷真的有這個技能嗎。2=明確寫出 1=模糊或可推論 0=沒有",
+    "wants": "JD 真的要這個技能嗎。2=明確要求 3=nice-to-have或隱含→標1 0=沒提",
+    "said": "逐字稿講到了嗎。2=指名或具體展演 1=帶到但薄弱 0=沒講到",
+    "展演算數": "「跟業務同事討論想看什麼指標」= 溝通協調的展演,標 2,即使沒說出那四個字",
+    "推論不算": "「在新創待過」推不出「抗壓性」,標 0"
+  },
+
+  "labels": {
+    "skills": {
+      "sk:python": { "has": 2, "wants": 2, "said": 2, "note": "指名" },
+      "sk:sql": { "has": 2, "wants": 2, "said": 0, "note": "只說存進資料庫,沒點名 SQL,也沒描述查詢行為" },
+      "skm:dataviz": { "has": 2, "wants": 2, "said": 2, "note": "tableau 指名 + 儀表板展演" },
+      "skm:comm": { "has": 2, "wants": 2, "said": 2, "note": "跨部門討論指標=展演,規則第二條" },
+      "skm:pm": { "has": 2, "wants": 2, "said": 1, "note": "有排程與週期概念但很薄,不計分" }
+    },
+
+    "_comment_ranking": "只排真漏講(has=2 wants=2 said=0)的,照「最想被告知」的順序。人排,不是機器排。",
+    "gap_ranking": ["sk:sql"],
+
+    "_comment_free_add": "★ 必填步驟:讀完逐字稿,把機器完全沒抓到、但你認為在場的技能補進 skills。這一步不做,召回率永遠測不出來。",
+    "free_add_done": true
+  }
+}

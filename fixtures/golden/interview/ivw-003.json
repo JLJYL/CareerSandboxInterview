@@ -1,0 +1,215 @@
+{
+ "case_id": "ivw-003",
+ "meta": {
+  "persona_id": "resume-013",
+  "job_source_id": "8fu7z",
+  "job_url": "https://www.104.com.tw/job/8fu7z",
+  "recording_id": "T1",
+  "recording_brief": "應徵前端工程師，正常發揮",
+  "strata": [
+   "mismatched-pair"
+  ],
+  "rationale": "資工履歷配純專案管理 JD，交集應為空。測退化路徑：gap 該是空的，不該硬湊建議出來。",
+  "transcript_source": "stt",
+  "stt_engine": "Android SpeechRecognizer (zh-TW) / Galaxy S24 / Android 16 / Google App 17.44.15.ve.arm64",
+  "engine_filler_policy": "partial",
+  "engine_notes": [
+   "非詞彙填充音(嗯/呃)全數移除;詞彙型(那個/就是/然後)保留",
+   "停頓約 1–2 秒即自動送出,長回答必然被切成多段",
+   "已知語意反轉:「蠻有興趣」→「沒有興趣」,兩次獨立測試皆出現"
+  ],
+  "labels_verified": true,
+  "said_labeled": true,
+  "labeled_by": [
+   "A-draft",
+   "B-review"
+  ],
+  "double_labeled": false,
+  "speaker": "怡君（單一講者，全部六段）"
+ },
+ "resume": [
+  {
+   "id": "e1",
+   "title": "畢業專題 - 健康紀錄 App",
+   "category": "學業",
+   "timeRange": "2024.02 - 2024.06",
+   "description": "以 Kotlin 開發,完成期末公開展示",
+   "tags": [
+    "JavaScript",
+    "軟體程式設計",
+    "ASP.NET",
+    "C#",
+    "Git",
+    "Angular",
+    "AJAX",
+    "HTML/CSS"
+   ]
+  }
+ ],
+ "jd": {
+  "_job_id": "8fu7z",
+  "_source": "104",
+  "_url": "https://www.104.com.tw/job/8fu7z",
+  "title": "PM 專案管理師",
+  "company": "易飛能科技股份有限公司",
+  "requiredSkills": [
+   "預算編製與成本控管",
+   "專案成本╱品質╱風險管理",
+   "專案時間╱進度控管",
+   "專案規劃執行╱範圍管理",
+   "專案溝通╱整合管理",
+   "專案管理架構及專案說明"
+  ],
+  "description": "1.產品研發專案與NPI導入量產進度控管，與RD端&工廠端配合\n3.負責產品時程、品質、成本、備料、突發狀況等管理\n4. 協助內部橫向溝通與協調，加速跨部門專案執行作業\n5. 負責專案風險之管理與排除，跨部門溝通協調與整合\n6. 定期維護生產相關報表並與客戶會議討論\n7. 協助部門主管進行預算控管\n8.市場定位與競品分析、訂單文件管理\n\n\n"
+ },
+ "transcript_segments": [
+  "考官好我覺得Alan那我現在就讀的是台大志工然後我是碩二的學生那我是新北人的那我目前做過這有成就感了一件事情是我的碩士專題做了一個健康紀錄的APP那個App",
+  "那這個健康紀錄的APP呢我們是用Collin開發的期末的時候呢有公開展示過前端的部分我是用加巴screen那時候我們也用了這個框架而版本控制的部分我們使用gats那頁面的部分是用HTML",
+  "頁面的部分呢我們是用HTML跟css做的那我在這個專案裡面負責的部分主要是前端的設計就是用HDMI跟CS做頁面的設計以及用Collin去開發說這些頁面跳轉的邏輯還有一些按鈕點擊的回饋等等好",
+  "那我覺得我很適合這份職位原因是因為我很我覺得我是一個很喜歡就是設計頁面然後讓這個頁面跟Apple變得更好會讓我有非常大成就感而且我很喜歡就是在第一版頁面設計出來之後然後根據使用者的回饋一直去改進改善然後讓我們的App",
+  "變得更好更完美"
+ ],
+ "labels": {
+  "skills": {
+   "JavaScript": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「前端的部分我是用加巴screen」——加巴≈java、screen≈script，位置與語境都對得上，是可辨識的走樣形"
+   },
+   "軟體程式設計": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "展演：「用Collin去開發這些頁面跳轉的邏輯還有按鈕點擊的回饋」是具體的程式開發行為描述"
+   },
+   "ASP.NET": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "要點卡要求不提，逐字稿無痕跡"
+   },
+   "C#": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "要點卡要求不提，逐字稿無痕跡"
+   },
+   "Git": {
+    "has": 2,
+    "wants": 0,
+    "said": 2,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "「版本控制的部分我們使用gats」——gats≈git，且前面就是「版本控制」"
+   },
+   "Angular": {
+    "has": 2,
+    "wants": 0,
+    "said": 1,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "★不計分。「我是用加巴screen那時候我們也用了這個框架」——「這個框架」是懸空指涉，暗示有個框架名被吃掉了，但也可能是指前面那個。判不出她講了沒有，硬標 2 或 0 都是編造"
+   },
+   "AJAX": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "要點卡要求不提，逐字稿無痕跡"
+   },
+   "HTML/CSS": {
+    "has": 2,
+    "wants": 0,
+    "said": 0,
+    "_src": "experiences[e1].tags（raw_tag）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "視覺設計": {
+    "has": 1,
+    "wants": 0,
+    "said": 0,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "MS SQL": {
+    "has": 1,
+    "wants": 0,
+    "said": 0,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "HTML": {
+    "has": 1,
+    "wants": 0,
+    "said": 2,
+    "_src": "resume.learning（學習中，預設不計分）",
+    "note": "",
+    "said_note": "字面出現於逐字稿"
+   },
+   "預算編製與成本控管": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案成本╱品質╱風險管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案時間╱進度控管": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案規劃執行╱範圍管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案溝通╱整合管理": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   },
+   "專案管理架構及專案說明": {
+    "has": 0,
+    "wants": 2,
+    "said": 0,
+    "_src": "jd.requiredSkills",
+    "note": "",
+    "said_note": "逐字稿無任何痕跡"
+   }
+  },
+  "alias_decisions": [],
+  "gap_ranking": [],
+  "free_add_done": true
+ }
+}
