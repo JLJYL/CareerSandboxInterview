@@ -45,3 +45,12 @@ data/golden_pairs_report.md
 data/vocab_golden_standin.json
 data/skills_v1*.json
 data/skills_v2.json
+
+app/api/
+app/main.py
+app/config.py
+app/prompts/customize.py
+app/prompts/extraction.py
+app/prompts/recommend.py
+fixtures/vocab/skills_v1.pre_expand.json
+data/golden_skill_keys.json
