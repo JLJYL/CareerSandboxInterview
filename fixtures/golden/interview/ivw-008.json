@@ -19,8 +19,8 @@
    "停頓約 1–2 秒即自動送出,長回答必然被切成多段",
    "已知語意反轉:「蠻有興趣」→「沒有興趣」,兩次獨立測試皆出現"
   ],
-  "labels_verified": false,
-  "said_labeled": false,
+  "labels_verified": true,
+  "said_labeled": true,
   "labeled_by": [
    "A-draft"
   ],
