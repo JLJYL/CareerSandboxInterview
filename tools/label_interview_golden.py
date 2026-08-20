@@ -255,9 +255,14 @@ def label() -> None:
         case["labels"]["gap_ranking"] = sorted(
             gaps, key=lambda s: (s in GENERIC, s))
         case["labels"]["free_add_done"] = True
-        case["meta"]["labeled_by"] = ["A-draft"]
-        case["meta"]["said_labeled"] = False   # ← 人工覆核後才改 true
-        case["meta"]["labels_verified"] = False
+        # ★ 覆核狀態由人決定，腳本不得覆寫。
+        #   B 的覆核只存在 JSON 裡，若這裡寫死，任何人重跑一次腳本
+        #   覆核狀態就沒了——而且不會有任何跡象，閘門會突然又擋住，
+        #   查半天才發現是自己重跑腳本洗掉的。
+        meta = case["meta"]
+        meta.setdefault("labeled_by", ["A-draft"])
+        meta.setdefault("said_labeled", False)
+        meta.setdefault("labels_verified", False)
         path.write_text(json.dumps(case, ensure_ascii=False, indent=1),
                         encoding="utf-8")
 
