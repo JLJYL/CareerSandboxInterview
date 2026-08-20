@@ -137,7 +137,7 @@
     "wants": 1,
     "said": 0,
     "_src": "experiences[e1].tags（raw_tag） + jd.description",
-    "note": "JD 散文提及：「具備良好的HTML/CSS基礎」→ 請判定 nice-to-have(1) 或明確要求(2)",
+    "note": "JD 散文提及：「具備良好的HTML/CSS基礎」→ 成員B判 1(不計分)。依規則四但書：結構化 requiredSkills 已有 HTML 與 CSS 兩條且都是 wants=2 在計分，合併裁決判定 HTML/CSS 同時涵蓋兩者。判 2 會讓同一件事計三遍，且因本格 said=0 而 HTML/CSS 各自 said=2，報告會同時說「講了 HTML、講了 CSS、漏講了 HTML/CSS」。",
     "said_note": "逐字稿無任何痕跡"
    },
    "視覺設計": {
