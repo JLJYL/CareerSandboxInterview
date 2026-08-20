@@ -80,7 +80,15 @@ class TextStats:
     filler_reliability: str = "unknown"
     """filler_count 是否可信,決定 B 能不能拿它當流暢度的錨點。
 
-      "measured"        逐字稿裡確實有填充詞,計數反映使用者的口語習慣
+      "measured"        計數反映使用者的口語習慣,但只涵蓋「詞彙型」填充詞
+
+    實測 Android 會全數移除非詞彙填充音(「嗯」5→0、「呃」5→0,部分轉成「而」),
+    詞彙型完整保留(「那個」2→2、「就是」7→8、「然後」1→3)。
+    所以 "measured" 的正確讀法是「詞彙型填充詞已量到」,不是「口語習慣已完整量到」。
+    B 側措辭規則:不得宣稱涵蓋全部口語習慣。
+
+    鑑別力實測(每百字):正常發揮 3.0 / 多講故事 6.4 / 刻意講亂 9.8——
+    單調且間距明顯,目前整個模組唯一乾淨的量化訊號。
       "suppressed"      引擎做了 disfluency removal,計數反映的是後處理不是使用者
       "unknown"         尚未由 STT_TERM_PROBE 確認
       "not_applicable"  這段是打字輸入,填充詞計數本來就無意義
@@ -110,8 +118,14 @@ class TextStats:
     """斷句方式,決定 sentence_count 與 avg_sentence_len 的可信度。
 
       "punctuation"       有標點,精確值
+      "stt_segment"       無標點,但邊界來自 STT 自動送出點,是實測值
       "discourse_marker"  無標點,以語氣詞估算,是估算值
       "unavailable"       無法斷句,兩個欄位皆為 0
+
+    "stt_segment" 是正式環境的常態,前提是前端把多段以換行接起來
+    (見 TurnDTO.answer_segments)。它量的不是句長,是「停頓前講了多長」,
+    也就是語流連續性。實測 69–86 字。
+    B 側措辭規則:不得講成「句子長度」。
 
     B 側規則:segmentation 不是 "punctuation" 時,prompt 不得把平均句長
     講得像量出來的。Android 中文 STT 通常不輸出標點,正式環境的常態會是
@@ -192,6 +206,26 @@ class GapCandidate:
     """0–1,JD 重視程度,用於排序取前 N 名。內部用,不出 HTTP。"""
 
 
+DEMONSTRATION_THRESHOLD = """展演的認定門檻(標記與 why 否決共用)。
+
+一個技能算不算「講到了」,分三種情況:
+
+  指名        原字出現。「我用 Angular 寫的」                    → 算
+  展演        描述具體行為,且該行為不做這件事就做不到。
+              「我排了每週進度表,有人拖延就設 deadline」= 專案時間控管  → 算
+  自我宣稱    只有形容或評價,沒有可查證的行為。
+              「我很注重時程管理」                              → 不算
+  只能推論    要靠常識補完才成立。「我在餐廳打工過」→ 抗壓性        → 不算
+
+門檻線在「具體行為」與「自我宣稱」之間,不在「有沒有講到技能名稱」。
+
+【為什麼要兩邊共用同一個定義】
+黃金集用它標 said,B 的 why 否決用它判斷要不要丟掉候選。
+兩邊用不同的門檻,評測結果就無法解釋——測試集說「這條算講到」,
+線上卻報成漏講,而數字看起來只是準確率低,查不出是定義不一致。
+"""
+
+
 WHY_MUST_BE_JD_SIDE = """MissingPoint.why 的鐵則:
 
 why 是「為什麼這一點對這份 JD 重要」,是 JD 側的重要性論證,
@@ -269,11 +303,30 @@ class TranscriptAnalyzer(Protocol):
     端點組裝時以 FastAPI lifespan 處理。
     """
 
-    def mentioned_skills(self, transcript: str) -> set[str]:
+    def mentioned_skills(
+        self,
+        transcript: str,
+        candidates: set[str] | None = None,
+    ) -> set[str]:
         """逐字稿 → 使用者實際講出來的技能集合。
 
         回傳 skill_id(帶 sk: / skm: 前綴),不是顯示字串。
         這是三個集合 join 的鍵,顯示字串走 GapCandidate.display。
+
+        【candidates 的用途:W2 的履歷條件式模糊匹配】
+        None 時掃全詞彙表(W1 行為,向後相容)。
+        給定時只在這個集合內比對。
+
+        存在理由:實測 STT 對英文技術詞的錯誤不是穩態的——Angular 三次分別
+        轉成 Android、整段消失、Andrew;Git 是 gate、gats、Gate。靜態別名表
+        補了一種下次來另一種,走不通。
+
+        但把搜尋範圍限縮到「這個人履歷上的 8 個技能」之後,問題就變窄了:
+        掃全表時「加巴screen」什麼都不是,已知候選有 JavaScript 時它是強候選。
+        誤傷面積小,而且不需要預先知道會錯成什麼——這是唯一能對付非穩態
+        錯誤的方法。
+
+        呼叫端(GapComputer.compute)以履歷技能集當 candidates。
         """
         ...
 
@@ -343,12 +396,14 @@ class CollabScorer(Protocol):
 class FakeTranscriptAnalyzer:
     """固定回傳。只為了讓 B 的 pipeline 跑得起來。"""
 
-    def mentioned_skills(self, transcript: str) -> set[str]:
+    def mentioned_skills(
+        self, transcript: str, candidates: set[str] | None = None
+    ) -> set[str]:
         found = set()
         for kw, sid in (("SQL", "sk:sql"), ("Python", "sk:python"), ("Excel", "sk:excel")):
             if kw.lower() in transcript.lower():
                 found.add(sid)
-        return found
+        return found if candidates is None else (found & candidates)
 
     def text_stats(self, transcript: str) -> TextStats:
         detail = {w: transcript.count(w) for w in ("嗯", "那個", "就是") if w in transcript}
