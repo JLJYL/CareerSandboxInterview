@@ -175,6 +175,8 @@ DISCOURSE_MARKERS: tuple[str, ...] = (
 )
 
 _PUNCT_RE = re.compile(r"[。！？；，、\n\.!\?;]+")
+#: 真標點,不含換行。換行是我們自己接多段時加的,不是使用者說話的產物。
+_REAL_PUNCT_RE = re.compile(r"[。！？；，、\.!\?;]")
 _ARABIC_QUANT_RE = re.compile(
     r"\d+(?:\.\d+)?\s*(?:%|％|倍|成|萬|千|百|人|個|次|天|週|周|月|年|小時|分鐘|元|k|m)",
     re.IGNORECASE,
@@ -486,13 +488,21 @@ class TranscriptAnalyzer:
 
     # -------------------------------------------------- 契約方法
 
-    def mentioned_skills(self, transcript: str) -> set[str]:
+    def mentioned_skills(self, transcript: str,
+                         candidates: set[str] | None = None) -> set[str]:
         """逐字稿 → 使用者實際講出來的技能集合（已正規化）。
 
-        ★ 回的是 skill_id（sk: / skm:），不是 name_zh——見 note 的 D1 異議第二條。
-          要顯示字串請走 display()，不要改這裡的回傳型別。
+        回傳 skill_id（sk: / skm:），不是 name_zh。要顯示字串走 display()。
+
+        candidates=None 時掃全詞彙表（W1 行為）。給定時只回落在該集合內的。
+
+        ★ 目前只做「事後過濾」,還沒做合約講的履歷條件式模糊匹配。
+          差別很大:過濾只是把掃出來的結果篩掉一部分,不會讓「加巴screen」
+          變成 JavaScript;真正的價值在於**範圍限縮之後可以放寬匹配**。
+          那是 W2 的實作，這裡先讓簽章對齊，行為維持保守。
         """
-        return set(self.mentions(transcript).keys())
+        found = set(self.mentions(transcript).keys())
+        return found if candidates is None else (found & candidates)
 
     def text_stats(self, transcript: str) -> TextStats:
         """填充詞、量化詞、語段長度。全部確定性，不經模型。"""
@@ -633,17 +643,27 @@ class TranscriptAnalyzer:
     # -------------------------------------------------- 內部
 
     def _segment(self, text: str) -> tuple[list[str], str]:
-        """三態,對齊合約凍結的 segmentation 欄位。
+        """四態,對齊合約的 segmentation 欄位。
 
-          punctuation       有標點,精確值
-          discourse_marker  無標點,以語氣詞估算——是估算值,B 的 prompt 不得
-                            把平均句長講得像量出來的
-          unavailable       兩者皆無(整段沒有任何語氣詞),兩個欄位回 0
+          punctuation       有真標點,精確值
+          stt_segment       無標點,但邊界來自 STT 自動送出點,是實測值
+          discourse_marker  無標點,以語氣詞估算——是估算值
+          unavailable       都沒有,兩個欄位回 0
+
+        ★ punctuation 與 stt_segment 一定要分開,這是我原本寫錯的地方。
+          _PUNCT_RE 含 \n,所以多段用換行接起來之後會命中「有標點」——
+          但實測逐字稿裡一個真標點都沒有,回 punctuation 等於宣稱那 76 字
+          是精確句長,實際上它是「她停頓前講了多長」。
+          過度宣稱比不宣稱糟:B 的 prompt 會照著把它講成句子長度。
         """
         if not text.strip():
             return [], "unavailable"
-        if _PUNCT_RE.search(text):
-            return [s for s in _PUNCT_RE.split(text) if s.strip()], "punctuation"
+        real_punct = _REAL_PUNCT_RE.search(text)
+        if real_punct:
+            return [x for x in _PUNCT_RE.split(text) if x.strip()], "punctuation"
+        if "\n" in text:
+            # 段界＝STT 自動送出點。量的不是句長,是語流連續性。
+            return [x for x in text.split("\n") if x.strip()], "stt_segment"
         pattern = "|".join(re.escape(m) for m in DISCOURSE_MARKERS)
         parts = [p for p in re.split(f"(?={pattern})", text) if p.strip()] if pattern else []
         if len(parts) <= 1:

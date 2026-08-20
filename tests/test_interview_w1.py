@@ -195,6 +195,30 @@ def test_filler_reliability_suppressed_is_engine_config_not_inference():
     assert b.text_stats("嗯那個就是").filler_reliability == "suppressed"
 
 
+def test_stt_segment_is_distinct_from_punctuation():
+    """★ 這條守著我原本寫錯的地方。
+
+    _PUNCT_RE 含 \n，所以多段用換行接起來會命中「有標點」。但實測逐字稿
+    一個真標點都沒有——回 punctuation 等於宣稱那 76 字是精確句長，
+    實際上它是「她停頓前講了多長」。過度宣稱比不宣稱糟：
+    B 的 prompt 會照著把它講成句子長度。
+    """
+    a = TranscriptAnalyzer(vocab=VOCAB)
+    stt = a.text_stats("我那時候用了排程\n後來主管想看趨勢\n所以我做了儀表板")
+    assert stt.segmentation == "stt_segment"
+    assert stt.sentence_count == 3          # 段界＝STT 自動送出點
+    assert a.text_stats("我先做分析。然後報告。").segmentation == "punctuation"
+
+
+def test_mentioned_skills_accepts_candidates():
+    """合約 W2 增補：candidates=None 維持 W1 行為，給定時只回集合內的。"""
+    a = TranscriptAnalyzer(vocab=VOCAB)
+    text = "我用 python 接 mysql"
+    assert a.mentioned_skills(text) == {"sk:python", "sk:sql"}
+    assert a.mentioned_skills(text, candidates={"sk:python"}) == {"sk:python"}
+    assert a.mentioned_skills(text, candidates=set()) == set()
+
+
 def test_segmentation_flag_is_honest_without_punctuation():
     """無標點時 avg_segment_length 是估算，必須誠實標記——W3 D1 要驗的就是這格。"""
     a = TranscriptAnalyzer(vocab=VOCAB)

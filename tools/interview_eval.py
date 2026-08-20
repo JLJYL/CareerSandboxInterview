@@ -456,6 +456,8 @@ def main() -> int:
     parser.add_argument("--baseline", type=Path, help="與凍結的 baseline 比對,只看退步")
     parser.add_argument("--gate", action="store_true", help="不合格時 exit 1（D5 同步點用）")
     parser.add_argument("--write-baseline", type=Path, help="把本次結果寫成 baseline")
+    parser.add_argument("--by-case", action="store_true",
+                        help="逐格分解。「哪一格壞掉」比「整體平均」有用得多。")
     parser.add_argument("--draft", action="store_true",
                         help="納入尚未人工覆核的草稿標記。輸出全程標示為草稿,不可寫 baseline。")
     parser.add_argument("--allow-synthetic", action="store_true",
@@ -489,6 +491,18 @@ def main() -> int:
     results = [run_case(c, vocab) for c in ready]
     agg = aggregate(results)
     coverage = print_report(results, agg)
+
+    if args.by_case:
+        # ★ 整體平均會藏住分布。實測 precision 0.467 這個數字，拆開來看是
+        #   某一個 persona 幾乎全錯、其他兩個幾乎全對——那是完全不同的處置。
+        print("\n【逐格分解】")
+        print(f"  {'case':<10}{'錄音':<6}{'漏講TP':>7}{'假指控':>7}{'precision':>11}   假指控的是")
+        for r, c in zip(results, ready):
+            g = r["gap"]
+            p = g.tp / (g.tp + g.fp) if (g.tp + g.fp) else 1.0
+            names = "、".join(sorted({show(x) for x in g.fp_items})) or "—"
+            print(f"  {r['case_id']:<10}{c['meta'].get('recording_id', '?'):<6}"
+                  f"{g.tp:>7}{g.fp:>7}{p:>11.3f}   {names}")
 
     # 有效樣本數 ≠ 格數。同一段逐字稿被多格共用時,提及集的誤差是相關的。
     transcripts = {r["case_id"][:0] or c["meta"].get("recording_id") or c["case_id"]
