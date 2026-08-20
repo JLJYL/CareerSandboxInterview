@@ -19,8 +19,8 @@
    "停頓約 1–2 秒即自動送出,長回答必然被切成多段",
    "已知語意反轉:「蠻有興趣」→「沒有興趣」,兩次獨立測試皆出現"
   ],
-  "labels_verified": false,
-  "said_labeled": false,
+  "labels_verified": true,
+  "said_labeled": true,
   "labeled_by": [
    "A-draft"
   ],
@@ -85,10 +85,10 @@
   "skills": {
    "帳務處理": {
     "has": 2,
-    "wants": 1,
+    "wants": 2,
     "said": 0,
     "_src": "experiences[e1].tags（raw_tag） + jd.description",
-    "note": "JD 散文提及：「負責日常帳務處理及資料登錄，具備基本會計概念，能細心核對各項帳務資料」→ 請判定 nice-to-have(1) 或明確要求(2)",
+    "note": "JD 散文提及：「負責日常帳務處理及資料登錄，具備基本會計概念，能細心核對各項帳務資料」→ 請判定 nice-to-have(1) 或明確要求(2)，成員B:我覺得是2，因為這段話是明確要求應徵者必須具備帳務處理的技能",
     "said_note": "要點卡要求不提，逐字稿無痕跡"
    },
    "會計核算和帳務": {
@@ -236,6 +236,7 @@
    }
   ],
   "gap_ranking": [
+   "帳務處理",
    "PowerPoint"
   ],
   "free_add_done": true
