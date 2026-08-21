@@ -214,43 +214,9 @@ semantic 模式比對會被擋下**——兩者量的是不同管線，混在一
 
 # 八、還沒做的
 
-## `CollabObserver`（W2 D1–D3 的格子）
+## ~~`CollabObserver`~~ ← 已交付
 
-**你已經定案了**（`feat/b-collab-observer`，我合進 `feat/a-semantic` 了）——
-`CollabScorer` 移除、換成 `CollabObserver`，採用 rubric 文件那版架構：
-**A 交可觀察值、`level` 由你的 LLM 對照 BARS 指派**。
-
-那正是我先前建議的方向，我照做。四項拆兩批：
-
-**這兩天先交（不依賴任何人）**
-
-- 參與主動性 —— 首次發言在第幾則，靠陣列順序就夠
-- 論點建構 —— 因果連接詞密度、平均發言長度，純文字
-
-**等前端（怡君說趕得上 W3）**
-
-- 傾聽與回應、協作姿態 —— 要發言者身分與時序
-
-後兩項先留介面，`signals` 回空、`evidence` 註明「本次無發言者資料」——
-就照你 `FakeCollabObserver` 的做法。
-
-`level` 我永遠不填、維持 `None`。
-
-### 一個矛盾要請你處理
-
-合約的 `COLLAB_PROHIBITED_INDICATORS` 明文禁用發言量指標並引用了
-babble 假說，但 `FakeCollabObserver` 的 signals 裡有 `utterance_count`。
-docstring 說「可放進 signals 當資料交給 LLM，但不得單獨決定等第」。
-
-**那個保護很弱。** 把「共發言 4 次」放到 LLM 面前，再叫它不要依賴——
-它會錨定在唯一的硬數字上。babble 偏誤從資料欄位漏進來，
-而合約前面才剛花一整段說明為什麼不能這樣。
-
-建議移到跟 `signals` 分開的欄位（例如 `context`），讓 prompt 在結構上
-就知道那一格不參與評分。不然「禁用」只存在於註解裡。
-
-我實作時會先照現行合約放進 `signals`，但**不會用它算任何東西**。
-你決定要不要拆欄位，我跟著改。
+見第十節。
 
 ## 那 3 筆假指控
 
@@ -266,7 +232,78 @@ docstring 說「可放進 signals 當資料交給 LLM，但不得單獨決定等
 
 ---
 
-# 九、限制（要寫進報告）
+# 九、W2 收尾的兩項交付
+
+## 1. `CollabObserver` 已交付（`app/pipeline/collab.py`）
+
+四項裡兩項有實質輸出：
+
+```
+參與主動性   first_speak_position / framing_in_first / initiated_after_gap
+論點建構     causal_connector_rate / avg_utterance_chars / utterance_length_sd
+傾聽與回應   signals={}，evidence 註明「無他人論點可比對——此項不可用」
+協作姿態     signals={}，同上
+```
+
+`level` 一律 `None`，走你既有的 notices 路徑。**可以把 `FakeCollabObserver`
+換掉了**——你 W3 D3–D4 要做 group persona 和端到端，用 Fake 等於群面那條路
+整條沒被真實作驗證過。
+
+### 後兩項回空是刻意的，不是還沒寫完
+
+缺的不是程式碼是**資料**——前端只把使用者自己的發言寫進 session。
+
+我特別**沒有做近似**。想得到的替代品（數「剛剛那位」「我同意」這類詞）
+測的是「有沒有做出回應的姿態」，不是「有沒有接住論點」——那會產出一個
+看起來合理、實際上量錯東西的數字，**比沒有數字糟**，因為它看起來像做完了。
+
+前端補完之後那兩項還要等 rubric（「傾聽與回應」定義成什麼會決定我算什麼訊號），
+所以它有兩個外部依賴。
+
+### 兩個實作決定
+
+**發言次數加了 `bg_` 前綴。** 合約允許把它放進 `signals` 當背景資訊，
+但「放進去再叫 LLM 不要依賴」是很弱的保護——它是那堆數字裡最直觀的一個。
+加前綴讓那道界線在**資料裡**看得見，你的 prompt 可以據此把 `bg_` 開頭的
+放進「背景」而不是「依據」。**這是我單方面加的慣例，你要拆成獨立欄位
+（例如 `context`）我跟著改**——重點是那道界線不能只存在於註解裡。
+
+**`first_speak_position` 的分母是「別人給了幾次機會」，不是總則數。**
+我一開始寫成總則數，測試抓到了：同樣在第 2 則開口，若使用者後面多講 5 次，
+位置就從 1.00 變成 0.17，看起來「開口早很多」——發言量從後門混進了那個訊號，
+而 babble 假說正是要避免這件事。
+
+## 2. `TranscriptAnalyzer` 的 singleton 併發修正 ★ 你 W3 接線一定要知道
+
+合約要求它是 app 啟動時的 singleton（bge-m3 約 2.3GB），你 W3 就要照著接
+FastAPI lifespan。但 `near_misses` 和 `residuals` 原本寫在**實例**上：
+
+**併發污染** —— 實測兩支執行緒交錯呼叫，A 的請求讀到 B 的結果。
+你若拿 `near_miss` 寫 why（「你其實碰到邊了」），會產出一段**針對別人
+逐字稿的具體回饋**——錯得很有說服力。
+
+**跨請求累積** —— `residuals` 只 append 不清空，長時間執行會持續長大。
+
+兩個在單執行緒測試裡永遠是綠的。
+
+### API 變更
+
+```python
+analyzer.near_misses()                # 舊：已移除，呼叫會 AttributeError
+analyzer.residuals()                  # 舊：同上
+
+result = analyzer.analyse(t)          # 新：-> MentionResult
+result.mentions / result.near_misses / result.residuals
+```
+
+`mentioned_skills()` 與 `mentions()` 沒變，只用那兩個就不受影響。
+
+舊方法改成**明確報錯而不是回空值**——回空值會讓呼叫端以為「這次沒有
+near_miss」，而不是「這個 API 不能用了」。
+
+---
+
+# 十、限制（要寫進報告）
 
 **單一講者。** 六段逐字稿都是怡君錄的。
 
