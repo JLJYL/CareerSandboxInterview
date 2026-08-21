@@ -422,6 +422,7 @@ class SurfaceIndex:
 
     def __init__(self, surface_to_skill: dict[str, str]) -> None:
         self._heads: set[str] = set()
+        self._stt_forms: set[str] = set()
         self._buckets: dict[str, list[tuple[str, str]]] = defaultdict(list)
         for surface, skill_id in surface_to_skill.items():
             if not surface:
@@ -431,7 +432,21 @@ class SurfaceIndex:
             bucket.sort(key=lambda pair: -len(pair[0]))
 
     @classmethod
-    def from_vocab(cls, vocab: Iterable[Any], *, with_heads: bool = True) -> "SurfaceIndex":
+    def from_vocab(cls, vocab: Iterable[Any], *, with_heads: bool = True,
+                   extra_aliases: dict[str, str] | None = None) -> "SurfaceIndex":
+        """建索引。三趟,順序就是優先序:
+
+            1. 完整表面形（name_zh / name_en / aliases）
+            2. STT 轉寫別名（extra_aliases，{轉寫形: 正式名}）
+            3. 詞頭（只補洞）
+
+        ★ 三趟必須全域分開,不能逐條目做完三件事。
+          先前把 STT 別名合併寫在外面、逐條目「完整形→詞頭」,結果第一條的
+          詞頭會贏過第二條的完整形——「報表彙整與管理」的詞頭「報表彙整」
+          蓋掉了「報表彙整」這個獨立條目,同一句話解析到不同技能,而且不報錯。
+          實測履歷集 recall 因此從 1.000 掉到 0.958。
+        """
+        vocab = list(vocab)
         mapping: dict[str, str] = {}
         heads: set[str] = set()
         for entry in vocab:
@@ -446,8 +461,23 @@ class SurfaceIndex:
                 if len(key) == 1 and not _is_ascii_alpha(key):
                     continue
                 mapping.setdefault(key, skill_id)
+        stt_forms: set[str] = set()
+        if extra_aliases:
+            # 第二趟：STT 轉寫別名。正式名要先能對到 skill_id 才登記。
+            name_to_id: dict[str, str] = {}
+            for entry in vocab:
+                sid, _zh, forms = _entry_fields(entry)
+                for f in forms:
+                    name_to_id.setdefault(f.strip().lower(), sid)
+            for stt_form, canonical in extra_aliases.items():
+                sid = name_to_id.get(str(canonical).strip().lower())
+                key = str(stt_form).strip().lower()
+                if sid and key and key not in mapping:
+                    mapping[key] = sid
+                    stt_forms.add(key)
+
         if with_heads:
-            # 詞頭後登記,setdefault 保證完整表面形優先——詞頭只補洞,不搶。
+            # 第三趟：詞頭只補洞,不搶。setdefault 保證前兩趟優先。
             for entry in vocab:
                 skill_id, _name, surfaces = _entry_fields(entry)
                 if not skill_id:
@@ -459,6 +489,7 @@ class SurfaceIndex:
                         heads.add(head.lower())
         index = cls(mapping)
         index._heads = heads
+        index._stt_forms = stt_forms
         return index
 
     def scan(self, text: str) -> list[tuple[int, int, str, str]]:
@@ -532,7 +563,9 @@ class TranscriptAnalyzer:
         #   一次設定,不做逐次推論。探測回來之前維持 "unknown"。
         self._engine_filler_policy = engine_filler_policy
         self._vocab = list(vocab)
-        self._index = SurfaceIndex.from_vocab(self._vocab)
+        self._index = SurfaceIndex.from_vocab(
+            self._vocab, extra_aliases=self._stt_aliases or None
+        )
         self._normalizer = normalizer
         self._embedding = embedding
         self._enable_semantic = bool(enable_semantic and embedding is not None)
@@ -544,33 +577,6 @@ class TranscriptAnalyzer:
             skill_id, name_zh, _ = _entry_fields(entry)
             if skill_id:
                 self._display[skill_id] = f"{name_zh}({skill_id})" if name_zh else skill_id
-        if self._stt_aliases:
-            name_to_id = {}
-            for entry in self._vocab:
-                sid, zh, forms = _entry_fields(entry)
-                for f in forms:
-                    name_to_id.setdefault(f.lower(), sid)
-            extra = {}
-            for stt_form, canonical in self._stt_aliases.items():
-                sid = name_to_id.get(canonical.lower())
-                if sid:
-                    extra[stt_form.lower()] = sid
-            if extra:
-                merged = dict(self._index._buckets_flat()) if hasattr(
-                    self._index, "_buckets_flat") else {}
-                for surface, sid in extra.items():
-                    merged[surface] = sid
-                for entry in self._vocab:
-                    sid, zh, forms = _entry_fields(entry)
-                    for f in forms:
-                        merged.setdefault(f.strip().lower(), sid)
-                        h = extract_head(f.strip())
-                        if h:
-                            merged.setdefault(h.lower(), sid)
-                heads = set(self._index._heads)
-                self._index = SurfaceIndex(merged)
-                self._index._heads = heads
-                self._stt_forms = set(extra)
         self._residuals: list[dict[str, Any]] = []
         self._near_misses: dict[str, MentionEvidence] = {}
         self._vec_cache: Any = None
@@ -694,9 +700,9 @@ class TranscriptAnalyzer:
                     start=src_start,
                     end=src_end,
                     quote=_quote(transcript or "", src_start, src_end),
-                    stage=("stt_alias" if surface in getattr(self, "_stt_forms", ()) else
+                    stage=("stt_alias" if surface in getattr(self._index, "_stt_forms", ()) else
                            "head" if surface in getattr(self._index, "_heads", ()) else "surface"),
-                    score=(0.85 if surface in getattr(self, "_stt_forms", ()) else
+                    score=(0.85 if surface in getattr(self._index, "_stt_forms", ()) else
                            0.9 if surface in getattr(self._index, "_heads", ()) else 1.0),
                 )
             )

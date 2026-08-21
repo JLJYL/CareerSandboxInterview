@@ -2,8 +2,10 @@
   "_mode": "semantic",
   "_semantic": {
     "window": 16,
-    "threshold": 0.45
+    "threshold": 0.45,
+    "candidate_threshold": 0.4
   },
+  "_stt_aliases": 11,
   "_cases": 10,
   "resume": {
     "precision": 1.0,
@@ -14,8 +16,8 @@
     "recall": 1.0
   },
   "said": {
-    "precision": 0.723404255319149,
-    "recall": 0.8292682926829268
+    "precision": 0.7291666666666666,
+    "recall": 0.8536585365853658
   },
   "gap": {
     "precision": 0.7272727272727273,

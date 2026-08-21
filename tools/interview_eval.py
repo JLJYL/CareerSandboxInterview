@@ -211,9 +211,11 @@ def load_embedding():
 
 
 def run_case(case: dict[str, Any], vocab: list[Any],
-             embedding: Any = None) -> dict[str, Any]:
+             embedding: Any = None,
+             stt_aliases: dict[str, str] | None = None) -> dict[str, Any]:
     analyzer = TranscriptAnalyzer(
-        vocab=vocab, embedding=embedding, enable_semantic=embedding is not None
+        vocab=vocab, embedding=embedding, enable_semantic=embedding is not None,
+        stt_aliases=stt_aliases,
     )
     name2id = build_name_index(vocab)
     # emit_soft 跟語意段連動:語意段沒開時軟技能的漏講判定全部低信心,
@@ -326,7 +328,8 @@ def print_report(results: list[dict[str, Any]], agg: dict[str, Any]) -> float:
         print("  （表面掃描＋詞頭匹配。語意段未開，加 --semantic 才是完整管線）")
     else:
         print(f"  （語意段開啟：視窗 {T_MOD.SEMANTIC_WINDOW}／"
-              f"門檻 {T_MOD.MENTION_THRESHOLD}）")
+              f"一般門檻 {T_MOD.MENTION_THRESHOLD}／"
+              f"履歷候選門檻 {T_MOD.CANDIDATE_THRESHOLD}）")
     print("=" * 68)
 
     print("\n【三個 collector 各自的準確率】")
@@ -500,6 +503,9 @@ def main() -> int:
     parser.add_argument("--baseline", type=Path, help="與凍結的 baseline 比對,只看退步")
     parser.add_argument("--gate", action="store_true", help="不合格時 exit 1（D5 同步點用）")
     parser.add_argument("--write-baseline", type=Path, help="把本次結果寫成 baseline")
+    parser.add_argument("--stt-aliases", type=Path,
+                        help="STT 轉寫對照表（stt_confusions.v1.json）。"
+                             "safe_aliases 會併進表面掃描,是確定性的一道防線。")
     parser.add_argument("--semantic", action="store_true",
                         help="開語意段（載 bge-m3 約 2.3GB）。預設關閉,秒跑完。")
     parser.add_argument("--by-case", action="store_true",
@@ -516,6 +522,16 @@ def main() -> int:
         return 1
     vocab = load_vocab(args.vocab)
     build_id_names(vocab)
+
+    # ★ STT 對照表原本只是躺在 data/ 的一份文件——做好了但沒接上管線,
+    #   而且不會報錯。實測「C Sharp」(C# 的口語形)一直在漏抓清單裡,
+    #   就是因為 safe_aliases 從來沒被載進去。
+    stt_aliases = None
+    if args.stt_aliases and args.stt_aliases.exists():
+        conf = json.loads(args.stt_aliases.read_text(encoding="utf-8"))
+        stt_aliases = conf.get("safe_aliases") or {}
+        print(f"載入 STT 安全別名 {len(stt_aliases)} 條"
+              f"（碰撞別名不載,那要靠履歷條件判定）")
 
     embedding = None
     if args.semantic:
@@ -540,7 +556,7 @@ def main() -> int:
               "→ 標 said → 三個旗標改 true")
         return 0 if not args.gate else 1
 
-    results = [run_case(c, vocab, embedding) for c in ready]
+    results = [run_case(c, vocab, embedding, stt_aliases) for c in ready]
     agg = aggregate(results)
     coverage = print_report(results, agg)
 
@@ -600,9 +616,13 @@ def main() -> int:
             out = out.with_name(f"{out.stem}_{MODE[0]}{out.suffix}")
         snapshot = {
             "_mode": MODE[0],
+            # ★ 參數要跟數字一起凍。沒有這些欄位的話,回歸時看到差異
+            #   分不出是程式壞了還是參數被改過。
             "_semantic": ({"window": T_MOD.SEMANTIC_WINDOW,
-                           "threshold": T_MOD.MENTION_THRESHOLD}
+                           "threshold": T_MOD.MENTION_THRESHOLD,
+                           "candidate_threshold": T_MOD.CANDIDATE_THRESHOLD}
                           if MODE[0] == "semantic" else None),
+            "_stt_aliases": len(stt_aliases) if stt_aliases else 0,
             "_cases": len(ready),
             **{key: {"precision": m.precision, "recall": m.recall}
                for key, m in agg["totals"].items()},

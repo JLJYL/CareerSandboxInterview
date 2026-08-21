@@ -452,6 +452,27 @@ def test_head_match_finds_spoken_short_form():
     assert ev.stage == "head" and ev.score < 1.0
 
 
+def test_stt_aliases_do_not_disturb_existing_resolution():
+    """★ 守住索引建立的三趟順序：完整形 → STT 別名 → 詞頭。
+
+    先前把別名合併寫在 from_vocab 外面、逐條目做「完整形→詞頭」，
+    結果第一條的詞頭贏過第二條的完整形——「報表彙整與管理」的詞頭
+    「報表彙整」蓋掉了「報表彙整」這個獨立條目。同一句話解析到不同技能，
+    而且不報錯，實測履歷集 recall 從 1.000 掉到 0.958 才發現。
+    """
+    vocab = [{"skill_id": "skm:a", "name_zh": "報表彙整與管理", "aliases": []},
+             {"skill_id": "skm:b", "name_zh": "報表彙整", "aliases": []}]
+    plain = TranscriptAnalyzer(vocab=vocab)
+    aliased = TranscriptAnalyzer(vocab=vocab,
+                                 stt_aliases={"報表會診": "報表彙整與管理"})
+    # 載入別名不得改變既有解析
+    assert plain.mentioned_skills("我負責報表彙整") == {"skm:b"}
+    assert aliased.mentioned_skills("我負責報表彙整") == {"skm:b"}
+    # 別名本身要生效，且標記成 stt_alias
+    assert aliased.mentioned_skills("負責報表會診") == {"skm:a"}
+    assert aliased.mentions("負責報表會診")["skm:a"][0].stage == "stt_alias"
+
+
 def test_full_surface_beats_head(index):
     """詞頭只補洞,不搶——完整表面形優先。"""
     hits = index.scan("我做資料視覺化")
