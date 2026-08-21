@@ -1,4 +1,7 @@
 {
+  "_mode": "surface",
+  "_semantic": null,
+  "_cases": 10,
   "resume": {
     "precision": 1.0,
     "recall": 1.0

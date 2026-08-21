@@ -40,7 +40,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.contracts.interview_protocols import JDInput  # noqa: E402
 from app.pipeline.gap import GapComputer  # noqa: E402
+from app.pipeline import transcript as T_MOD  # noqa: E402
 from app.pipeline.transcript import TranscriptAnalyzer  # noqa: E402
+
+#: 目前的執行模式，供報表與 baseline 命名使用。用 list 是為了讓
+#: print_report 這種模組層函式讀得到，不必到處傳參數。
+MODE = ["surface"]
 
 # ---------------------------------------------------------------- 驗收門檻
 # 【待校準】D5 之前這些是報表用的參考線,不當閘門。D5 凍結一份 baseline 之後,
@@ -176,9 +181,43 @@ def build_name_index(vocab: list[Any]) -> dict[str, str]:
     return out
 
 
-def run_case(case: dict[str, Any], vocab: list[Any]) -> dict[str, Any]:
-    analyzer = TranscriptAnalyzer(vocab=vocab)
+def load_embedding():
+    """載入 bge-m3。載不起來就丟例外,**不得靜默退回表面掃描**。
+
+    ★ 這是最難查的一種錯:退回之後數字看起來完全合理(0.471 是個正常數字),
+      但它被貼上 semantic 的標籤寫進 baseline。之後每次回歸都在跟一個
+      標錯模式的基準線比,而且沒有任何跡象。寧可炸掉。
+    """
+    import os
+    if os.environ.get("INTERVIEW_EVAL_FAKE_EMBED"):
+        # 只給測試用:驗流程接不接得起來,分數沒有語意。
+        import numpy as np
+
+        class _Fake:
+            def embed(self, texts):
+                out = []
+                for t in texts:
+                    v = np.zeros(64, dtype="float32")
+                    for i, ch in enumerate(t):
+                        v[(ord(ch) * 7 + i) % 64] += 1.0
+                    n = np.linalg.norm(v)
+                    out.append((v / n if n else v).tolist())
+                return out
+
+        print("⚠ INTERVIEW_EVAL_FAKE_EMBED 已設,使用假向量——數字無意義,不得寫 baseline。")
+        return _Fake()
+    from app.providers.embeddings import BgeM3Embedding
+    return BgeM3Embedding()
+
+
+def run_case(case: dict[str, Any], vocab: list[Any],
+             embedding: Any = None) -> dict[str, Any]:
+    analyzer = TranscriptAnalyzer(
+        vocab=vocab, embedding=embedding, enable_semantic=embedding is not None
+    )
     name2id = build_name_index(vocab)
+    # emit_soft 跟語意段連動:語意段沒開時軟技能的漏講判定全部低信心,
+    # 不發出去。開了才發。見 gap.GapComputer 的說明。
     computer = GapComputer(analyzer)
 
     resume = case["resume"]
@@ -282,7 +321,12 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 def print_report(results: list[dict[str, Any]], agg: dict[str, Any]) -> float:
     print(f"\n{'=' * 68}")
-    print(f"面試黃金測試集  {len(results)} 個 case")
+    print(f"面試黃金測試集  {len(results)} 個 case   模式：{MODE[0]}")
+    if MODE[0] == "surface":
+        print("  （表面掃描＋詞頭匹配。語意段未開，加 --semantic 才是完整管線）")
+    else:
+        print(f"  （語意段開啟：視窗 {T_MOD.SEMANTIC_WINDOW}／"
+              f"門檻 {T_MOD.MENTION_THRESHOLD}）")
     print("=" * 68)
 
     print("\n【三個 collector 各自的準確率】")
@@ -456,6 +500,8 @@ def main() -> int:
     parser.add_argument("--baseline", type=Path, help="與凍結的 baseline 比對,只看退步")
     parser.add_argument("--gate", action="store_true", help="不合格時 exit 1（D5 同步點用）")
     parser.add_argument("--write-baseline", type=Path, help="把本次結果寫成 baseline")
+    parser.add_argument("--semantic", action="store_true",
+                        help="開語意段（載 bge-m3 約 2.3GB）。預設關閉,秒跑完。")
     parser.add_argument("--by-case", action="store_true",
                         help="逐格分解。「哪一格壞掉」比「整體平均」有用得多。")
     parser.add_argument("--draft", action="store_true",
@@ -470,6 +516,12 @@ def main() -> int:
         return 1
     vocab = load_vocab(args.vocab)
     build_id_names(vocab)
+
+    embedding = None
+    if args.semantic:
+        print("載入 bge-m3（約 2.3GB），第一次會很久⋯")
+        embedding = load_embedding()   # 載不起來直接炸,不退回表面掃描
+    MODE[0] = "semantic" if args.semantic else "surface"
 
     if args.draft:
         for c in cases:
@@ -488,7 +540,7 @@ def main() -> int:
               "→ 標 said → 三個旗標改 true")
         return 0 if not args.gate else 1
 
-    results = [run_case(c, vocab) for c in ready]
+    results = [run_case(c, vocab, embedding) for c in ready]
     agg = aggregate(results)
     coverage = print_report(results, agg)
 
@@ -517,6 +569,10 @@ def main() -> int:
               "不得用於調參數,也不得寫成 baseline。")
 
     baseline = json.loads(args.baseline.read_text(encoding="utf-8")) if args.baseline else None
+    if baseline and baseline.get("_mode") and baseline["_mode"] != MODE[0]:
+        print(f"\n  ✗ baseline 是 {baseline['_mode']} 模式，本次是 {MODE[0]} 模式。"
+              "\n      兩者量的是不同管線，比對沒有意義。請用對應模式的 baseline。")
+        return 1
     failures = check_gates(agg, baseline)
 
     if args.write_baseline:
@@ -531,14 +587,29 @@ def main() -> int:
             print("\n  ✗ 拒絕寫入 baseline：本次含合成逐字稿。"
                   "拿合成資料當基準線,之後每次回歸都在跟一個假的過去比。")
             return 1
+        # ★ 兩種模式的數字不能互比。表面掃描 0.471 與語意段 0.727 量的是
+        #   不同的管線,混在同一份 baseline 裡會讓之後的回歸完全失去意義——
+        #   看到「退步」時分不出是程式壞了還是模式不同。所以檔名帶模式,
+        #   而且 baseline 內部也記模式,載入時對不上會擋。
+        out = args.write_baseline
+        import os
+        if os.environ.get("INTERVIEW_EVAL_FAKE_EMBED"):
+            print("\n  ✗ 拒絕寫入 baseline：本次使用假向量。")
+            return 1
+        if MODE[0] not in out.stem:
+            out = out.with_name(f"{out.stem}_{MODE[0]}{out.suffix}")
         snapshot = {
-            key: {"precision": m.precision, "recall": m.recall}
-            for key, m in agg["totals"].items()
+            "_mode": MODE[0],
+            "_semantic": ({"window": T_MOD.SEMANTIC_WINDOW,
+                           "threshold": T_MOD.MENTION_THRESHOLD}
+                          if MODE[0] == "semantic" else None),
+            "_cases": len(ready),
+            **{key: {"precision": m.precision, "recall": m.recall}
+               for key, m in agg["totals"].items()},
         }
-        args.write_baseline.write_text(
-            json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        print(f"\n  baseline 已寫入 {args.write_baseline}（{len(ready)} 格）")
+        out.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2),
+                       encoding="utf-8")
+        print(f"\n  baseline 已寫入 {out}（{len(ready)} 格，模式 {MODE[0]}）")
 
     print()
     if failures:
