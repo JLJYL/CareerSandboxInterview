@@ -210,13 +210,48 @@ def test_stt_segment_is_distinct_from_punctuation():
     assert a.text_stats("我先做分析。然後報告。").segmentation == "punctuation"
 
 
-def test_mentioned_skills_accepts_candidates():
-    """合約 W2 增補：candidates=None 維持 W1 行為，給定時只回集合內的。"""
+def test_candidates_relaxes_threshold_not_filters():
+    """★ candidates 是**放寬門檻**，不是事後過濾。
+
+    語意段關閉時沒有門檻可放寬，所以表面掃描的結果不受 candidates 影響——
+    這一條就是在守住這個區別。先前的實作是事後過濾，會把不在 candidates
+    裡的結果砍掉，那是錯的語意：過濾只會讓偵測變差，而這個參數存在的理由
+    是讓偵測**變好**（範圍限縮之後才敢放寬）。
+    """
     a = TranscriptAnalyzer(vocab=VOCAB)
     text = "我用 python 接 mysql"
     assert a.mentioned_skills(text) == {"sk:python", "sk:sql"}
-    assert a.mentioned_skills(text, candidates={"sk:python"}) == {"sk:python"}
-    assert a.mentioned_skills(text, candidates=set()) == set()
+    # 字面命中不受 candidates 影響——過濾的話這裡會只剩 sk:python
+    assert a.mentioned_skills(text, candidates={"sk:python"}) == {"sk:python", "sk:sql"}
+    assert a.mentioned_skills(text, candidates=set()) == {"sk:python", "sk:sql"}
+
+
+def test_candidate_threshold_only_applies_to_candidates():
+    """語意段開啟時，候選技能用較低門檻，其餘用一般門檻。"""
+    import numpy as np
+
+    class Emb:
+        def embed(self, texts):
+            out = []
+            for t in texts:
+                v = np.zeros(48, dtype="float32")
+                for i, ch in enumerate(t):
+                    v[(ord(ch) * 5 + i) % 48] += 1.0
+                n = np.linalg.norm(v)
+                out.append((v / n if n else v).tolist())
+            return out
+
+    vocab = [{"skill_id": "skm:a", "name_zh": "專案時間控管", "aliases": []},
+             {"skill_id": "skm:b", "name_zh": "跨部門溝通", "aliases": []}]
+    text = "我那時候排了每週的進度表然後每次開會確認大家有沒有跟上"
+    strict = TranscriptAnalyzer(vocab=vocab, embedding=Emb(), enable_semantic=True,
+                                threshold=0.95, candidate_threshold=0.95)
+    loose = TranscriptAnalyzer(vocab=vocab, embedding=Emb(), enable_semantic=True,
+                               threshold=0.95, candidate_threshold=0.05)
+    # 兩者唯一差別是候選門檻；放寬只對 candidates 內的技能生效
+    assert strict.mentioned_skills(text, candidates={"skm:a"}) == set()
+    assert "skm:a" in loose.mentioned_skills(text, candidates={"skm:a"})
+    assert "skm:b" not in loose.mentioned_skills(text, candidates={"skm:a"})
 
 
 def test_segmentation_flag_is_honest_without_punctuation():

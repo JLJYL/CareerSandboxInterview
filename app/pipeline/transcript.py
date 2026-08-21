@@ -93,6 +93,36 @@ MENTION_THRESHOLD = 0.45
 #: 不算「講到」，但會存進 near_misses——它是 B 寫 why 時最有用的一種料。
 NEAR_MISS_FLOOR = 0.42
 
+#: 【待校準】**履歷候選的放寬門檻**。合約 candidates 參數的實際用途。
+#:
+#: 為什麼可以放寬:漏講 = 履歷∩JD − 提及。一筆假指控只會發生在
+#: **履歷上有、JD 也要**的技能上。所以對「這個人履歷上的那幾個技能」
+#: 放寬偵測,正好對準傷害發生的地方,而範圍只有 8 個詞,誤傷面積很小。
+#:
+#: 為什麼安全:放寬只會讓 mentioned 變大,而 gap = 交集 − mentioned,
+#: 所以它**只能減少 gap,不可能新增假指控**。代價在另一邊——
+#: 放太寬會把真漏講也吃掉,gap recall(目前 1.000)會掉。那才是要量的。
+#:
+#: **W2 已校準 = 0.40。** 掃描 0.45→0.20 的實測結果：
+#:
+#:     0.45(不放寬)   提及 R 0.805   漏講 P 0.727 / R 1.000   假指控 3
+#:     0.40 以下      提及 R 0.829   漏講 P 0.727 / R 1.000   假指控 3
+#:
+#: 取 0.40:提及 recall +0.024,代價為零(漏講兩項都沒動)。再低沒有額外好處。
+#:
+#: ★ 但它**沒有解決目標問題**。剩下那 3 筆假指控(專案管理×1、軟體程式設計×2)
+#:   門檻降到 0.20 都抓不到——不是「差一點」,是根本不在附近。
+#:
+#:   原因:「專案管理」是 4 字抽象標籤,而使用者講的是
+#:   「我負責約訪談時間、有人拖延就傳訊息設 deadline」。
+#:   **具體行為的向量跟抽象標籤的向量,在 bge-m3 的空間裡本來就遠**——
+#:   這不是門檻問題,是兩者屬於不同的語意層級。
+#:
+#:   真要解決得把技能的**行為描述**放進詞彙表當別名
+#:   (「排時程、追進度、設期限」→ 專案管理),拿行為對行為比。
+#:   那是詞彙表工程,不是參數調整。
+CANDIDATE_THRESHOLD = 0.40
+
 #: 語意段的滑動視窗（字元）。無標點逐字稿沒有句子，只能用固定視窗。
 #:
 #: **W2 已校準。視窗比門檻更關鍵**——實測 recall：
@@ -487,6 +517,7 @@ class TranscriptAnalyzer:
         enable_semantic: bool = False,
         threshold: float = MENTION_THRESHOLD,
         near_miss_floor: float = NEAR_MISS_FLOOR,
+        candidate_threshold: float = CANDIDATE_THRESHOLD,
         engine_filler_policy: str = "unknown",
         stt_aliases: dict[str, str] | None = None,
     ) -> None:
@@ -507,6 +538,7 @@ class TranscriptAnalyzer:
         self._enable_semantic = bool(enable_semantic and embedding is not None)
         self._threshold = threshold
         self._near_miss_floor = near_miss_floor
+        self._candidate_threshold = candidate_threshold
         self._display: dict[str, str] = {}
         for entry in self._vocab:
             skill_id, name_zh, _ = _entry_fields(entry)
@@ -553,13 +585,11 @@ class TranscriptAnalyzer:
 
         candidates=None 時掃全詞彙表（W1 行為）。給定時只回落在該集合內的。
 
-        ★ 目前只做「事後過濾」,還沒做合約講的履歷條件式模糊匹配。
-          差別很大:過濾只是把掃出來的結果篩掉一部分,不會讓「加巴screen」
-          變成 JavaScript;真正的價值在於**範圍限縮之後可以放寬匹配**。
-          那是 W2 的實作，這裡先讓簽章對齊，行為維持保守。
+        ★ candidates 不是事後過濾,是**放寬門檻**。落在 candidates 裡的技能
+          用 CANDIDATE_THRESHOLD(較低),其餘用 MENTION_THRESHOLD。
+          範圍限縮之後才敢放寬,這才是這個參數的價值所在。
         """
-        found = set(self.mentions(transcript).keys())
-        return found if candidates is None else (found & candidates)
+        return set(self.mentions(transcript, candidates).keys())
 
     def text_stats(self, transcript: str) -> TextStats:
         """填充詞、量化詞、語段長度。全部確定性，不經模型。"""
@@ -642,7 +672,8 @@ class TranscriptAnalyzer:
 
     # -------------------------------------------------- 擴充方法（A 側自用）
 
-    def mentions(self, transcript: str) -> dict[str, list[MentionEvidence]]:
+    def mentions(self, transcript: str,
+                 candidates: set[str] | None = None) -> dict[str, list[MentionEvidence]]:
         """帶證據的提及集。GapComputer 用這個，不用 mentioned_skills()。
 
         契約規定 mentioned_skills 回 set[str]，但 gap 要求「附證據」，
@@ -671,8 +702,12 @@ class TranscriptAnalyzer:
             )
 
         if self._enable_semantic:
+            cands = candidates or set()
             for ev in self._semantic_pass(text, offsets, transcript or ""):
-                if ev.score >= self._threshold:
+                # 履歷上有的技能用放寬門檻——傷害只發生在這些技能上
+                bar = (self._candidate_threshold if ev.skill_id in cands
+                       else self._threshold)
+                if ev.score >= bar:
                     found[ev.skill_id].append(ev)
                 elif ev.score >= self._near_miss_floor:
                     prev = self._near_misses.get(ev.skill_id)
@@ -756,15 +791,23 @@ class TranscriptAnalyzer:
         win_vecs = embed_texts(self._embedding, [w[2] for w in windows])
         sims = win_vecs @ vocab_vecs.T
 
+        # ★ 這裡**不做門檻判斷**,回傳全部候選讓 mentions() 決定。
+        #   兩個理由:一是候選技能要用不同門檻(見 CANDIDATE_THRESHOLD);
+        #   二是校準掃描門檻時不必重算向量——實測全域快取加上這個改動,
+        #   一輪掃描從 2.7 小時降到幾分鐘。
+        FLOOR = min(self._near_miss_floor, self._candidate_threshold) * 0.85
         out: list[MentionEvidence] = []
         for wi, (start, end, chunk) in enumerate(windows):
             best = int(sims[wi].argmax())
             score = float(sims[wi][best])
-            if score < self._near_miss_floor:
-                if score >= self._near_miss_floor * 0.85:
-                    self._residuals.append(
-                        {"window": chunk, "best": owners[best], "sim": round(score, 4)}
-                    )
+            if score < FLOOR:
+                # ★ residual 的下界必須跟著 FLOOR 走,不能寫死用 near_miss_floor。
+                #   先前寫成「低於 near_miss_floor*0.85 就丟進 residuals 並 continue」,
+                #   於是候選門檻放寬到 0.05 時,低分的候選在比門檻之前就被攔掉——
+                #   放寬完全失效,而且看起來像「語意段沒抓到」,查不出原因。
+                self._residuals.append(
+                    {"window": chunk, "best": owners[best], "sim": round(score, 4)}
+                )
                 continue
             src_start = offsets[start] if start < len(offsets) else start
             src_end = offsets[min(end, len(offsets)) - 1] + 1 if offsets else end
