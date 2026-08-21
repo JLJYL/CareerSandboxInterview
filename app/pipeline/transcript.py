@@ -70,18 +70,40 @@ class MentionEvidence:
 # ---------------------------------------------------------------- 參數
 # 沿用 W2 的規矩：參數是準合約，改參數＝改測試，同一個 commit。
 
-#: 【待校準】語意段採納門檻。刻意低於正規化器的 0.62——理由見檔頭的不對稱。
-#: 校準素材：W1 的黃金測試集 10 份逐字稿，人工標「這句到底算不算講到 X」。
-#: 校準時機：W2 D3–D5，比照 calibrate_normalizer.py 那套做法出掃描表。
-MENTION_THRESHOLD = 0.55
+#: 語意段採納門檻。**W2 D3–D5 已校準**（先前是 0.55，憑常識填的）。
+#:
+#: 掃描 4 視窗 × 7 門檻 × 10 格，實測結果：
+#:
+#:     語意段關閉        提及 R 0.488   漏講 P 0.471   ← 假指控 9 筆
+#:     視窗16/門檻0.45   提及 R 0.805   漏講 P 0.727   ← 假指控 3 筆
+#:
+#: 漏講 recall 全程維持 1.000——真漏講一筆都沒被吃掉。
+#:
+#: ★ 為什麼選 0.45 而不是掃描器推薦的 0.40（recall 略高）：
+#:   視窗 16 在 0.40／0.45／0.50 三個門檻的四項指標完全相同,是一片**平原**;
+#:   0.40 在掃描範圍的邊緣,不知道再低會不會崩。參數落在平原中間比落在
+#:   邊緣穩健。同樣 recall 下 0.45 的提及 precision 也較好（0.717 vs 0.660）。
+#:
+#: ★ 提及 precision 從 0.952 掉到 0.717 是刻意接受的:語意段會把一些沒講到的
+#:   算成講到,方向上安全（少給建議 vs 假指控）。但這個保證建立在 6 段逐字稿上,
+#:   樣本一大可能不成立。
+MENTION_THRESHOLD = 0.45
 
 #: 【待校準】差一點的下界。落在 [NEAR_MISS_FLOOR, MENTION_THRESHOLD) 的視窗
 #: 不算「講到」，但會存進 near_misses——它是 B 寫 why 時最有用的一種料。
 NEAR_MISS_FLOOR = 0.42
 
 #: 語意段的滑動視窗（字元）。無標點逐字稿沒有句子，只能用固定視窗。
-SEMANTIC_WINDOW = 28
-SEMANTIC_STRIDE = 14
+#:
+#: **W2 已校準。視窗比門檻更關鍵**——實測 recall：
+#:     視窗 12 → 0.805    視窗 20 → 0.707
+#:     視窗 16 → 0.805    視窗 28 → 0.561
+#:
+#: 原因:長視窗把一整段話拿去跟四個字的技能名比相似度,中間的「我那時候」
+#: 「然後」全是雜訊,餘弦分數被稀釋。28 字幾乎沒用。
+#: 12 與 16 的 recall 相同,取 16 因為提及 precision 較好。
+SEMANTIC_WINDOW = 16
+SEMANTIC_STRIDE = 8
 
 #: 引用切片的前後文長度，給 B 的 prompt 用。
 QUOTE_PAD = 18
@@ -229,6 +251,41 @@ def _unwrap_skill_id(result: Any) -> str | None:
     if isinstance(result, (list, tuple)) and result:
         return _unwrap_skill_id(result[0])
     return None
+
+
+#: 詞彙表向量的全域快取。key = (embedding 物件 id, 表面形 tuple)。
+#:
+#: ★ 沒有這個的話調參會跑到天亮。實測：4 視窗 × 7 門檻 × 10 格 = 280 次
+#:   重算整份詞彙表的向量,共 14.6 萬次向量化,跑了 **2.7 小時**。
+#:   詞彙表在整輪掃描中完全沒變,那 279 次全是白算的。
+_VOCAB_VEC_CACHE: dict[tuple, Any] = {}
+
+
+def embed_vocab_cached(embedding: Any, surfaces: list[str]) -> Any:
+    """詞彙表向量,跨實例快取。逐字稿視窗不快取（每次都不一樣）。"""
+    key = (id(embedding), tuple(surfaces))
+    if key not in _VOCAB_VEC_CACHE:
+        _VOCAB_VEC_CACHE[key] = embed_texts(embedding, surfaces)
+    return _VOCAB_VEC_CACHE[key]
+
+
+def embed_texts(embedding: Any, texts: list[str]) -> Any:
+    """呼叫 embedding provider。
+
+    ★ 你們既有的介面是 `EmbeddingProvider.embed(texts) -> list[list[float]]`
+      （app/providers/embeddings.py）。我原本寫死 `.encode()`（sentence-transformers
+      的慣例），跟自家 Protocol 對不上,語意段一開就 AttributeError。
+      這裡兩個都吃,`embed` 優先——那才是這個專案的正式介面。
+    """
+    import numpy as np
+    for name in ("embed", "encode"):
+        fn = getattr(embedding, name, None)
+        if callable(fn):
+            return np.asarray(fn(list(texts)), dtype="float32")
+    raise AttributeError(
+        f"{type(embedding).__name__} 沒有 embed() 也沒有 encode()——"
+        "請對齊 app/providers/embeddings.py 的 EmbeddingProvider"
+    )
 
 
 def _entry_fields(entry: Any) -> tuple[str, str, list[str]]:
@@ -693,15 +750,10 @@ class TranscriptAnalyzer:
                 for form in forms:
                     surfaces.append(form)
                     owners.append(skill_id)
-            self._vec_cache = (
-                np.asarray(self._embedding.encode(surfaces), dtype="float32"),
-                owners,
-            )
+            self._vec_cache = (embed_vocab_cached(self._embedding, surfaces), owners)
         vocab_vecs, owners = self._vec_cache
 
-        win_vecs = np.asarray(
-            self._embedding.encode([w[2] for w in windows]), dtype="float32"
-        )
+        win_vecs = embed_texts(self._embedding, [w[2] for w in windows])
         sims = win_vecs @ vocab_vecs.T
 
         out: list[MentionEvidence] = []
