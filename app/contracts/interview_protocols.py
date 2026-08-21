@@ -226,6 +226,33 @@ DEMONSTRATION_THRESHOLD = """展演的認定門檻(標記與 why 否決共用)�
 """
 
 
+COLLAB_PROHIBITED_INDICATORS = """協作評分明確禁用的指標。
+
+【禁用】發言次數、發言總字數、說話時間佔比,以及任何以「量」為主的指標。
+
+理由:babble 假說。小組討論裡講最多話的人會被認為是領導者,
+與講的內容好不好無關;MacLaren et al. (2020) 在控制智力、人格、性別之後
+該效應依然成立,同一份研究並發現男性平均只因性別就多得一票,
+且該偏誤與任何可觀察的參與品質指標都無關聯。
+
+我們是回饋產品。使用者看到「參與主動性偏低」就會去多講話——
+用發言量計分等於在訓練他 babble,並把一個已知的性別偏誤寫進評分公式。
+
+發言次數仍可放進 CollabSignal.signals 當**背景資訊**交給 LLM,
+但不可以是等第的主要依據,BARS 錨點的文字也不得以次數描述等第。
+
+【禁用】打斷次數。
+群面畫面在 AI 發言時以 isTyping 擋住輸入,使用者實際上打斷不了,
+這個指標結構上恆為 0。
+
+【禁用】任何需要影像、音訊、語速、語調的指標。
+我們只有純文字逐字稿。
+
+BARS 錨點本體不放在這裡,等後端組的文獻整理回來後放
+app/prompts/collab_rubric.py。
+"""
+
+
 WHY_MUST_BE_JD_SIDE = """MissingPoint.why 的鐵則:
 
 why 是「為什麼這一點對這份 JD 重要」,是 JD 側的重要性論證,
@@ -271,20 +298,46 @@ class Utterance:
 
 
 @dataclass(frozen=True)
-class CollabRaw:
-    """協作維度的確定性分數。僅 group 模式使用。
+class CollabSignal:
+    """協作維度的可觀察值。僅 group 模式使用。
+
+    【這裡不給分數,原因見下】
+    原設計是 A 直接回 0–100 的分數。委外 rubric 的管線推翻了這個假設:
+
+        逐字稿 → A 抽可觀察值 → B 的 LLM 對照 BARS 錨點指派等第
+
+    BARS 錨點是行為描述(「僵局時推進」「在關鍵時點介入」),判斷某段發言
+    算不算,本質上是語意判斷,確定性規則做不到。A 能可靠產出的是可觀察值,
+    不是等第。
+
+    【W2 過渡期】
+    rubric 未回來之前,A 只交 signals 與 evidence,level 留 None。
+    B 側收到 None 時不產出 collab_dims,並在 notices 註明原因。
 
     name 必須是 COLLAB_DIM_NAMES 四個之一。
-    evidence 給 B 寫 hint 用,例如「共發言 4 次,其中 1 次接續他人論點」。
-
-    注意尺度:score 是 int 0–100,直接對應 Kotlin CollabDim.score 的 UI 欄位;
-    GapCandidate.weight 是 float 0–1,內部排序用不出 HTTP。
-    兩者用途不同,刻意不統一。
     """
 
     name: str
-    score: int
+
+    signals: dict[str, float] = field(default_factory=dict)
+    """這個維度的可觀察值。鍵名由 A 決定,但必須是**可從純文字逐字稿算出**的量。
+
+    例:{"utterance_count": 4, "first_speak_index": 2,
+         "referred_to_others": 1, "causal_connector_rate": 0.12}
+
+    B 側只讀不算——B 不重新定義這些量的意義,只把它們連同逐字稿交給 LLM。
+    """
+
     evidence: str = ""
+    """給 LLM 的自然語言摘要,例如「共發言 4 次,其中 1 次明確接續他人論點」。
+    時間資料不可用時要在這裡註明,B 才知道 hint 措辭不能過度宣稱。"""
+
+    level: int | None = None
+    """BARS 等第。**A 不填,一律 None。** 由 B 的 LLM 對照錨點指派。
+
+    None 的意思是「尚未指派」,不是「等第為 0」。
+    刻意用 None 而非 0,因為 0 分與未評分在報告上是兩件完全不同的事。
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -370,20 +423,36 @@ class GapComputer(Protocol):
 
 
 @runtime_checkable
-class CollabScorer(Protocol):
-    """群面協作四項的確定性分數。成員 A 負責,W2 交付。"""
+class CollabObserver(Protocol):
+    """群面協作四項的可觀察值抽取。成員 A 負責,W2 交付。
 
-    def score(self, utterances: list[Utterance]) -> list[CollabRaw]:
-        """回傳四筆,順序對齊 COLLAB_DIM_NAMES。
+    原名 CollabScorer。改名的理由:它不再指派分數,只抽可觀察值。
+    留著舊名字會讓三個月後的人以為它會計分。
+    """
 
-        建議的確定性指標(實作細節由 A 決定):
-          參與主動性 —— 發言次數、首次發言時機(需 start_ms 或陣列順序)
-          傾聽與回應 —— 發言中出現前一位發言者關鍵詞的比例
-          論點建構   —— 因果連接詞密度、平均發言長度
-          協作姿態   —— 打斷次數(需 start_ms/end_ms)、同意與反對詞比例
+    def observe(self, utterances: list[Utterance]) -> list[CollabSignal]:
+        """回傳四筆,順序對齊 COLLAB_DIM_NAMES,level 一律 None。
 
-        時間資料全為 0 時,前兩項退化為依陣列順序估算,第四項的打斷偵測
-        不可用,應在 evidence 註明,並由 B 在 hint 措辭上避免過度宣稱。
+        【可用的可觀察值】
+        只能是**從純文字逐字稿算得出來**的量。沒有影像、沒有音訊、
+        沒有語速語調。實際的量與鍵名等 rubric 回來後定案,以下是方向:
+
+          參與主動性 —— 首次發言的相對位置、是否在無人回應時接續
+          傾聽與回應 —— 明確指涉前一位發言者論點的次數
+          論點建構   —— 因果連接詞密度、主張與理由的共現
+          協作姿態   —— 同意詞與反對詞的比例、分歧後是否收斂
+
+        【明確禁用的指標】見 COLLAB_PROHIBITED_INDICATORS。
+
+        【時間資料】
+        Utterance.start_ms / end_ms 目前恆為 0(前端尚未提供)。
+        依賴時間的量一律不可用,要在 evidence 註明。
+
+        【前端阻擋事項】
+        Utterance.speaker_id 需要前端把 groupSays 改成記錄所有發言者。
+        未完成之前輸入裡只有使用者自己的發言,「傾聽與回應」與「協作姿態」
+        兩項不管 rubric 怎麼寫都算不出來——那不是難,是資訊不在場。
+        這兩項在前端完成前應回空 signals 並在 evidence 註明。
         """
         ...
 
@@ -458,15 +527,38 @@ class FakeGapComputer:
         ]
 
 
-class FakeCollabScorer:
-    """固定回傳四筆,順序正確。"""
+class FakeCollabObserver:
+    """固定回傳四筆,順序正確,level 一律 None。
 
-    def score(self, utterances: list[Utterance]) -> list[CollabRaw]:
+    level 保持 None 是刻意的:B 的過渡期行為(收到 None 就不產出 collab_dims)
+    必須在 W1 就測得到,不能等 A 交件才發現沒處理。
+    """
+
+    def observe(self, utterances: list[Utterance]) -> list[CollabSignal]:
         mine = [u for u in utterances if u.speaker_id == "user"]
+        others = [u for u in utterances if u.speaker_id != "user"]
         n = len(mine)
+        no_speaker_info = not others
         return [
-            CollabRaw("參與主動性", min(100, 40 + n * 10), f"共發言 {n} 次"),
-            CollabRaw("傾聽與回應", 68, "有 1 次接續他人論點"),
-            CollabRaw("論點建構", 71, "平均發言 32 字"),
-            CollabRaw("協作姿態", 70, "無打斷,同意詞 2 次"),
+            CollabSignal(
+                "參與主動性",
+                {"utterance_count": float(n), "first_speak_index": 0.0},
+                f"共發言 {n} 次",
+            ),
+            CollabSignal(
+                "傾聽與回應",
+                {} if no_speaker_info else {"referred_to_others": 1.0},
+                "輸入僅含使用者發言,無法比對他人論點" if no_speaker_info
+                else "有 1 次明確接續他人論點",
+            ),
+            CollabSignal(
+                "論點建構",
+                {"causal_connector_rate": 0.12},
+                "平均發言 32 字,因果連接詞密度 0.12",
+            ),
+            CollabSignal(
+                "協作姿態",
+                {} if no_speaker_info else {"agree_disagree_ratio": 2.0},
+                "無時間資料,打斷偵測不可用" ,
+            ),
         ]

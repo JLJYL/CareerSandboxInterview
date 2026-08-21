@@ -147,8 +147,14 @@ def repair_report(report: ReportResponse) -> ReportResponse:
     notices += n
 
     if report.mode == "group":
-        report.collab_dims, n = repair_collab_dims(report.collab_dims)
-        notices += n
+        # rubric 未到位時,collab_dims 會是空的——這是預期行為不是錯誤。
+        # 補成四個 0 分會讓使用者以為自己協作表現全部拿 0,
+        # 那比不顯示這個區塊糟得多。
+        if report.collab_dims:
+            report.collab_dims, n = repair_collab_dims(report.collab_dims)
+            notices += n
+        else:
+            notices.append("協作評分尚未啟用,本次不顯示協作區塊")
     elif report.collab_dims:
         report.collab_dims = []
         notices.append("非團體面試,已清空 collabDims")

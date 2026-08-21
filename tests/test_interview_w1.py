@@ -9,7 +9,7 @@ from __future__ import annotations
 import pytest
 
 from app.contracts.interview_protocols import (
-    CollabScorer as CollabScorerProto,
+    CollabObserver as CollabObserverProto,
     GapComputer as GapComputerProto,
     JDInput,
     TranscriptAnalyzer as TranscriptAnalyzerProto,
