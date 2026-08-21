@@ -431,6 +431,100 @@ def test_text_stats_matches_frozen_field_names(analyzer):
         assert hasattr(stats, field)
 
 
+# ---------------------------------------------------------------- singleton 安全
+
+
+def _keyword_embedding():
+    """能區分兩個主題的假向量，且餘弦刻意落在 near_miss 區間。
+
+    維度 0＝排程主題、1＝記帳主題、2＝「這是長文本」。
+    詞彙表名稱很短（只有主題維度），逐字稿很長（主題＋長度維度），
+    於是餘弦約 0.707——高於 near_miss_floor 0.3、低於門檻 0.999，
+    正好落進 near_misses，這條測的就是它。
+
+    ★ 關鍵字刻意跟技能名**不字面重疊**（用「排程」對「進度控管」）。
+      用「進度」的話表面掃描／詞頭匹配會直接命中，語意門檻根本不生效。
+    """
+    import numpy as np
+
+    A = ("進度", "控管", "排程", "催")
+    B = ("財務", "報表", "記帳", "對帳")
+
+    class E:
+        def embed(self, texts):
+            out = []
+            for t in texts:
+                v = np.zeros(3, dtype="float32")
+                v[0] = 1.0 if any(k in t for k in A) else 0.0
+                v[1] = 1.0 if any(k in t for k in B) else 0.0
+                v[2] = 1.0 if len(t) > 8 else 0.0        # 長文本標記
+                n = np.linalg.norm(v)
+                out.append((v / n if n else v).tolist())
+            return out
+
+    return E()
+
+
+def test_analyse_is_safe_under_concurrent_use():
+    """★ 合約要求 TranscriptAnalyzer 是 app 啟動時的 singleton（bge-m3 約 2.3GB），
+    所以每個 request 共用同一個實例。
+
+    先前 near_misses 與 residuals 寫在**實例**上，兩個後果：
+      near_misses 併發時互相污染——A 的請求讀到 B 的結果，而 B 側拿它寫 why
+      residuals   跨請求累積不清空，長時間執行的伺服器會持續長大
+
+    單執行緒測試永遠看不出來。這條用兩支執行緒交錯呼叫同一個實例，
+    斷言各自拿到自己的結果。
+    """
+    import threading
+
+    vocab = [{"skill_id": "skm:pm", "name_zh": "進度控管", "aliases": []},
+             {"skill_id": "skm:fin", "name_zh": "財務報表", "aliases": []}]
+    # 門檻設在相似度之上、near_miss 下界之下，讓命中落進 near_misses
+    # 而不是 mentions——這條測的就是 near_misses 的併發安全。
+    shared = TranscriptAnalyzer(vocab=vocab, embedding=_keyword_embedding(),
+                                enable_semantic=True, threshold=0.999,
+                                near_miss_floor=0.3, candidate_threshold=0.999)
+    seen: dict[str, set] = {"pm": set(), "fin": set()}
+
+    def worker(text, tag):
+        r = shared.analyse(text)
+        seen[tag].add(tuple(sorted(r.near_misses)))
+
+    jobs = [("我那時候一直在排程也一直催大家", "pm"),
+            ("我每個月都在記帳跟對帳", "fin")] * 8
+    threads = [threading.Thread(target=worker, args=j) for j in jobs]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    # 各自只該看到一種結果；看到兩種就是被別支執行緒覆蓋過
+    assert seen["pm"] == {("skm:pm",)}, f"進度那支被污染了：{seen['pm']}"
+    assert seen["fin"] == {("skm:fin",)}, f"報表那支被污染了：{seen['fin']}"
+
+
+def test_residuals_do_not_accumulate_across_calls():
+    """residuals 是每次呼叫的產物，不得跨呼叫累積。"""
+    vocab = [{"skill_id": "skm:pm", "name_zh": "進度控管", "aliases": []}]
+    a = TranscriptAnalyzer(vocab=vocab, embedding=_keyword_embedding(),
+                           enable_semantic=True, threshold=0.999,
+                           near_miss_floor=0.999, candidate_threshold=0.999)
+    counts = [len(a.analyse("我在排程跟催進").residuals) for _ in range(4)]
+    assert len(set(counts)) == 1, f"residuals 跨呼叫累積了：{counts}"
+
+
+def test_stateful_accessors_are_removed():
+    """舊的 near_misses() / residuals() 讀實例狀態，已移除並明確報錯。
+
+    留著回空值會讓呼叫端以為「這次沒有 near_miss」，而不是「這個 API 不能用了」。
+    """
+    a = TranscriptAnalyzer(vocab=VOCAB)
+    for name in ("near_misses", "residuals"):
+        with pytest.raises(AttributeError, match="analyse"):
+            getattr(a, name)()
+
+
 # ---------------------------------------------------------------- 詞頭匹配
 
 

@@ -52,6 +52,26 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class MentionResult:
+    """一次 mentions() 呼叫的完整輸出。
+
+    ★ 為什麼要有這個容器:合約明訂 TranscriptAnalyzer 必須是 app 啟動時載入的
+      singleton(bge-m3 約 2.3GB,不能每個 request new 一個)。而先前 near_misses
+      與 residuals 是寫在**實例**上的每次呼叫狀態,兩個後果:
+
+        near_misses  併發時互相污染。A 的請求可能讀到 B 的結果,
+                     而 B 側拿它寫 why——錯得很具體、很有說服力。
+        residuals    跨請求累積不清空,長時間執行的伺服器會持續長大。
+
+      單執行緒測試永遠看不出來。改成回傳值之後,實例上不再有可變狀態。
+    """
+
+    mentions: dict[str, list["MentionEvidence"]]
+    near_misses: dict[str, "MentionEvidence"]
+    residuals: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
 class MentionEvidence:
     """逐字稿裡「講到某技能」的一次命中(A 側內部)。
 
@@ -577,8 +597,6 @@ class TranscriptAnalyzer:
             skill_id, name_zh, _ = _entry_fields(entry)
             if skill_id:
                 self._display[skill_id] = f"{name_zh}({skill_id})" if name_zh else skill_id
-        self._residuals: list[dict[str, Any]] = []
-        self._near_misses: dict[str, MentionEvidence] = {}
         self._vec_cache: Any = None
 
     # -------------------------------------------------- 契約方法
@@ -680,12 +698,18 @@ class TranscriptAnalyzer:
 
     def mentions(self, transcript: str,
                  candidates: set[str] | None = None) -> dict[str, list[MentionEvidence]]:
+        """→ {skill_id: 證據}。要 near_misses / residuals 請用 analyse()。"""
+        return self.analyse(transcript, candidates).mentions
+
+    def analyse(self, transcript: str,
+                candidates: set[str] | None = None) -> MentionResult:
         """帶證據的提及集。GapComputer 用這個，不用 mentioned_skills()。
 
         契約規定 mentioned_skills 回 set[str]，但 gap 要求「附證據」，
         set 裡沒有證據可帶。所以內部走這條，對外仍守契約。
         """
-        self._near_misses = {}
+        near_misses: dict[str, MentionEvidence] = {}
+        residuals: list[dict[str, Any]] = []
         text, offsets = normalize_for_scan(transcript or "")
         found: dict[str, list[MentionEvidence]] = defaultdict(list)
 
@@ -709,30 +733,39 @@ class TranscriptAnalyzer:
 
         if self._enable_semantic:
             cands = candidates or set()
-            for ev in self._semantic_pass(text, offsets, transcript or ""):
+            for ev in self._semantic_pass(text, offsets, transcript or "", residuals):
                 # 履歷上有的技能用放寬門檻——傷害只發生在這些技能上
                 bar = (self._candidate_threshold if ev.skill_id in cands
                        else self._threshold)
                 if ev.score >= bar:
                     found[ev.skill_id].append(ev)
                 elif ev.score >= self._near_miss_floor:
-                    prev = self._near_misses.get(ev.skill_id)
+                    prev = near_misses.get(ev.skill_id)
                     if prev is None or ev.score > prev.score:
-                        self._near_misses[ev.skill_id] = ev
+                        near_misses[ev.skill_id] = ev
 
-        return dict(found)
+        return MentionResult(dict(found), near_misses, residuals)
 
     def near_misses(self) -> dict[str, MentionEvidence]:
-        """上一次 mentions() 留下的「差一點算講到」。GapComputer 拿去餵 B。"""
-        return dict(self._near_misses)
+        """★ 已移除。用 analyse(transcript).near_misses。
+
+        這是 singleton 下的併發陷阱:先前它讀實例狀態,兩個請求同時進來時
+        後者會覆蓋前者,而呼叫端讀到的是別人的結果。
+        """
+        raise AttributeError(
+            "near_misses() 已移除（singleton 併發不安全）。"
+            "改用 analyse(transcript).near_misses"
+        )
 
     def residuals(self) -> list[dict[str, Any]]:
         """殘留區——語意段也搆不到門檻、但看起來像技能的片段。
 
-        用法跟 normalizer.residuals() 一樣：B 拉批次給 LLM 覆核，確認的對應
-        回填詞彙表 aliases（改 build_vocab 常數重跑），殘留逐版收斂。
+        ★ 已移除，理由同 near_misses()——它會跨請求累積不清空。
+        改用 analyse(transcript).residuals。
         """
-        return list(self._residuals)
+        raise AttributeError(
+            "residuals() 已移除（會跨請求累積）。改用 analyse(transcript).residuals"
+        )
 
     def display(self, skill_id: str) -> str:
         """skill_id → 「name_zh(skill_id)」。沿用 W1 決議的 log 可讀性折衷。"""
@@ -770,7 +803,8 @@ class TranscriptAnalyzer:
         return parts, "discourse_marker"
 
     def _semantic_pass(
-        self, text: str, offsets: list[int], raw: str
+        self, text: str, offsets: list[int], raw: str,
+        residuals: list[dict[str, Any]],
     ) -> list[MentionEvidence]:
         """滑動視窗 × 餘弦最近鄰。無標點逐字稿沒有句子，只能用固定視窗。"""
         import numpy as np
@@ -811,7 +845,7 @@ class TranscriptAnalyzer:
                 #   先前寫成「低於 near_miss_floor*0.85 就丟進 residuals 並 continue」,
                 #   於是候選門檻放寬到 0.05 時,低分的候選在比門檻之前就被攔掉——
                 #   放寬完全失效,而且看起來像「語意段沒抓到」,查不出原因。
-                self._residuals.append(
+                residuals.append(
                     {"window": chunk, "best": owners[best], "sim": round(score, 4)}
                 )
                 continue
