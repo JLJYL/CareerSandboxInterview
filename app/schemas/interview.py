@@ -131,6 +131,37 @@ class TurnDTO(_Base):
     為空時後端退回以 \n 切分 answer。
     """
 
+    segment_starts_ms: list[int] = Field(default_factory=list)
+    """每一段開始聆聽的時點,毫秒,以本輪回答開始為原點。
+
+    【用途】
+    段界的語意在前端修好截斷之後改變了:原本是「STT 自動送出點」,
+    現在是「引擎重啟點」。兩者的間隔性質不同,而黃金集那六段是舊行為錄的,
+    所以新格式要重新驗證一次。沒有這一欄就沒得驗。
+
+    【筆數可能比 answer_segments 多 1】
+    多的那一筆代表:使用者按下結束時,系統正要開始聽新的一段,但那一段沒有內容。
+    這個長度差的意義由 ended_by 表達,見下。
+
+    【前端】
+    怡君已完成並合進主 repo。為空時視為無時間資料,
+    依賴時間的量一律不可用,由 TextStats.segmentation 反映。
+    """
+
+    ended_by: str = "unknown"
+    """本輪怎麼結束的:"user"(使用者按下結束)/ "timeout"(引擎逾時)/ "unknown"。
+
+    【為什麼要有這一欄】
+    segment_starts_ms 比 answer_segments 多一筆時,那一筆的意義原本藏在長度差裡。
+    藏在長度差裡的意義會消失:任何人 zip() 起來就安靜砍掉多的那筆,
+    而三個月後有人看到兩個陣列長度不一樣,可能以為是 bug 去「修正」它。
+
+    把意義寫成欄位之後,長度差就退化成純粹的實作細節,不需要有人去解讀。
+
+    這是同一類問題的第五次:一個事實只存在於資料的形狀裡而沒有被宣告。
+    前四次是 segmentation、filler_reliability、input_mode、answer_segments。
+    """
+
 
 class ExperienceDTO(_Base):
     """一筆使用者經歷。鏡射 data/remote/ExperienceDtos.kt 的 ExperienceResponse。

@@ -237,6 +237,30 @@ Android STT 停頓 1–2 秒就自動送出,一次回答必然被切成數段,�
 送到後端時以 `answerSegments` 帶原始片段,`answer` 用 `\n` 接起來供顯示。
 段界是 `TextStats.segmentation = "stt_segment"` 的來源,用空字串接會靜默遺失。
 
+### 段界時點與結束方式(W2 增補)
+
+`TurnDTO` 加了兩格:
+
+| 欄位 | 用途 |
+|---|---|
+| `segmentStartsMs` | 每段開始聆聽的時點(毫秒),前端已完成 |
+| `endedBy` | `"user"` / `"timeout"` / `"unknown"` |
+
+前端修好截斷之後,段界的語意從「STT 自動送出點」變成「引擎重啟點」,
+兩者的間隔性質不同。黃金集那六段是舊行為錄的,新格式要重新驗證一次。
+
+`segmentStartsMs` 的筆數可能比 `answerSegments` 多 1——那筆代表使用者按下結束時
+系統正要開始聽新的一段。這個意義由 `endedBy` 表達,不要藏在長度差裡:
+藏在長度差裡的意義會消失,任何人 `zip()` 起來就安靜砍掉多的那筆。
+
+### 協作訊號的 bg_ 前綴(W2 增補)
+
+發言量指標放進 `CollabSignal.signals` 時必須加 `bg_` 前綴。
+只在註解寫「不得當作依據」的保護太弱,前綴讓這條界線可以被測試檢驗。
+
+實測佐證:`first_speak_position` 原本用總則數當分母,結果同樣在第 2 則開口、
+後面多講 5 次,位置就從 1.00 變成 0.17——發言量從後門混進了那個訊號。
+
 ### STT 引擎(已定案,無選擇題)
 
 前端使用 Android 裝置端 `SpeechRecognizer`(`ui/components/InPageVoice.kt`,

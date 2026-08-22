@@ -43,8 +43,13 @@ def repair_sub_scores(items: list[SubScoreDTO]) -> tuple[list[SubScoreDTO], list
     for idx, name in enumerate(SUB_SCORE_NAMES):
         if name in by_name:
             out.append(SubScoreDTO(name=name, score=by_name[name].score))
-        elif idx < len(items):
-            # 位置對齊救援
+        elif idx < len(items) and items[idx].name not in SUB_SCORE_NAMES:
+            # 位置對齊救援。只在該位置的項目**不是**其他合法名稱時才做——
+            # 否則會把一個名稱正確、只是位置不同的項目搶過來當成別項的分數。
+            #
+            # 實測踩到的坑:區塊失敗時 subs 只剩系統計算的「表達流暢度」一項,
+            # 位置救援把那個分數當成第一項「內容深度」的值。
+            # 救援是給近義變體用的(邏輯清楚度 → 邏輯清晰度),不是給缺項用的。
             out.append(SubScoreDTO(name=name, score=items[idx].score))
             notices.append(f"subScores 第 {idx + 1} 項名稱不符,已依位置歸位為「{name}」")
         else:

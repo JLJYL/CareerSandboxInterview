@@ -470,3 +470,68 @@ def test_demonstration_threshold_separates_behaviour_from_claim() -> None:
 
     for kw in ("具體行為", "自我宣稱", "只能推論"):
         assert kw in DEMONSTRATION_THRESHOLD
+
+
+# ---------------------------------------------------------------------------
+# 十二、W2 交接後的合約增補:段界時點
+# ---------------------------------------------------------------------------
+
+
+def test_turn_carries_segment_starts() -> None:
+    """段界語意在前端修好截斷之後改變了,新格式要能驗證。"""
+    t = TurnDTO(answer="甲\n乙", answer_segments=["甲", "乙"], segment_starts_ms=[0, 3200])
+    assert t.segment_starts_ms == [0, 3200]
+
+
+def test_segment_starts_may_exceed_segments_by_one() -> None:
+    """多的那一筆是「按下結束時正要開始聽新的一段」,由 ended_by 表達意義。"""
+    t = TurnDTO(
+        answer="甲\n乙",
+        answer_segments=["甲", "乙"],
+        segment_starts_ms=[0, 3200, 7100],
+        ended_by="user",
+    )
+    assert len(t.segment_starts_ms) == len(t.answer_segments) + 1
+    assert t.ended_by == "user"
+
+
+def test_ended_by_defaults_to_unknown() -> None:
+    """預設不可以是 user——沒宣告時不該假裝知道是誰結束的。"""
+    assert TurnDTO().ended_by == "unknown"
+
+
+def test_segment_starts_defaults_empty() -> None:
+    """為空時視為無時間資料,依賴時間的量一律不可用。"""
+    assert TurnDTO().segment_starts_ms == []
+
+
+def test_volume_signals_must_carry_bg_prefix() -> None:
+    """發言量指標必須加 bg_ 前綴,讓禁令可以被機械檢驗。
+
+    只在 docstring 寫「不得單獨決定等第」的保護很弱——
+    發言次數是那堆數字裡最直觀的一個,LLM 會錨定上去。
+    """
+    from app.contracts.interview_protocols import (
+        COLLAB_PROHIBITED_INDICATORS,
+        FakeCollabObserver,
+        Utterance,
+    )
+
+    assert "bg_" in COLLAB_PROHIBITED_INDICATORS
+    rows = FakeCollabObserver().observe([Utterance("user", "x"), Utterance("AI-邏輯", "y")])
+    for r in rows:
+        for key in r.signals:
+            if "count" in key or "utterance" in key:
+                assert key.startswith("bg_"), f"{key} 是發言量指標,必須加 bg_ 前綴"
+
+
+def test_positional_rescue_skips_valid_names() -> None:
+    """位置救援是給近義變體用的,不是給缺項用的。
+
+    實測:區塊失敗時 subs 只剩系統計算的「表達流暢度」,
+    位置救援把那個分數當成第一項「內容深度」的值。
+    """
+    fixed, _ = repair_sub_scores([SubScoreDTO(name="表達流暢度", score=72)])
+    by_name = {s.name: s.score for s in fixed}
+    assert by_name["表達流暢度"] == 72
+    assert by_name["內容深度"] == 0, "名稱正確的項目不可以被搶去當別項的分數"
