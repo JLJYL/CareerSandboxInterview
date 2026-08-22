@@ -1,0 +1,199 @@
+{
+ "_meta": {
+  "generated_by": "tools/make_jd_extracted_variants.py",
+  "model": "gpt-4o-mini",
+  "temperature": 0,
+  "note": "輸入是各 case 的 jd.description(散文),輸出供 interview_eval 的 --jd-source extracted 使用。字面重疊只是粗略觀察值,真正的比對請用正規化後的結果。"
+ },
+ "variants": {
+  "ivw-001": {
+   "required_skills": [
+    "C#",
+    "問題排除",
+    "系統效能分析",
+    "ETL",
+    "專案管理"
+   ],
+   "source": "extracted",
+   "_catalog_count": 11,
+   "_extracted_count": 5,
+   "_literal_overlap": 1,
+   "_notices": [
+    "機械正規化:C#程式開發→C#、ETL開發→ETL"
+   ]
+  },
+  "ivw-002": {
+   "required_skills": [
+    "TypeScript",
+    "前端開發",
+    "React",
+    "Vue",
+    "Angular",
+    "RESTful API",
+    "HTML",
+    "CSS",
+    "前端狀態管理",
+    "Redux",
+    "Vuex",
+    "程式碼測試",
+    "問題修復",
+    "資料視覺化",
+    "使用者體驗優化"
+   ],
+   "source": "extracted",
+   "_catalog_count": 10,
+   "_extracted_count": 15,
+   "_literal_overlap": 3,
+   "_notices": [
+    "機械正規化:代碼測試→程式碼測試、數據可視化→資料視覺化、用戶體驗優化→使用者體驗優化"
+   ]
+  },
+  "ivw-003": {
+   "required_skills": [
+    "專案管理",
+    "跨部門溝通",
+    "風險管理",
+    "報表維護",
+    "市場分析",
+    "預算控管"
+   ],
+   "source": "extracted",
+   "_catalog_count": 6,
+   "_extracted_count": 6,
+   "_literal_overlap": 0,
+   "_notices": []
+  },
+  "ivw-004": {
+   "required_skills": [
+    "Node.js",
+    "Vue",
+    "React",
+    "Angular",
+    "Bootstrap",
+    "HTML",
+    "CSS",
+    "JavaScript",
+    "jQuery",
+    "UI",
+    "溝通能力",
+    "團隊合作"
+   ],
+   "source": "extracted",
+   "_catalog_count": 7,
+   "_extracted_count": 12,
+   "_literal_overlap": 5,
+   "_notices": []
+  },
+  "ivw-005": {
+   "required_skills": [
+    "資料蒐集",
+    "市場觀察",
+    "計畫制定",
+    "策略制定",
+    "提案設計"
+   ],
+   "source": "extracted",
+   "_catalog_count": 13,
+   "_extracted_count": 5,
+   "_literal_overlap": 0,
+   "_notices": []
+  },
+  "ivw-006": {
+   "required_skills": [
+    "專案管理",
+    "市場觀察",
+    "競品分析",
+    "目標客群設定",
+    "商品定位",
+    "定價建議",
+    "上市流程統籌",
+    "跨部門協調",
+    "外包管理",
+    "需求定義",
+    "文案審稿",
+    "促銷活動規劃",
+    "活動成效檢討",
+    "產品資料管理",
+    "品牌把關",
+    "B2B業務支持"
+   ],
+   "source": "extracted",
+   "_catalog_count": 31,
+   "_extracted_count": 16,
+   "_literal_overlap": 0,
+   "_notices": []
+  },
+  "ivw-007": {
+   "required_skills": [
+    "遊戲活動規劃",
+    "社群平台內容排程",
+    "公告上架",
+    "後台設定",
+    "Excel",
+    "Google Sheets",
+    "溝通能力"
+   ],
+   "source": "extracted",
+   "_catalog_count": 9,
+   "_extracted_count": 7,
+   "_literal_overlap": 1,
+   "_notices": []
+  },
+  "ivw-008": {
+   "required_skills": [
+    "應付帳款",
+    "應收款項",
+    "原始憑證",
+    "傳票",
+    "發票憑證",
+    "網銀匯款",
+    "營業稅",
+    "內帳帳目分錄",
+    "鼎新Smart系統",
+    "Google雲端試算表"
+   ],
+   "source": "extracted",
+   "_catalog_count": 11,
+   "_extracted_count": 10,
+   "_literal_overlap": 0,
+   "_notices": []
+  },
+  "ivw-009": {
+   "required_skills": [
+    "帳務處理",
+    "會計",
+    "ERP",
+    "銀行存款",
+    "Excel",
+    "Word",
+    "報表製作",
+    "資料分析",
+    "檔案維護",
+    "行政事務",
+    "跨部門支援",
+    "資料整理",
+    "溝通能力",
+    "時間管理"
+   ],
+   "source": "extracted",
+   "_catalog_count": 11,
+   "_extracted_count": 14,
+   "_literal_overlap": 2,
+   "_notices": []
+  },
+  "ivw-010": {
+   "required_skills": [
+    "文書資料處理",
+    "會計帳建檔",
+    "行政工作",
+    "零用金管理",
+    "銀行業務處理"
+   ],
+   "source": "extracted",
+   "_catalog_count": 9,
+   "_extracted_count": 5,
+   "_literal_overlap": 1,
+   "_notices": []
+  }
+ }
+}
