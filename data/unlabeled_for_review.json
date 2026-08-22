@@ -1,0 +1,243 @@
+{
+ "_note": "A/B/C 需要人工標 has/wants/said；D 是語意段最近鄰噪音，不必標。",
+ "_counts": {
+  "A": 0,
+  "B": 19,
+  "C": 0,
+  "D": 54
+ },
+ "need_labeling": [
+  {
+   "skill_id": "sk:275124bcd7",
+   "display": "資料分析",
+   "bucket": "B",
+   "cases": [
+    "ivw-006",
+    "ivw-009"
+   ]
+  },
+  {
+   "skill_id": "sk:3d51baf886",
+   "display": "溝通協調",
+   "bucket": "B",
+   "cases": [
+    "ivw-003",
+    "ivw-004",
+    "ivw-005",
+    "ivw-006",
+    "ivw-007",
+    "ivw-009"
+   ]
+  },
+  {
+   "skill_id": "sk:5384b25ce9",
+   "display": "專案管理",
+   "bucket": "B",
+   "cases": [
+    "ivw-001",
+    "ivw-002",
+    "ivw-003",
+    "ivw-004"
+   ]
+  },
+  {
+   "skill_id": "sk:9f4294778c",
+   "display": "溝通能力",
+   "bucket": "B",
+   "cases": [
+    "ivw-002",
+    "ivw-007",
+    "ivw-008",
+    "ivw-009",
+    "ivw-010"
+   ]
+  },
+  {
+   "skill_id": "sk:aecb1cfd42",
+   "display": "策略規劃",
+   "bucket": "B",
+   "cases": [
+    "ivw-005"
+   ]
+  },
+  {
+   "skill_id": "sk:cdd1a93579",
+   "display": "報表製作",
+   "bucket": "B",
+   "cases": [
+    "ivw-001",
+    "ivw-002",
+    "ivw-003",
+    "ivw-005",
+    "ivw-006",
+    "ivw-007",
+    "ivw-009"
+   ]
+  },
+  {
+   "skill_id": "sk:d4d2db8a2f",
+   "display": "時間管理",
+   "bucket": "B",
+   "cases": [
+    "ivw-007",
+    "ivw-009"
+   ]
+  },
+  {
+   "skill_id": "skm:2151c363c5",
+   "display": "行政事務處理",
+   "bucket": "B",
+   "cases": [
+    "ivw-009"
+   ]
+  },
+  {
+   "skill_id": "skm:22704a1370",
+   "display": "競品分析",
+   "bucket": "B",
+   "cases": [
+    "ivw-003"
+   ]
+  },
+  {
+   "skill_id": "skm:264f39cab8",
+   "display": "Line",
+   "bucket": "B",
+   "cases": [
+    "ivw-005",
+    "ivw-007"
+   ]
+  },
+  {
+   "skill_id": "skm:3f7227146e",
+   "display": "Vue.js",
+   "bucket": "B",
+   "cases": [
+    "ivw-002"
+   ]
+  },
+  {
+   "skill_id": "skm:67c356e752",
+   "display": "文書處理軟體操作",
+   "bucket": "B",
+   "cases": [
+    "ivw-009"
+   ]
+  },
+  {
+   "skill_id": "skm:6b810c90aa",
+   "display": "React",
+   "bucket": "B",
+   "cases": [
+    "ivw-002"
+   ]
+  },
+  {
+   "skill_id": "skm:7198eac042",
+   "display": "電商營運",
+   "bucket": "B",
+   "cases": [
+    "ivw-006"
+   ]
+  },
+  {
+   "skill_id": "skm:90de35a580",
+   "display": "Node.js",
+   "bucket": "B",
+   "cases": [
+    "ivw-004"
+   ]
+  },
+  {
+   "skill_id": "skm:bf7819a7d3",
+   "display": "零用金管理",
+   "bucket": "B",
+   "cases": [
+    "ivw-008"
+   ]
+  },
+  {
+   "skill_id": "skm:d881af6d80",
+   "display": "專案時間",
+   "bucket": "B",
+   "cases": [
+    "ivw-001",
+    "ivw-002",
+    "ivw-003",
+    "ivw-004"
+   ]
+  },
+  {
+   "skill_id": "skm:f1dda22f6c",
+   "display": "Claude",
+   "bucket": "B",
+   "cases": [
+    "ivw-002"
+   ]
+  },
+  {
+   "skill_id": "skm:f3eea55526",
+   "display": "ERP 系統",
+   "bucket": "B",
+   "cases": [
+    "ivw-009"
+   ]
+  }
+ ],
+ "noise_only": [
+  "A/B 測試",
+  "C++",
+  "CSS",
+  "Gemini",
+  "JavaScript",
+  "Python",
+  "主動學習",
+  "主動聆聽",
+  "代辦會計相關事項",
+  "作業需求分析",
+  "使用者介面設計",
+  "使用者訪談",
+  "內容創作",
+  "全端開發",
+  "具備人力資源相關知識",
+  "口語表達",
+  "各式封面設計",
+  "各式影片剪接後製作業",
+  "品牌知名度推廣",
+  "品牌行銷管理",
+  "團隊領導",
+  "執行日常招募業務",
+  "學習策略",
+  "客戶情報蒐集",
+  "帳務處理",
+  "廣告企劃案╱文案撰寫",
+  "持續學習",
+  "操作監控",
+  "故障排除",
+  "教導指導",
+  "數學運用",
+  "文件或資料輸入建檔處理",
+  "業績目標分配與績效達成",
+  "程式設計相關知識",
+  "簡報表達",
+  "簡報軟體操作",
+  "系統評估",
+  "結帳作業與帳務處理",
+  "維修",
+  "網路設備設定安裝",
+  "網頁語法撰寫",
+  "網頁軟體操作",
+  "繪圖工具與軟體操作",
+  "行銷策略擬定",
+  "複雜問題解決",
+  "設計印刷基本認知",
+  "設計表現能力",
+  "說服力",
+  "談判協商",
+  "負責文件更新、發行、審核與跟催作業",
+  "資料視覺化",
+  "軟體測試",
+  "遊戲營運",
+  "閱讀理解"
+ ]
+}

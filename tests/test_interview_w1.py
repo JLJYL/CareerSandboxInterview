@@ -160,6 +160,32 @@ def test_text_stats_counts_fillers():
     assert stats.filler_count / stats.char_count > 0
 
 
+def test_connector_rate_counts_causal_only():
+    """★ 只計因果類，不計「然後」。
+
+    「然後」在實測六段出現 39 次（比因果 16 次還多一倍）且已在 FILLERS 裡。
+    同時算連接詞與填充詞的話，講話越不流暢的人邏輯分數越高——
+    兩個指標會反向打架。因果類不含它，所以這個問題不會發生。
+    """
+    a = TranscriptAnalyzer(vocab=VOCAB)
+    s1 = a.text_stats("因為時間不夠所以我先做問卷")
+    assert s1.connector_detail == {"causal": 2}
+    assert s1.connector_rate > 0
+
+    s2 = a.text_stats("然後我做了這個然後又做了那個然後就結束了")
+    assert s2.connector_detail == {}, "「然後」不得計入連接詞"
+    assert s2.connector_rate == 0.0
+    assert s2.filler_count > 0, "但它仍是填充詞"
+
+
+def test_connector_rate_is_per_hundred_chars():
+    """密度用每百字，話多不等於邏輯好。"""
+    a = TranscriptAnalyzer(vocab=VOCAB)
+    short = a.text_stats("因為趕所以先做")
+    padded = a.text_stats("因為趕所以先做" + "我們就一直做一直做" * 5)
+    assert short.connector_rate > padded.connector_rate
+
+
 def test_text_stats_counts_quantifiers():
     a = TranscriptAnalyzer(vocab=VOCAB)
     stats = a.text_stats("我把時間縮短了 30%，團隊有 12 人，效率是原本的三倍。")

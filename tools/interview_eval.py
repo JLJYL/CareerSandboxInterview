@@ -46,6 +46,7 @@ from app.pipeline.transcript import TranscriptAnalyzer  # noqa: E402
 #: 目前的執行模式，供報表與 baseline 命名使用。用 list 是為了讓
 #: print_report 這種模組層函式讀得到，不必到處傳參數。
 MODE = ["surface"]
+JD_SRC = ["catalog"]
 
 # ---------------------------------------------------------------- 驗收門檻
 # 【待校準】D5 之前這些是報表用的參考線,不當閘門。D5 凍結一份 baseline 之後,
@@ -212,7 +213,8 @@ def load_embedding():
 
 def run_case(case: dict[str, Any], vocab: list[Any],
              embedding: Any = None,
-             stt_aliases: dict[str, str] | None = None) -> dict[str, Any]:
+             stt_aliases: dict[str, str] | None = None,
+             jd_variant: dict[str, Any] | None = None) -> dict[str, Any]:
     analyzer = TranscriptAnalyzer(
         vocab=vocab, embedding=embedding, enable_semantic=embedding is not None,
         stt_aliases=stt_aliases,
@@ -226,11 +228,22 @@ def run_case(case: dict[str, Any], vocab: list[Any],
     raw_jd = case["jd"]
     # 黃金集存的是型錄原形;compute() 吃 JDInput。source 照實標,
     # 之後接 B 的抽取器輸出時會有 extracted 變體,兩者要分開統計。
-    jd = JDInput(
-        required_skills=list(raw_jd.get("requiredSkills") or []),
-        description=raw_jd.get("description") or "",
-        source="catalog",
-    )
+    # ★ 兩種變體共用同一份人工標記。
+    #   wants 是「這份 JD 到底要不要這個技能」——那是人對 JD 的判斷,
+    #   跟 required_skills 怎麼產生的無關。所以同一份標記可以當兩種輸入的答案,
+    #   兩邊跑完的差額就是**抽取損失的直接測量**,零額外標記成本。
+    if jd_variant:
+        jd = JDInput(
+            required_skills=list(jd_variant.get("required_skills") or []),
+            description=raw_jd.get("description") or "",
+            source="extracted",
+        )
+    else:
+        jd = JDInput(
+            required_skills=list(raw_jd.get("requiredSkills") or []),
+            description=raw_jd.get("description") or "",
+            source="catalog",
+        )
     # 多段 → 用換行接。換行本來就是 _PUNCT_RE 的斷句符號,所以 STT 的
     # 自動送出邊界會直接變成句界,sentence_count 從估算值變成實測值。
     segs = case.get("transcript_segments") or []
@@ -323,7 +336,8 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 def print_report(results: list[dict[str, Any]], agg: dict[str, Any]) -> float:
     print(f"\n{'=' * 68}")
-    print(f"面試黃金測試集  {len(results)} 個 case   模式：{MODE[0]}")
+    print(f"面試黃金測試集  {len(results)} 個 case   "
+          f"模式：{MODE[0]}／JD 來源：{JD_SRC[0]}")
     if MODE[0] == "surface":
         print("  （表面掃描＋詞頭匹配。語意段未開，加 --semantic 才是完整管線）")
     else:
@@ -503,6 +517,14 @@ def main() -> int:
     parser.add_argument("--baseline", type=Path, help="與凍結的 baseline 比對,只看退步")
     parser.add_argument("--gate", action="store_true", help="不合格時 exit 1（D5 同步點用）")
     parser.add_argument("--write-baseline", type=Path, help="把本次結果寫成 baseline")
+    parser.add_argument("--jd-source", choices=["catalog", "extracted"],
+                        default="catalog",
+                        help="JD 需求的來源。catalog=104 型錄的 requiredSkills；"
+                             "extracted=B 的抽取器跑同一份 description 的產出。"
+                             "★ 正式環境是 extracted，型錄資料只有黃金集有。")
+    parser.add_argument("--jd-variants", type=Path,
+                        default=Path("data/jd_variants_extracted.json"),
+                        help="抽取器輸出（--jd-source extracted 時使用）")
     parser.add_argument("--stt-aliases", type=Path,
                         help="STT 轉寫對照表（stt_confusions.v1.json）。"
                              "safe_aliases 會併進表面掃描,是確定性的一道防線。")
@@ -526,6 +548,14 @@ def main() -> int:
     # ★ STT 對照表原本只是躺在 data/ 的一份文件——做好了但沒接上管線,
     #   而且不會報錯。實測「C Sharp」(C# 的口語形)一直在漏抓清單裡,
     #   就是因為 safe_aliases 從來沒被載進去。
+    jd_variants = None
+    if args.jd_source == "extracted":
+        if not args.jd_variants.exists():
+            print(f"✗ 找不到 {args.jd_variants}。extracted 模式需要抽取器輸出。")
+            return 1
+        jd_variants = json.loads(args.jd_variants.read_text(encoding="utf-8"))["variants"]
+        print(f"JD 來源：extracted（{len(jd_variants)} 格，來自 B 的抽取器）")
+
     stt_aliases = None
     if args.stt_aliases and args.stt_aliases.exists():
         conf = json.loads(args.stt_aliases.read_text(encoding="utf-8"))
@@ -538,6 +568,7 @@ def main() -> int:
         print("載入 bge-m3（約 2.3GB），第一次會很久⋯")
         embedding = load_embedding()   # 載不起來直接炸,不退回表面掃描
     MODE[0] = "semantic" if args.semantic else "surface"
+    JD_SRC[0] = args.jd_source
 
     if args.draft:
         for c in cases:
@@ -556,7 +587,11 @@ def main() -> int:
               "→ 標 said → 三個旗標改 true")
         return 0 if not args.gate else 1
 
-    results = [run_case(c, vocab, embedding, stt_aliases) for c in ready]
+    results = [
+        run_case(c, vocab, embedding, stt_aliases,
+                 jd_variants.get(c["case_id"]) if jd_variants else None)
+        for c in ready
+    ]
     agg = aggregate(results)
     coverage = print_report(results, agg)
 
@@ -585,6 +620,10 @@ def main() -> int:
               "不得用於調參數,也不得寫成 baseline。")
 
     baseline = json.loads(args.baseline.read_text(encoding="utf-8")) if args.baseline else None
+    if baseline and baseline.get("_jd_source", "catalog") != JD_SRC[0]:
+        print(f"\n  ✗ baseline 的 JD 來源是 {baseline.get('_jd_source')}，"
+              f"本次是 {JD_SRC[0]}。兩者量的是不同輸入，比對沒有意義。")
+        return 1
     if baseline and baseline.get("_mode") and baseline["_mode"] != MODE[0]:
         print(f"\n  ✗ baseline 是 {baseline['_mode']} 模式，本次是 {MODE[0]} 模式。"
               "\n      兩者量的是不同管線，比對沒有意義。請用對應模式的 baseline。")
@@ -612,10 +651,12 @@ def main() -> int:
         if os.environ.get("INTERVIEW_EVAL_FAKE_EMBED"):
             print("\n  ✗ 拒絕寫入 baseline：本次使用假向量。")
             return 1
-        if MODE[0] not in out.stem:
-            out = out.with_name(f"{out.stem}_{MODE[0]}{out.suffix}")
+        tag = f"{MODE[0]}_{JD_SRC[0]}"
+        if tag not in out.stem:
+            out = out.with_name(f"{out.stem}_{tag}{out.suffix}")
         snapshot = {
             "_mode": MODE[0],
+            "_jd_source": JD_SRC[0],
             # ★ 參數要跟數字一起凍。沒有這些欄位的話,回歸時看到差異
             #   分不出是程式壞了還是參數被改過。
             "_semantic": ({"window": T_MOD.SEMANTIC_WINDOW,

@@ -240,6 +240,21 @@ FILLERS: tuple[str, ...] = LEXICAL_FILLERS
 #: 不足以構成證據。150 字約當 45–60 秒的口語。
 PARTIAL_SUPPRESSION_MIN_CHARS = 150
 
+#: 因果連接詞。B 要「邏輯清晰度」的錨（見 REQUEST_connector_rate.md）。
+#:
+#: ★ 只做因果一類。他原本列三類，實測六段逐字稿（2,477 字）之後兩類不成立：
+#:
+#:     轉折（但是/不過/然而/雖然）  出現 **0 次**。不是稀少，是完全沒有。
+#:     序列（首先/接著/最後）       扣掉「然後」只剩 10 次，而「然後」39 次
+#:                                 且已在 FILLERS 裡——同時算連接詞與填充詞的話，
+#:                                 講話越不流暢的人邏輯分數越高，兩個指標會打架。
+#:
+#:   因果類不含「然後」，所以那個打架不會發生，不必做上下文判斷。
+#:   做了永遠是 0 的欄位比沒有欄位更容易被誤用，所以另外兩類不做。
+CAUSAL_CONNECTORS: tuple[str, ...] = (
+    "因為", "所以", "因此", "由於", "導致", "造成", "使得", "才能", "為了",
+)
+
 #: 無標點時的語段分界詞。
 DISCOURSE_MARKERS: tuple[str, ...] = (
     "然後", "接下來", "後來", "所以", "再來", "另外", "最後",
@@ -639,6 +654,13 @@ class TranscriptAnalyzer:
                 breakdown[filler] = count
         filler_count = sum(breakdown.values())
 
+        causal = {}
+        for w in CAUSAL_CONNECTORS:
+            n = lowered.count(w)
+            if n:
+                causal[w] = n
+        causal_n = sum(causal.values())
+
         quant_spans: set[tuple[int, int]] = set()
         for pattern in (_ARABIC_QUANT_RE, _CHINESE_QUANT_RE, _PURE_PERCENT_RE):
             for m in pattern.finditer(text):
@@ -658,6 +680,8 @@ class TranscriptAnalyzer:
             avg_sentence_len=round(avg_len, 1),
             segmentation=mode,
             filler_reliability=self._filler_reliability(breakdown, char_count),
+            connector_rate=round(causal_n / char_count * 100, 2) if char_count else 0.0,
+            connector_detail={"causal": causal_n} if causal_n else {},
         )
 
     def _filler_reliability(self, breakdown: dict[str, int], char_count: int) -> str:
