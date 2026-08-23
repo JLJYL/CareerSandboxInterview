@@ -340,6 +340,22 @@ class TurnRequest(_Base):
     fallback: list[str] = Field(default_factory=list)  # 對齊 A1 簽章
     input_mode: str = "unknown"
     """"voice"(裝置端 STT)/ "typed"(鍵盤)/ "unknown"。見 INPUT_MODE_RULE。"""
+    spoken_by: list[str] = Field(default_factory=list)
+    """本場已經開口過的說話者,依序累積 TurnResponse.speaker。
+
+    僅 panel 與 group 需要。single 恆為空——只有一位面試官,沒有派發問題。
+
+    【為什麼要帶】
+    派發規則有一條「整場不要只有一位主管在講,某位完全沒開口時優先給他」,
+    但模型看不到誰開過口,那條規則就永遠不會生效。
+
+    實測:panel 五輪裡 HR 主管講了 4 次、用人主管 0 次;
+    group 四輪裡 AI-強勢與 AI-親切完全沒出現。
+
+    這是同一類問題的第三次:規則要求模型知道它拿不到的資訊。
+    前兩次是 asked_topics 與已問問題原文。
+    """
+
     asked_topics: list[str] = Field(default_factory=list)
     """本場已涵蓋的領域,前端累積 TurnResponse.topic 後回傳。
 
