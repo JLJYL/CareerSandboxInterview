@@ -399,3 +399,120 @@ async def test_honest_admission_turn_is_not_force_assigned() -> None:
 
     assert required_speaker("group", ["主考官", "AI-邏輯"], 3, "這個我沒想過") is None
     assert required_speaker("group", ["主考官", "AI-邏輯"], 3, "我用 SQL 做報表") == "AI-強勢"
+
+
+@pytest.mark.asyncio
+async def test_missing_topic_falls_back_to_previous() -> None:
+    """topic 不可以留空。
+
+    前端拿它累積 asked_topics,空的那一筆會讓序列斷掉,
+    而斷掉的地方就是之後重複提問的破口。
+    """
+    r = await next_turn(
+        mode="single", answer="x", follow_up_idx=0, asked_questions=[],
+        question="q", prev_topic="資料分析", fallback=[],
+        llm=llm_returning({"nextQuestion": "那你怎麼判斷的?"}),
+    )
+    assert r.topic == "資料分析"
+    assert any("沿用" in n for n in r.notices)
+
+
+@pytest.mark.asyncio
+async def test_salvaged_question_still_has_topic() -> None:
+    """搶救路徑救回問題但沒有後設欄位,topic 一樣不能空。"""
+    r = await next_turn(
+        mode="single", answer="x", follow_up_idx=0, asked_questions=[],
+        question="q", prev_topic="跨部門協調", fallback=[],
+        llm=llm_returning("那你當時是怎麼協調的呢?"),
+    )
+    assert r.topic == "跨部門協調"
+
+
+@pytest.mark.asyncio
+async def test_topic_never_empty_even_without_prev() -> None:
+    r = await next_turn(
+        mode="single", answer="x", follow_up_idx=0, asked_questions=[],
+        question="q", fallback=[], llm=llm_returning({"nextQuestion": "為什麼?"}),
+    )
+    assert r.topic
+
+
+# ---------------------------------------------------------------------------
+# 重複主問題的機械攔截
+# ---------------------------------------------------------------------------
+
+
+def test_near_duplicate_detection_calibrated() -> None:
+    """實測校準:重複的落在 0.69 以上,不重複的是 0,門檻 0.6 兩邊都有餘裕。"""
+    from app.pipeline.interview_live import is_near_duplicate
+
+    opening = ["可以分享一次你在資料分析方面的經驗嗎?特別是如何處理數據或報表的部分。"]
+    assert is_near_duplicate("那你能分享一下你過去如何處理資料清理的經驗嗎?", opening)
+    assert is_near_duplicate("你能分享一下你在資料分析方面的具體經驗嗎?", opening)
+    assert is_near_duplicate("你怎麼跟工程團隊協調排程?", opening) is None
+    assert is_near_duplicate("你當時是怎麼發現需要重寫查詢的呢?", opening) is None
+
+
+@pytest.mark.asyncio
+async def test_duplicate_main_question_swapped_for_fallback() -> None:
+    """已問問題原文已經傳給模型、規則也寫了,實測仍然會問近似題。
+
+    重試會增加面試中的延遲,而備援池是開場時針對這份 JD 生成的,直接用就行。
+    """
+    opening = "可以分享一次你在資料分析方面的經驗嗎?特別是如何處理數據或報表的部分。"
+    r = await next_turn(
+        mode="single", answer="x", follow_up_idx=0, asked_questions=[opening],
+        question=opening, fallback=["你怎麼跟工程團隊協調排程?"],
+        llm=llm_returning({
+            "nextQuestion": "你能分享一下你在資料分析方面的具體經驗嗎?",
+            "isFollowUp": False, "topic": "資料分析",
+        }),
+    )
+    assert r.next_question == "你怎麼跟工程團隊協調排程?"
+    assert any("改用備援題" in n for n in r.notices)
+
+
+@pytest.mark.asyncio
+async def test_follow_up_may_stay_on_topic() -> None:
+    """追問不受重複限制——追問本來就該留在同一個話題上。"""
+    opening = "可以分享一次你在資料分析方面的經驗嗎?特別是如何處理數據或報表的部分。"
+    same = "你能分享一下你在資料分析方面的具體經驗嗎?"
+    r = await next_turn(
+        mode="single", answer="x", follow_up_idx=0, asked_questions=[opening],
+        question=opening, fallback=["別的題"],
+        llm=llm_returning({"nextQuestion": same, "isFollowUp": True, "topic": "資料分析"}),
+    )
+    assert r.next_question == same
+
+
+def test_group_prompt_requires_peers_to_assert() -> None:
+    """面試官問問題,競爭者提主張。只問不說的那一句換成面試官講也成立。"""
+    from app.prompts.interview_live import compose_turn_prompt
+
+    t = compose_turn_prompt("group", [])
+    assert "先表態再發問" in t
+    assert "換成面試官講也完全成立" in t
+
+
+@pytest.mark.asyncio
+async def test_moderator_is_not_used_to_fill_quota() -> None:
+    """主持人的角色是條件性的,不是輪流制。
+
+    實測:把他算進補位名額,群面五輪裡第 3 輪給了主考官、第 5 輪給 AI-強勢,
+    AI-親切 因為排在宣告順序最後而永遠輪不到。
+    """
+    from app.pipeline.interview_live import required_speaker
+
+    assert required_speaker("group", ["AI-邏輯", "AI-邏輯"], 2) == "AI-強勢"
+    assert required_speaker("group", ["AI-邏輯", "主考官", "AI-強勢"], 4) == "AI-親切"
+
+
+@pytest.mark.asyncio
+async def test_salvaged_question_defaults_to_follow_up() -> None:
+    """搶救回來的問題是針對剛剛那段回答寫的,本質上就是追問。"""
+    r = await next_turn(
+        mode="single", answer="我用 SQL 重寫查詢", follow_up_idx=0,
+        asked_questions=[], question="q", prev_topic="資料分析", fallback=[],
+        llm=llm_returning("你當時是怎麼發現查詢效率有問題的呢?"),
+    )
+    assert r.is_follow_up is True

@@ -151,7 +151,8 @@ async def run_mode(mode: str, llm, n_turns: int) -> dict:
         r = await next_turn(
             mode=mode, answer=answer, follow_up_idx=follow_up_idx,
             asked_questions=asked_qs, spoken_by=speakers_used,
-            question=question, fallback=start.fallback_probes,
+            question=question, prev_topic=topics[-1] if topics else start.opening_topic,
+            fallback=start.fallback_probes,
             llm=llm, context=CTX,
         )
 

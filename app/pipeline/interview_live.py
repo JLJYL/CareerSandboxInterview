@@ -149,6 +149,48 @@ _ADMITS_UNKNOWN = ("不知道", "不確定", "沒想過", "沒有經驗", "答�
 MAX_SALVAGE_CHARS = 120
 
 
+_STOPWORDS = set("的了嗎呢你我他這那有沒是不在,。?、 ")
+
+DUP_THRESHOLD = 0.6
+"""重疊比例超過這個值就算問了同一件事。
+
+實測校準(去掉虛詞後的字元重疊 / 較短那句的長度):
+
+    「你過去如何處理資料清理的經驗」vs 開場的資料分析題   0.69  該算
+    「你在資料分析方面的具體經驗」  vs 同上              0.71  該算
+    「你怎麼跟工程團隊協調排程」    vs 同上              0.00  不該算
+    「你怎麼發現需要重寫查詢」      vs 上一題            0.00  不該算
+
+分離度很乾淨——重複的落在 0.69 以上,不重複的是 0。
+門檻放 0.6 兩邊都有餘裕。
+"""
+
+
+def is_near_duplicate(question: str, asked: Sequence[str]) -> str | None:
+    """找出與先前問題高度重疊的一題。回傳那一題,沒有就 None。
+
+    純字面重疊,不做語意。門檻訂得嚴,因為問句本來就會共用很多虛詞。
+
+    【為什麼要機械檢查】
+    已問問題原文已經傳給模型、規則也寫了不要重複,實測仍然會問近似題:
+    群面第 5 輪主考官問「你過去如何處理資料清理的經驗」,
+    而開場題是「你在資料分析方面的經驗,特別是如何處理數據或報表」。
+
+    這跟派發平衡是同一類:資訊給了,模型不可靠地執行比對。
+    """
+    q = set(question) - _STOPWORDS
+    if not q:
+        return None
+    for a in asked:
+        av = set(a) - _STOPWORDS
+        if not av:
+            continue
+        shared = len(q & av)
+        if shared >= 4 and shared / min(len(q), len(av)) >= DUP_THRESHOLD:
+            return a
+    return None
+
+
 def salvage_question(raw: str) -> str | None:
     """模型沒包 JSON、直接回問題時,把它救回來。
 
@@ -192,7 +234,15 @@ def required_speaker(
     # 那是主考官的工作,而且完全不符合它的人格。
     if any(k in answer for k in _ADMITS_UNKNOWN):
         return None
-    counts = {n: list(spoken_by).count(n) for n in names}
+    # 主持人不列入強制指派。他的角色是條件性的——討論卡住或使用者說不會時
+    # 才開口,不是輪流制。把他算進來會佔掉補位名額:
+    # 實測群面五輪,第 3 輪強制給了主考官、第 5 輪給 AI-強勢,
+    # AI-親切 因為排在宣告順序最後而永遠輪不到。
+    fillable = [
+        p.display_name for p in personas_for(mode)
+        if p.display_name and p.role != "moderator"
+    ]
+    counts = {n: list(spoken_by).count(n) for n in fillable}
     silent = [n for n, c in counts.items() if c == 0]
     return silent[0] if silent else None
 
@@ -336,6 +386,7 @@ async def next_turn(
     asked_questions: Sequence[str],
     spoken_by: Sequence[str] = (),
     question: str = "",
+    prev_topic: str = "",
     fallback: Sequence[str],
     llm: LLMCall,
     context: InterviewContext | None = None,
@@ -405,7 +456,9 @@ async def next_turn(
         notices.append(f"本輪:模型指派給「{speaker}」,已改為未發言過的「{forced}」")
         speaker = forced
 
-    is_follow_up = bool(data.get("isFollowUp", False))
+    # 搶救回來的問題預設當追問。它是針對剛剛那段回答寫的,
+    # 本質上就是追問——實測搶救的兩題都是追問卻被標成新主題。
+    is_follow_up = bool(data.get("isFollowUp", bool(salvage_note)))
 
     # 「整場該不該結束」由輪次決定,一律不採用模型的判斷。
     # 實測:模型因為使用者一句「我沒想過」就把 shouldAdvance 設成 true,
@@ -416,12 +469,34 @@ async def next_turn(
     elif bool(data.get("shouldAdvance", False)):
         notices.append("本輪:模型想提前結束,已忽略——結束時機由輪次決定")
 
+    # 新主問題跟問過的重複時,改用備援池裡沒用過的一題。
+    # 重試會增加面試中的延遲,而備援池是開場時針對這份 JD 生成的,直接用就行。
+    # 追問不受此限——追問本來就該留在同一個話題上。
+    if not is_follow_up:
+        dup = is_near_duplicate(nxt, asked_questions)
+        if dup:
+            unused = [p for p in fallback if not is_near_duplicate(p, asked_questions)]
+            if unused:
+                notices.append(f"本輪:新主問題與先前重複,改用備援題。原本:{nxt[:30]}")
+                nxt = unused[0]
+            else:
+                notices.append(f"本輪:新主問題與先前重複,但備援池已用盡。重複的是:{dup[:30]}")
+
+    # topic 不可以留空。前端拿它累積 asked_topics,空的那一筆會讓序列斷掉,
+    # 而斷掉的地方就是之後重複提問的破口。
+    # 搶救路徑救回問題但沒有後設欄位時,沿用上一輪的領域——
+    # 那通常是對的,因為搶救回來的多半是追問。
+    topic = normalize_locale(str(data.get("topic", "")).strip())
+    if not topic:
+        topic = prev_topic or "延續上一題"
+        notices.append(f"本輪:模型未標領域,已沿用「{topic}」")
+
     return TurnResponse(
         speaker=speaker,
         next_question=nxt,
         reaction=normalize_locale(str(data.get("reaction", "")).strip()),
         is_follow_up=is_follow_up,
         should_advance=should_advance,
-        topic=normalize_locale(str(data.get("topic", "")).strip()),
+        topic=topic,
         notices=notices,
     )
