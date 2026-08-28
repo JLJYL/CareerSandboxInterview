@@ -261,6 +261,36 @@ Android STT 停頓 1–2 秒就自動送出,一次回答必然被切成數段,�
 實測佐證:`first_speak_position` 原本用總則數當分母,結果同樣在第 2 則開口、
 後面多講 5 次,位置就從 1.00 變成 0.17——發言量從後門混進了那個訊號。
 
+### TurnRequest.mode(W3 補上)
+
+合約定案時漏了這一欄,後端只能從 `spokenBy` 反推,兩個已知失準點:
+
+    第一輪 spokenBy 還是空的 → 一律當成 single
+    一對一不回 speaker       → 要靠開場的 openingSpeaker 被放進 spokenBy
+                              才分得出 panel 與 group
+
+現在 `TurnRequest` 有 `mode`,值同開場時送的那個。
+
+**留成選填而不是必填**,因為前端還沒改——為空時退回反推,
+前端補上之後反推就不會被用到,合約不用再改一次。
+
+**前端待辦**:每次 `turns` 請求帶上 `mode`。
+
+### groupSays 的欄位名跟著前端(W3 對齊)
+
+`UtteranceDTO` 的欄位名以前端的 `GroupUtterance` 為準:
+
+| 後端 | 前端 | 備註 |
+|---|---|---|
+| `content` | `content` | 早期版本叫 `text`,名字不同會靜默拿到空字串 |
+| `isUser` | `isUser` | 協作評分只評使用者。不用 `speaker == "user"` 判斷——那個名稱會隨 persona 調校變動 |
+| `segments` | `segments` | 同 `TurnDTO.answerSegments` |
+| `segmentStartsMs` | `segmentStartsMs` | 同 `TurnDTO.segmentStartsMs` |
+| `inputMode` | 待前端補 | 群面同時有語音與文字輸入,逐句都要標 |
+
+前端已把 `groupSays` 改為 `groupTranscript`,舊欄位標了 `@Deprecated`,
+理由是「只存使用者發言,已不足以支援評分需求」。
+
 ### STT 引擎(已定案,無選擇題)
 
 前端使用 Android 裝置端 `SpeechRecognizer`(`ui/components/InPageVoice.kt`,

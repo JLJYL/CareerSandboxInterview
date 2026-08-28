@@ -355,7 +355,7 @@ def test_group_says_carries_all_speakers() -> None:
 
 def test_utterance_dto_defaults_are_safe() -> None:
     """沒有計時資料時給 0,陣列順序仍可用。"""
-    u = UtteranceDTO(text="x")
+    u = UtteranceDTO(content="x")
     assert u.speaker == "user"
     assert u.start_ms == 0
 
@@ -423,7 +423,7 @@ def test_turn_dto_carries_input_mode() -> None:
 
 def test_utterance_carries_input_mode() -> None:
     """群面同時有語音與文字輸入,搶話偵測需要打字停頓。"""
-    assert UtteranceDTO(text="x", input_mode="typed").input_mode == "typed"
+    assert UtteranceDTO(content="x", input_mode="typed").input_mode == "typed"
 
 
 def test_input_mode_defaults_to_unknown_not_voice() -> None:
@@ -535,3 +535,45 @@ def test_positional_rescue_skips_valid_names() -> None:
     by_name = {s.name: s.score for s in fixed}
     assert by_name["表達流暢度"] == 72
     assert by_name["內容深度"] == 0, "名稱正確的項目不可以被搶去當別項的分數"
+
+
+# ---------------------------------------------------------------------------
+# 十三、UtteranceDTO 對齊前端的 GroupUtterance
+# ---------------------------------------------------------------------------
+
+
+def test_utterance_uses_frontend_field_names() -> None:
+    """前端的 GroupUtterance 用 content 不是 text。
+
+    名字不同會讓反序列化拿到空字串,而且不會報錯——
+    協作維度會收到一批空發言,分數照樣算得出來,只是全部沒有依據。
+    """
+    u = UtteranceDTO.model_validate({
+        "speaker": "AI-邏輯", "content": "母數是多少", "isUser": False,
+        "segments": ["母數是多少"], "segmentStartsMs": [3200],
+    })
+    assert u.content == "母數是多少"
+    assert u.is_user is False
+    assert u.segments == ["母數是多少"]
+    assert u.segment_starts_ms == [3200]
+
+
+def test_utterance_alias_matches_kotlin() -> None:
+    """輸出的鍵名要跟 Kotlin 的欄位對得上。"""
+    keys = set(UtteranceDTO(content="x").model_dump(by_alias=True))
+    assert {"speaker", "content", "isUser", "segments", "segmentStartsMs"} <= keys
+
+
+def test_is_user_is_explicit_not_inferred_from_speaker() -> None:
+    """speaker 是 persona 的顯示名稱、可能隨調校變動。
+
+    用一個會變的欄位去判斷「這是不是本人」不安全。
+    """
+    u = UtteranceDTO(speaker="某個之後改名的角色", content="x", is_user=True)
+    assert u.is_user is True
+
+
+def test_group_says_carries_speaker_and_content() -> None:
+    req = ReportRequest.model_validate(_load("req_report_group"))
+    assert all(u.content for u in req.group_says)
+    assert any(u.is_user for u in req.group_says), "要分得出哪幾句是使用者講的"

@@ -3,5 +3,13 @@ pydantic>=2.0
 pytest>=8.0
 pytest-asyncio>=0.24
 
-# 端點落地後再加:fastapi、uvicorn、openai、python-dotenv
+# 端點
+fastapi>=0.115
+uvicorn[standard]>=0.30
+httpx>=0.27          # TestClient 需要
+python-dotenv>=1.0
+
+# LLM。只有 app/api/deps.py import 它,pipeline 全部走注入。
+openai>=1.40
+
 # 版本請與既有模型服務對齊,不要在這裡自行決定
