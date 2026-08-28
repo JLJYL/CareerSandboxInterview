@@ -29,8 +29,17 @@ CTX = InterviewContext(
 )
 
 
-def llm_returning(payload) -> object:
+def llm_returning(payload, dispatch: str | None = None) -> object:
+    """dispatch 給定時,派發那一步回那個名字;其餘呼叫回 payload。
+
+    兩步流程之後,群面與 panel 每輪會先呼叫一次派發(只回名字)。
+    """
     def call(system: str, user: str) -> str:
+        if "決定這一輪由誰開口" in system:
+            if dispatch is not None:
+                return dispatch
+            # 預設沿用 payload 裡的 speaker,讓舊測試的語意不變
+            return payload.get("speaker", "") if isinstance(payload, dict) else ""
         return payload if isinstance(payload, str) else json.dumps(payload, ensure_ascii=False)
     return call
 
@@ -151,7 +160,7 @@ async def test_turn_happy_path() -> None:
     r = await next_turn(
         mode="panel", answer="我用 SQL 做了報表", follow_up_idx=0,
         asked_questions=["自我介紹"], question="請自我介紹", fallback=[],
-        llm=llm_returning(TURN),
+        llm=llm_returning(TURN, dispatch="技術主管"),
     )
     assert r.speaker == "技術主管"
     assert r.next_question == TURN["nextQuestion"]
@@ -258,23 +267,72 @@ def test_strips_fence() -> None:
 
 
 @pytest.mark.asyncio
-async def test_speaker_counts_reach_the_prompt() -> None:
+async def test_speaker_counts_reach_the_dispatch_prompt() -> None:
     """派發規則要求「某位沒開口就給他」,模型看不到發言紀錄就永遠不會生效。
 
-    實測:未提供時,panel 五輪裡 HR 主管 4 次、用人主管 0 次。
+    兩步流程之後,發言次數在派發那一步的 user message 裡。
     """
     seen = {}
 
     def spy(system: str, user: str) -> str:
-        seen["user"] = user
+        if "決定這一輪由誰開口" in system:
+            seen["dispatch"] = user
+            return "技術主管"
         return json.dumps(TURN, ensure_ascii=False)
 
     await next_turn(
         mode="panel", answer="x", follow_up_idx=0, asked_questions=[],
         spoken_by=["HR 主管", "HR 主管", "技術主管"], question="q", fallback=[], llm=spy,
     )
-    assert "HR 主管:2 次" in seen["user"]
-    assert "用人主管:0 次" in seen["user"]
+    assert "HR 主管:2 次" in seen["dispatch"]
+    assert "用人主管:0 次" in seen["dispatch"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_decides_speaker_not_generation() -> None:
+    """說話者由派發那一步決定。生成端的 prompt 已寫死 speaker,
+    回別的就是它沒照做,不採用。"""
+    r = await next_turn(
+        mode="panel", answer="x", follow_up_idx=0, asked_questions=[],
+        question="q", fallback=[],
+        llm=llm_returning({**TURN, "speaker": "HR 主管"}, dispatch="用人主管"),
+    )
+    assert r.speaker == "用人主管"
+
+
+@pytest.mark.asyncio
+async def test_dispatch_failure_falls_back_to_least_spoken() -> None:
+    """派發失敗時退回發言最少的一位,不要讓生成端自己猜。"""
+    def call(system: str, user: str) -> str:
+        if "決定這一輪由誰開口" in system:
+            raise RuntimeError("timeout")
+        return json.dumps(TURN, ensure_ascii=False)
+
+    r = await next_turn(
+        mode="panel", answer="x", follow_up_idx=0, asked_questions=[],
+        spoken_by=["HR 主管", "HR 主管", "技術主管"], question="q", fallback=[], llm=call,
+    )
+    assert r.speaker == "用人主管"
+    assert any("派發失敗" in n for n in r.notices)
+
+
+@pytest.mark.asyncio
+async def test_focused_prompt_expands_only_one_persona() -> None:
+    """七位 persona 全部展開 prompt 超過 4200 字,人格會塌陷。
+
+    每一輪只有一位會說話,其餘六份完整設定是雜訊。
+    """
+    from app.prompts.interview_live import compose_turn_prompt
+
+    full = compose_turn_prompt("group", [], group_interviewers=3, group_size=5)
+    focused = compose_turn_prompt(
+        "group", [], group_interviewers=3, group_size=5, focus_speaker="AI-邏輯"
+    )
+    assert len(focused) < len(full)
+    assert "質疑數據與推論的跳躍" in focused
+    assert "你是**同場競爭的應徵者**。你的風格是搶節奏" not in focused, \
+        "其他人只列名字,不展開人格"
+    assert "AI-強勢" in focused, "但名字要留著,使用者看得到他們在場"
 
 
 @pytest.mark.asyncio
@@ -329,7 +387,7 @@ async def test_silent_persona_is_forced_by_code() -> None:
         mode="group", answer="先做一個版本再修比較快", follow_up_idx=3,
         asked_questions=[], spoken_by=["主考官", "AI-邏輯", "AI-親切"],
         question="q", fallback=[],
-        llm=llm_returning({**TURN, "speaker": "主考官"}),
+        llm=llm_returning({**TURN, "speaker": "主考官"}, dispatch="主考官"),
     )
     assert r.speaker == "AI-強勢"
     assert any("未發言過" in n for n in r.notices)
@@ -340,9 +398,10 @@ async def test_no_force_before_threshold() -> None:
     """前幾輪讓派發跟著內容走,不要一開始就強制輪流。"""
     r = await next_turn(
         mode="panel", answer="x", follow_up_idx=0, asked_questions=[],
-        spoken_by=[], question="q", fallback=[], llm=llm_returning(TURN),
+        spoken_by=[], question="q", fallback=[],
+        llm=llm_returning(TURN, dispatch="技術主管"),
     )
-    assert r.speaker == "技術主管", "模型的判斷應該被保留"
+    assert r.speaker == "技術主管", "派發的判斷應該被保留,不該被強制指派蓋掉"
 
 
 @pytest.mark.asyncio
@@ -486,12 +545,15 @@ async def test_follow_up_may_stay_on_topic() -> None:
 
 
 def test_group_prompt_requires_peers_to_assert() -> None:
-    """面試官問問題,競爭者提主張。只問不說的那一句換成面試官講也成立。"""
+    """面試官問問題,競爭者提主張。只問不說的那一句換成面試官講也成立。
+
+    聚焦模式下這條判準要留著——那是人格的一部分,不是派發規則。
+    """
     from app.prompts.interview_live import compose_turn_prompt
 
-    t = compose_turn_prompt("group", [])
-    assert "先表態再發問" in t
-    assert "換成面試官講也完全成立" in t
+    focused = compose_turn_prompt("group", [], focus_speaker="AI-邏輯")
+    assert "先表態再發問" in focused
+    assert "換成面試官講也完全成立" in focused
 
 
 @pytest.mark.asyncio
@@ -516,3 +578,278 @@ async def test_salvaged_question_defaults_to_follow_up() -> None:
         llm=llm_returning("你當時是怎麼發現查詢效率有問題的呢?"),
     )
     assert r.is_follow_up is True
+
+
+# ---------------------------------------------------------------------------
+# 群面的兩種配置與小組人數
+# ---------------------------------------------------------------------------
+
+
+def test_group_solo_config_has_four_peers() -> None:
+    """前端 baseRoster:主考官、你、AI-強勢、AI-邏輯、AI-親切、AI-沉默。"""
+    from app.prompts.interview_personas import speaker_names
+
+    assert speaker_names("group", 1, 5) == ("主考官", "AI-強勢", "AI-邏輯", "AI-親切", "AI-沉默")
+
+
+def test_group_panel_config_replaces_moderator() -> None:
+    """3 位面試官時主考官不出現,改由三位主管主持。
+
+    前端:panel 模式時 speaker=="主考官" 會被換成 "用人主管"。
+    """
+    from app.prompts.interview_personas import speaker_names
+
+    names = speaker_names("group", 3, 5)
+    assert "主考官" not in names
+    assert names[:3] == ("用人主管", "技術主管", "HR 主管")
+    assert "AI-沉默" in names
+
+
+@pytest.mark.parametrize("size,peers", [(3, 2), (4, 3), (5, 4)])
+def test_group_size_controls_peer_count(size: int, peers: int) -> None:
+    """小組人數含使用者本人,扣掉他就是 AI 應徵者的數量。"""
+    from app.prompts.interview_personas import speaker_names
+
+    names = speaker_names("group", 1, size)
+    assert len([n for n in names if n.startswith("AI-")]) == peers
+
+
+def test_peer_order_matches_frontend_roster() -> None:
+    """順序錯的話會出場錯的人——選 3 人時前端顯示強勢與邏輯,
+    後端卻回親切,畫面對不上。"""
+    from app.prompts.interview_personas import speaker_names
+
+    assert speaker_names("group", 1, 3) == ("主考官", "AI-強勢", "AI-邏輯")
+
+
+def test_quiet_peer_has_a_distinct_trigger() -> None:
+    """AI-沉默 的介入條件跟其他三位不同——不是「回答提到什麼」,
+    是「討論的狀態」。沒有明確條件它會變成永遠不出現的裝飾。"""
+    from app.prompts.interview_personas import GROUP_PEER_QUIET
+
+    assert GROUP_PEER_QUIET.routes_when
+    assert any("討論" in r for r in GROUP_PEER_QUIET.routes_when)
+
+
+def test_difficulty_reaches_the_prompt() -> None:
+    """難度傳了但沒有規則等於沒生效。"""
+    from app.prompts.interview_live import compose_turn_prompt
+
+    hard = compose_turn_prompt("single", [], difficulty="困難")
+    assert "找到第一個就追" in hard, "難度改成換判準,不再是一段獨立的註記"
+
+
+def test_group_role_only_in_group_mode() -> None:
+    from app.prompts.interview_live import compose_turn_prompt
+
+    assert "較資深應徵者" in compose_turn_prompt("group", [], group_role="較資深應徵者")
+    assert "較資深應徵者" not in compose_turn_prompt("single", [], group_role="較資深應徵者")
+
+
+@pytest.mark.asyncio
+async def test_turn_uses_context_config() -> None:
+    """設定要能逐輪生效,否則第二輪之後全部退回預設值。"""
+    from app.schemas.interview import InterviewContext
+
+    seen = {}
+
+    def spy(system: str, user: str) -> str:
+        seen["system"] = system
+        return json.dumps({**TURN, "speaker": "AI-沉默"}, ensure_ascii=False)
+
+    ctx = InterviewContext(group_interviewers=3, group_size=5, difficulty="困難")
+    r = await next_turn(
+        mode="group", answer="x", follow_up_idx=0, asked_questions=[],
+        question="q", fallback=[], llm=spy, context=ctx,
+    )
+    assert "用人主管" in seen["system"]
+    assert "找到第一個就追" in seen["system"]
+    assert r.speaker == "AI-沉默"
+
+
+# ---------------------------------------------------------------------------
+# 輪次上限依模式而異
+# ---------------------------------------------------------------------------
+
+
+def test_group_has_no_turn_cap() -> None:
+    """群面沒有上限——InterviewLiveGroupScreen 的 followUpIdx 只遞增,
+    沒有任何上限檢查,也沒有進入反問環節的邏輯。
+
+    早期版本把一對一的 4 題上限套過來,後果是選 5 人小組時只跑 5 輪,
+    AI-親切 與 AI-沉默 永遠不會出場。
+    """
+    from app.prompts.probe_rules import turn_cap_for
+
+    assert turn_cap_for("group") is None
+    assert turn_cap_for("single") == 4
+    assert turn_cap_for("panel") == 4
+
+
+@pytest.mark.asyncio
+async def test_group_does_not_end_at_four_turns() -> None:
+    r = await next_turn(
+        mode="group", answer="x", follow_up_idx=9, asked_questions=[],
+        question="q", fallback=[], llm=llm_returning({**TURN, "speaker": "AI-邏輯"}),
+    )
+    assert r.should_advance is False, "群面不該因為輪次而結束"
+
+
+@pytest.mark.asyncio
+async def test_group_ignores_model_wanting_to_end() -> None:
+    """群面由使用者自己決定何時結束,模型不能替他決定。"""
+    r = await next_turn(
+        mode="group", answer="x", follow_up_idx=9, asked_questions=[],
+        question="q", fallback=[],
+        llm=llm_returning({**TURN, "speaker": "AI-邏輯", "shouldAdvance": True}),
+    )
+    assert r.should_advance is False
+    assert any("使用者自己決定" in n for n in r.notices)
+
+
+@pytest.mark.asyncio
+async def test_single_still_ends_at_cap() -> None:
+    r = await next_turn(
+        mode="single", answer="x", follow_up_idx=4, asked_questions=[],
+        question="q", fallback=[], llm=llm_returning(TURN),
+    )
+    assert r.should_advance is True
+
+
+# ---------------------------------------------------------------------------
+# 輸入順序與 persona 定位
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_answer_comes_before_previous_question() -> None:
+    """回答排在前面,而且明說要回應它。
+
+    實測:上一題排前面時模型會錨在前一題的主題上——
+    使用者講協調排程,問的是 SQL;說「我沒想過」,問的還是優化查詢。
+    連續三輪不跟著回答走,gpt-4o 也一樣,所以那是輸入順序造成的錨定。
+    """
+    seen = {}
+
+    def spy(system: str, user: str) -> str:
+        if "決定這一輪由誰開口" in system:
+            return ""
+        seen["user"] = user
+        return json.dumps({"nextQuestion": "x", "topic": "t"}, ensure_ascii=False)
+
+    await next_turn(
+        mode="single", answer="我協調了兩邊的排程", follow_up_idx=0,
+        asked_questions=[], question="你怎麼優化 SQL 查詢?", fallback=[], llm=spy,
+    )
+    u = seen["user"]
+    assert u.index("我協調了兩邊的排程") < u.index("你怎麼優化 SQL 查詢?")
+    assert "你要回應的是上面這段話" in u
+
+
+def test_friendly_peer_is_an_integrator_not_a_helper() -> None:
+    """「靠協作能力被看見」太抽象,模型只抓到「協作」而丟掉「被看見」。
+
+    三種 prompt 方法都失敗、gpt-4o 也救不了,所以改的是定位本身:
+    先指出分歧,再提出整合方案——綜合本身就是一種主張。
+    """
+    from app.prompts.interview_personas import GROUP_PERSONAS
+
+    friendly = next(p for p in GROUP_PERSONAS if p.id == "peer_friendly")
+    assert "整合" in friendly.blurb or "分歧" in friendly.blurb
+    assert "分歧" in friendly.stance
+    assert "整合本身就是一種主張" in friendly.stance
+    assert any("分歧" in r or "兩派" in r for r in friendly.routes_when)
+
+
+def test_stance_examples_use_unrelated_scenario() -> None:
+    """示範的情境要跟面試無關,照抄就會明顯不合。
+
+    實測:用「先做再修」「母數不到三十」當示範時,gpt-4o 與 gpt-4o-mini
+    都一字不差照抄——那些句子剛好接得上使用者講的話,模型覺得直接用就好。
+    那不是人格生效,是背答案。
+    """
+    from app.prompts.interview_live import GROUP_PEER_STANCE
+
+    assert "一字不差照抄" in GROUP_PEER_STANCE
+    assert "就是抄錯了" in GROUP_PEER_STANCE
+    # 示範區塊必須用不相干的情境。舊句子只能出現在「為什麼」的說明裡,
+    # 不能出現在示範區塊——那是會被照抄的位置。
+    demo = GROUP_PEER_STANCE.split("【為什麼用不相干的情境當示範】")[0]
+    assert "換供應商" in demo
+    assert "先切一個最小可驗證的版本" not in demo
+    assert "母數不到三十" not in demo
+
+
+# ---------------------------------------------------------------------------
+# 難度換判準,不是加註記
+# ---------------------------------------------------------------------------
+
+
+def test_difficulty_swaps_the_triggers_not_appends() -> None:
+    """實測:難度寫成獨立段落放在 prompt 中段時,困難與新手的問句幾乎逐字相同。
+
+    判準是模型真正會讀的部分(它要照著決定問什麼),
+    所以難度要改的是判準本身。
+    """
+    from app.prompts.interview_live import compose_turn_prompt
+
+    hard = compose_turn_prompt("single", [], difficulty="困難")
+    easy = compose_turn_prompt("single", [], difficulty="新手")
+
+    assert "找到第一個就追" in hard
+    assert "找到第一個就追" not in easy
+    assert "不要**追問數字" in easy or "**不要**追問數字" in easy
+    assert hard.count("判斷追問什麼時") == 1, "兩份判準同時出現會互相打架"
+    assert easy.count("判斷追問什麼時") == 1
+
+
+def test_hard_mode_allows_repeated_probing() -> None:
+    from app.prompts.interview_live import compose_turn_prompt
+
+    assert "同一件事可以連續追問" in compose_turn_prompt("single", [], difficulty="困難")
+
+
+def test_single_output_has_only_two_fields() -> None:
+    """一對一實測 60–80% 的輪次沒包成 JSON,群面同樣長度卻幾乎不發生。
+
+    差別在欄位數:speaker 恆為空、reaction 可有可無、
+    isFollowUp 與 shouldAdvance 本來就由程式決定。
+    """
+    from app.prompts.interview_live import compose_turn_prompt
+
+    t = compose_turn_prompt("single", [], difficulty="中等")
+    # 只看 JSON 範例那一行,後面的說明會提到被拿掉的欄位名
+    example = t.split("輸出格式")[1].split("\n")[2]
+    assert "nextQuestion" in example and "topic" in example
+    assert "shouldAdvance" not in example
+    assert "speaker" not in example
+
+
+@pytest.mark.asyncio
+async def test_single_turns_default_to_follow_up() -> None:
+    """一對一沒有 isFollowUp 欄位時預設為追問。
+
+    早期版本用「topic 跟上一輪相同就是追問」,那是錯的:
+    實測五輪全部在追問,但模型每輪都給了誠實的新 topic
+    (實習內容 → 查詢重寫的具體做法 → 協調過程),於是判成 0/5。
+
+    追問的定義是「接著剛剛那段回答問」,跟 topic 換不換沒有必然關係。
+    """
+    for topic in ("資料分析", "團隊衝突", ""):
+        r = await next_turn(
+            mode="single", answer="x", follow_up_idx=0, asked_questions=[],
+            question="q", prev_topic="資料分析", fallback=[],
+            llm=llm_returning({"nextQuestion": "那個數字怎麼算的?", "topic": topic}),
+        )
+        assert r.is_follow_up is True
+
+
+@pytest.mark.asyncio
+async def test_multi_mode_still_uses_the_field() -> None:
+    """群面與 panel 的輸出格式仍有 isFollowUp,有回就用它的。"""
+    r = await next_turn(
+        mode="panel", answer="x", follow_up_idx=0, asked_questions=[],
+        question="q", fallback=[],
+        llm=llm_returning({**TURN, "isFollowUp": False}, dispatch="技術主管"),
+    )
+    assert r.is_follow_up is False

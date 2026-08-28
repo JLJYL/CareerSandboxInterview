@@ -35,14 +35,18 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 from app.pipeline.interview_live import next_turn, start_interview  # noqa: E402
 from app.prompts.interview_live import compose_turn_prompt  # noqa: E402
-from app.prompts.probe_rules import MAX_TURNS_PER_SESSION  # noqa: E402
+from app.prompts.probe_rules import MAX_TURNS_PER_SESSION, turn_cap_for  # noqa: E402
 from app.schemas.interview import InterviewContext  # noqa: E402
 
-CTX = InterviewContext(
+def make_ctx(difficulty: str, gi: int, gs: int, role: str) -> InterviewContext:
+    return InterviewContext(
     round="初試",
     language="中文",
     type="行為",
-    difficulty="中等",
+    difficulty=difficulty,
+    group_interviewers=gi,
+    group_size=gs,
+    group_role=role,
     custom_role="資料分析實習生",
     custom_company="某電商公司",
     custom_industry="電子商務",
@@ -110,7 +114,7 @@ def _near_duplicate(question: str, asked: list[str]) -> str | None:
     return None
 
 
-async def run_mode(mode: str, llm, n_turns: int) -> dict:
+async def run_mode(mode: str, llm, n_turns: int, CTX: InterviewContext) -> dict:
     print("=" * 74)
     print(f"模式:{mode}")
     print("=" * 74)
@@ -137,11 +141,15 @@ async def run_mode(mode: str, llm, n_turns: int) -> dict:
     speakers_used: list[str] = []
     topics: list[str] = []
     repeats = 0
-    capped = 0   # 被上限強制推進的次數。這幾輪看不出模型自己會不會換主題
-    empty = 0    # 模型沒產出問題的次數
+    capped = 0     # 被上限強制推進的次數
+    empty = 0      # 模型沒產出問題的次數
+    forced = 0     # 被程式強制指派說話者的次數
+    follow_ups = 0 # 追問(而非換新主題)的次數,用來看難度有沒有生效
+    q_lengths: list[int] = []
 
     for i in range(min(n_turns, len(ANSWERS))):
-        if follow_up_idx > MAX_TURNS_PER_SESSION:
+        cap = turn_cap_for(mode)
+        if cap is not None and follow_up_idx > cap:
             break
         answer = ANSWERS[i]
         print(f"\n── 第 {i + 1} 輪  (followUpIdx={follow_up_idx})")
@@ -170,11 +178,16 @@ async def run_mode(mode: str, llm, n_turns: int) -> dict:
                 capped += 1
             if "未產出問題" in n or "生成失敗" in n:
                 empty += 1
+            if "未發言過" in n:
+                forced += 1
 
         if r.speaker:
             speakers_used.append(r.speaker)
         if r.topic:
             topics.append(r.topic)
+        if r.is_follow_up:
+            follow_ups += 1
+        q_lengths.append(len(r.next_question))
         # 只有新主問題才進已問清單。追問是同一題的延伸,加進去會誤擋後續追問。
         if not r.is_follow_up:
             near = _near_duplicate(r.next_question, asked_qs)
@@ -200,7 +213,11 @@ async def run_mode(mode: str, llm, n_turns: int) -> dict:
         "repeats": repeats,
         "capped": capped,
         "empty": empty,
+        "forced": forced,
         "personas": [p.display_name for p in start.personas],
+        "turns_used": len(topics),
+        "follow_ups": follow_ups,
+        "q_lengths": q_lengths,
     }
 
 
@@ -212,16 +229,26 @@ def report(rows: list[dict]) -> None:
         if r["personas"]:
             used = {s: r["speakers"].count(s) for s in r["personas"]}
             silent = [k for k, v in used.items() if v == 0]
+            n_p, n_t = len(r["personas"]), r["turns_used"]
             print(f"  發言分佈  {used}")
-            if silent:
-                print(f"    ★ 全程沒開口:{'、'.join(silent)}"
-                      "(派發偏食,某個 persona 等於不存在)")
+            print(f"  persona {n_p} 位 / 實際 {n_t} 輪"
+                  f"   覆蓋 {n_p - len(silent)}/{n_p}"
+                  f"   強制指派 {r['forced']} 次")
+            if n_p > n_t:
+                print(f"    註:persona 比輪次多,數學上不可能每位都開口"
+                      f"(至少 {n_p - n_t} 位會掛零)")
+            elif silent:
+                print(f"    ★ 全程沒開口:{'、'.join(silent)}")
         print(f"  領域序列  {' → '.join(r['topics']) or '(無)'}")
         if r["repeats"]:
             print(f"    ★ 領域重複或近義 {r['repeats']} 次"
                   "(禁則沒生效,或標籤沒有沿用既有的)")
         if r["empty"]:
             print(f"    ★ 模型未產出問題 {r['empty']} 次,那幾輪走了備援池")
+        if r["q_lengths"]:
+            avg = sum(r["q_lengths"]) / len(r["q_lengths"])
+            print(f"  追問 {r['follow_ups']}/{r['turns_used']} 輪"
+                  f"   問句平均 {avg:.0f} 字")
         if r["capped"]:
             print(f"  上限強制推進 {r['capped']} 次"
                   "(那幾輪看不出模型自己會不會換主題)")
@@ -241,13 +268,25 @@ async def main() -> int:
     ap.add_argument("--turns", type=int, default=len(ANSWERS))
     ap.add_argument("--dry-run", action="store_true", help="不打 API,只印 prompt")
     ap.add_argument("--model", default=os.getenv("OPENAI_MODEL", "gpt-4o-mini"))
+    ap.add_argument("--difficulty", choices=["新手", "中等", "困難"], default="中等")
+    ap.add_argument("--group-interviewers", type=int, choices=[1, 3], default=1,
+                    help="群面:1 位主持 或 3 位主管")
+    ap.add_argument("--group-size", type=int, choices=[3, 4, 5], default=4,
+                    help="群面:小組人數(含你)")
+    ap.add_argument("--group-role", default="一般應徵者",
+                    choices=["一般應徵者", "較資深應徵者", "較資淺應徵者"])
     args = ap.parse_args()
+    ctx = make_ctx(args.difficulty, args.group_interviewers, args.group_size, args.group_role)
 
     if args.dry_run:
-        t = compose_turn_prompt(args.mode, ["自我介紹"])
+        t = compose_turn_prompt(
+            args.mode, ["自我介紹"],
+            group_interviewers=args.group_interviewers, group_size=args.group_size,
+            difficulty=args.difficulty, group_role=args.group_role,
+        )
         print(f"[dry-run] {args.mode} 的每輪 system prompt({len(t)} 字):\n")
         print(t)
-        print(f"\n整場上限:{MAX_TURNS_PER_SESSION} 題")
+        print(f"\n整場上限:{turn_cap_for(args.mode) or '不限(群面)'}")
         return 0
 
     try:
@@ -261,10 +300,14 @@ async def main() -> int:
         return 1
 
     llm = make_llm(args.model)
-    print(f"模型:{args.model}   temperature=0.4\n")
+    print(f"模型:{args.model}   temperature=0.4   難度:{args.difficulty}", end="")
+    if args.mode == "group" or args.all:
+        print(f"   群面:{args.group_interviewers} 位面試官 / {args.group_size} 人 / {args.group_role}",
+              end="")
+    print("\n")
 
     modes = ["single", "panel", "group"] if args.all else [args.mode]
-    rows = [await run_mode(m, llm, args.turns) for m in modes]
+    rows = [await run_mode(m, llm, args.turns, ctx) for m in modes]
     report(rows)
     return 0
 

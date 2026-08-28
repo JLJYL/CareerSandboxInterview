@@ -193,7 +193,31 @@ class InterviewContext(_Base):
     language: str = "中文"  # 中文 / English
     type: str = "行為"  # 行為 / 技術 / 情境
     difficulty: str = "中等"  # 新手 / 中等 / 困難
-    group_interviewers: int = 1  # group 模式:1 位主持 / 3 位 panel
+    group_interviewers: int = 1
+    """群面的面試官配置:1 位主持 / 3 位主管。
+
+    3 的時候主考官不出現,改由用人主管、技術主管、HR 主管輪流主持。
+    對齊前端 InterviewLiveGroupScreen 的 panelRoster。
+    """
+
+    group_size: int = 4
+    """群面的小組人數,含使用者本人,3–5。決定出場幾位 AI 應徵者。
+
+    【前端目前沒有帶這一欄】
+    InterviewSetupGroupScreen 有「小組人數」選項,但選完只存在畫面的區域變數,
+    沒有寫進 InterviewConfig。所以後端收到的一律是預設值 4。
+    這是前端缺口,列入交接清單。
+    """
+
+    group_role: str = "一般應徵者"
+    """使用者在群面裡的相對定位:一般應徵者 / 較資深應徵者 / 較資淺應徵者。
+
+    這不是裝飾——「較資深」的說明是「其他人比你新鮮,你會被期待多分享經驗」,
+    它會改變 AI 應徵者對使用者的態度。
+
+    【前端目前沒有帶這一欄】
+    同 group_size,選完沒有存進 InterviewConfig。
+    """
     custom_role: str = ""
     custom_company: str = ""
     custom_seniority: str = "新鮮人"  # 新鮮人 / 1-3年 / 資深
@@ -340,6 +364,13 @@ class TurnRequest(_Base):
     fallback: list[str] = Field(default_factory=list)  # 對齊 A1 簽章
     input_mode: str = "unknown"
     """"voice"(裝置端 STT)/ "typed"(鍵盤)/ "unknown"。見 INPUT_MODE_RULE。"""
+
+    context: InterviewContext = Field(default_factory=InterviewContext)
+    """面試設定。每輪都帶的理由跟 question/askedTopics 一樣:
+    session 尚未落地時後端查不到,只能由前端帶。
+
+    難度、群面配置、使用者定位都在這裡——沒有它,每一輪的追問深度與
+    出場的 persona 都會退回預設值。"""
     spoken_by: list[str] = Field(default_factory=list)
     """本場已經開口過的說話者,依序累積 TurnResponse.speaker。
 
