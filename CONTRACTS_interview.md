@@ -261,6 +261,21 @@ Android STT 停頓 1–2 秒就自動送出,一次回答必然被切成數段,�
 實測佐證:`first_speak_position` 原本用總則數當分母,結果同樣在第 2 則開口、
 後面多講 5 次,位置就從 1.00 變成 0.17——發言量從後門混進了那個訊號。
 
+### groupSays 的欄位名跟著前端(W3 對齊)
+
+`UtteranceDTO` 的欄位名以前端的 `GroupUtterance` 為準:
+
+| 後端 | 前端 | 備註 |
+|---|---|---|
+| `content` | `content` | 早期版本叫 `text`,名字不同會靜默拿到空字串 |
+| `isUser` | `isUser` | 協作評分只評使用者。不用 `speaker == "user"` 判斷——那個名稱會隨 persona 調校變動 |
+| `segments` | `segments` | 同 `TurnDTO.answerSegments` |
+| `segmentStartsMs` | `segmentStartsMs` | 同 `TurnDTO.segmentStartsMs` |
+| `inputMode` | 待前端補 | 群面同時有語音與文字輸入,逐句都要標 |
+
+前端已把 `groupSays` 改為 `groupTranscript`,舊欄位標了 `@Deprecated`,
+理由是「只存使用者發言,已不足以支援評分需求」。
+
 ### STT 引擎(已定案,無選擇題)
 
 前端使用 Android 裝置端 `SpeechRecognizer`(`ui/components/InPageVoice.kt`,

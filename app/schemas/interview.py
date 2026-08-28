@@ -278,11 +278,48 @@ class UtteranceDTO(_Base):
     需請前端改為記錄所有發言者。messages 已帶 speaker 欄位,改動不大。
     """
 
-    speaker: str = "user"  # "user" 或 persona 顯示名稱
-    text: str = ""
-    input_mode: str = "unknown"  # "voice" / "typed" / "unknown",僅 user 的發言有意義
-    start_ms: int = 0  # 毫秒,無計時資料時給 0,至少保住順序
-    end_ms: int = 0  # 毫秒,有值才算得出打斷
+    speaker: str = "user"
+    """發言者。"user" 或 persona 的顯示名稱。"""
+
+    content: str = ""
+    """發言內容。
+
+    【欄位名跟著前端】
+    前端的 GroupUtterance 用 content,早期版本這裡叫 text——
+    名字不同會讓反序列化拿到空字串,而且不會報錯:
+    協作維度會收到一批空發言,分數照樣算得出來,只是全部沒有依據。
+    """
+
+    is_user: bool = False
+    """這句是不是使用者本人講的。
+
+    協作評分只評使用者。沒有這一欄就得靠 speaker == "user" 判斷,
+    而 speaker 是 persona 的顯示名稱、可能隨調校變動——
+    用一個會變的欄位去判斷「這是不是本人」不安全。
+    """
+
+    segments: list[str] = Field(default_factory=list)
+    """STT 逐段送出的原始片段。理由同 TurnDTO.answer_segments。"""
+
+    segment_starts_ms: list[int] = Field(default_factory=list)
+    """每段開始聆聽的時點,毫秒。理由同 TurnDTO.segment_starts_ms。"""
+
+    input_mode: str = "unknown"
+    """"voice" / "typed" / "unknown"。僅 is_user 為真的發言有意義。
+
+    群面同時有語音與文字輸入(搶話偵測需要打字停頓),所以逐句都要標。
+    """
+
+    start_ms: int = 0
+    """這句話開始的時點,毫秒。
+
+    跟 segment_starts_ms 的差別:那是段落層級,這是整句層級。
+    前端目前只提供 segment_starts_ms,所以這一欄通常是 0——
+    需要時取 segment_starts_ms[0]。保留是為了讓打斷偵測有明確的欄位可用。
+    """
+
+    end_ms: int = 0
+    """這句話結束的時點,毫秒。有值才算得出打斷。"""
 
 
 class SpeechStats(_Base):

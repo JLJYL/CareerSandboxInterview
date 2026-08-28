@@ -6,6 +6,8 @@
     "type": "行為",
     "difficulty": "中等",
     "groupInterviewers": 1,
+    "groupSize": 4,
+    "groupRole": "一般應徵者",
     "customRole": "資料分析實習生",
     "customCompany": "某電商公司",
     "customSeniority": "新鮮人",
@@ -50,41 +52,57 @@
       "question": "請先簡單自我介紹",
       "answer": "我是資管系大三的學生 過去在系學會做行銷 後來去電商公司實習做資料分析",
       "inputMode": "unknown",
-      "answerSegments": []
+      "answerSegments": [],
+      "segmentStartsMs": [],
+      "endedBy": "unknown"
     },
     {
       "question": "講一個你解決問題的經驗",
       "answer": "我們辦過一場聯名活動 前期要決定推廣規模 我沒先測試就直接全推",
       "inputMode": "unknown",
-      "answerSegments": []
+      "answerSegments": [],
+      "segmentStartsMs": [],
+      "endedBy": "unknown"
     }
   ],
   "groupSays": [
     {
       "speaker": "主考官",
-      "text": "今天的題目是公司要推新的會員制度",
+      "content": "今天的題目是公司要推新的會員制度",
+      "isUser": false,
+      "segments": [],
+      "segmentStartsMs": [],
       "inputMode": "unknown",
       "startMs": 0,
       "endMs": 4200
     },
     {
       "speaker": "user",
-      "text": "我覺得第一步應該先做客群分析",
-      "inputMode": "unknown",
+      "content": "我覺得第一步應該先做客群分析",
+      "isUser": true,
+      "segments": [],
+      "segmentStartsMs": [],
+      "inputMode": "voice",
       "startMs": 5000,
       "endMs": 9100
     },
     {
       "speaker": "AI-邏輯",
-      "text": "可是這沒有數據支撐吧",
+      "content": "可是這沒有數據支撐吧",
+      "isUser": false,
+      "segments": [],
+      "segmentStartsMs": [],
       "inputMode": "unknown",
       "startMs": 9100,
       "endMs": 12000
     },
     {
       "speaker": "user",
-      "text": "我同意前面那位的說法 可以先做小規模驗證",
-      "inputMode": "unknown",
+      "content": "我同意前面那位的說法 可以先做小規模驗證",
+      "isUser": true,
+      "segments": [],
+      "segmentStartsMs": [],
+      "inputMode": "voice",
       "startMs": 12500,
       "endMs": 18000
     }
