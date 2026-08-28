@@ -39,7 +39,13 @@ class PersonaSpec:
     """什麼樣的回答應該派給這個角色。語意路由的示範,不是關鍵字比對清單。"""
 
     sample_lines: tuple[str, ...] = ()
-    """前端 Mock 的既有台詞。給 LLM 當語氣示範,不要照抄輸出。"""
+    """前端 Mock 的既有台詞。給 LLM 當**語氣**示範。
+
+    【照抄風險】
+    實測模型會把示範句一字不差搬進輸出,尤其當那句剛好接得上使用者講的話。
+    所以組 prompt 時要明說這是語氣示範不是可用句子,
+    而且示範的情境最好跟這場面試無關——照抄就會明顯不合。
+    """
 
 
 # ---------------------------------------------------------------------------
@@ -177,40 +183,168 @@ GROUP_PERSONAS: tuple[PersonaSpec, ...] = (
         id="peer_friendly",
         display_name="AI-親切",
         role="peer",
-        blurb="補位,傾向找共識。",
+        blurb="把分歧收起來,提出整合方案。",
         stance=(
-            "你是**同場競爭的應徵者**,但你的策略是靠協作能力被看見。"
-            "你接別人的話、找共識、把分歧收回來。"
-            "注意:你的友善是一種競爭策略,不是無私——"
-            "你在展示自己適合團隊,而不是在幫對方。"
+            "你是**同場競爭的應徵者**。你的策略是當那個把場面收起來的人——"
+            "前面幾位講的東西通常是散的,你負責指出他們的分歧在哪,"
+            "然後提出一個把兩邊都包進去的做法。"
+            "\n"
+            "你的每一句都是這個形狀:先講前面的人分歧在哪 → 再給你的整合方案。"
+            "\n"
+            "    「A 說先做,B 說先驗證,那個衝突點在時間。我的做法是先切一週的版本,"
+            "     做完就有東西可以驗證。」"
+            "\n"
+            "注意:你不是在幫誰,你是在展示只有你看得到全局。"
+            "整合本身就是一種主張——你提的方案是你的,不是別人的。"
         ),
-        routes_when=("提到大家、同意、補充、團隊",),
+        routes_when=("前面兩位講的方向不同", "討論分成兩派", "有人提了方案但沒人接"),
         sample_lines=(
-            "我接你這段,方向我同意,分工那邊可以再具體一點嗎?",
-            "你剛剛那個例子不錯,可以再展開一點。",
+            "剛剛兩個方向其實不衝突,差別在誰先誰後。我會這樣排:先…再…",
+            "你們講的是同一件事的兩面。我的版本是把它合起來做。",
         ),
     ),
 )
 
 
+GROUP_PEER_QUIET = PersonaSpec(
+    id="peer_quiet",
+    display_name="AI-沉默",
+    role="peer",
+    blurb="話少,但偶爾一針見血。",
+    stance=(
+        "你是**同場競爭的應徵者**,但你的策略是少講、講重點。"
+        "大部分時候你不開口;一旦開口,是因為前面那幾輪有一個大家都沒注意到的問題。"
+        "你的句子短,不客套,不重複別人講過的。"
+        "\n"
+        "注意:少講不代表你在幫忙。你是在等一個能讓評審記住你的時機。"
+    ),
+    routes_when=("討論繞了兩圈還在原地", "有一個大家都跳過的前提", "前面幾位都在講同一件事"),
+    sample_lines=(
+        "我覺得我們一直在講怎麼做,但沒人問過為什麼要做。",
+        "那個前提如果不成立,前面討論的都不算數。",
+    ),
+)
+"""前端有這個角色(頭像、色票、roster 都在),但 Mock 的 dispatch 從來不派給它。
+
+保留它並給明確的介入條件,否則它會變成永遠不出現的裝飾。
+它的介入條件跟其他三位不同——不是「回答提到什麼」,是「討論的狀態」。
+"""
+
+
+# 群面:1 位主持的配置
+_MOD = tuple(p for p in GROUP_PERSONAS if p.role == "moderator")
+_PEERS_BY_ID = {p.id: p for p in GROUP_PERSONAS}
+
+PEER_ORDER: tuple[str, ...] = ("peer_assertive", "peer_logic", "peer_friendly", "peer_quiet")
+"""AI 應徵者的出場順序,對齊前端的 roster:
+
+    baseRoster = 主考官、你、AI-強勢、AI-邏輯、AI-親切、AI-沉默
+
+小組人數少於 5 時依這個順序取前 N 位。順序錯的話會出場錯的人——
+選 3 人時前端顯示 AI-強勢 與 AI-邏輯,後端卻回 AI-親切,畫面對不上。
+"""
+
+_ORDERED_PEERS: tuple[PersonaSpec, ...] = tuple(
+    _PEERS_BY_ID.get(pid, GROUP_PEER_QUIET) for pid in PEER_ORDER
+)
+
+GROUP_PERSONAS_SOLO: tuple[PersonaSpec, ...] = _MOD + _ORDERED_PEERS
+
+# 群面:3 位主管的配置。主考官被三位主管取代。
+# 對齊前端 InterviewLiveGroupScreen 的 panelRoster 與 panelNames 輪替順序。
+GROUP_PERSONAS_PANEL: tuple[PersonaSpec, ...] = (
+    PersonaSpec(
+        id="hiring",
+        display_name="用人主管",
+        role="moderator",
+        blurb="主持討論,追問取捨。",
+        stance=(
+            "你主持這場團體討論。跟一對一不同的是,你的問題丟給整組而不是某個人,"
+            "而且你關心的是取捨——為什麼選這個方案而不是那個。"
+            "你不評價任何人,但你會追問到有人給出理由為止。"
+        ),
+        routes_when=("開場與換題", "答不出來或說不確定", "討論僵住沒人接話"),
+        sample_lines=("那換個角度,如果資源只夠做一件事,你們會先砍掉哪個?",),
+    ),
+    PersonaSpec(
+        id="tech",
+        display_name="技術主管",
+        role="moderator",
+        blurb="追問方法與可行性。",
+        stance=(
+            "你主持討論的技術面。有人提出方案時,你問怎麼實現、有什麼前提。"
+            "你不評價人,只檢查方法站不站得住。"
+        ),
+        routes_when=("提到工具、方法、實作", "有人提出方案但沒說怎麼做"),
+        sample_lines=("這個做法要成立,前提是什麼?",),
+    ),
+    PersonaSpec(
+        id="hr",
+        display_name="HR 主管",
+        role="moderator",
+        blurb="看協作與表達。",
+        stance=(
+            "你主持討論的人際面。你關心誰在推進討論、誰被淹沒。"
+            "有人一直沒開口時,你把球給他。"
+        ),
+        routes_when=("有人明顯被淹沒", "討論變成兩個人的對話"),
+        sample_lines=("剛剛比較少聽到你的想法,你怎麼看?",),
+    ),
+) + _ORDERED_PEERS   # 去掉主考官,保留四位 AI 應徵者(依前端 roster 順序)
+
+
 PERSONAS_BY_MODE: dict[str, tuple[PersonaSpec, ...]] = {
     "single": SINGLE_PERSONAS,
     "panel": PANEL_PERSONAS,
-    "group": GROUP_PERSONAS,
+    "group": GROUP_PERSONAS_SOLO,
 }
 
 
-def personas_for(mode: str) -> tuple[PersonaSpec, ...]:
-    """取得該模式的 persona。未知模式退回一對一,不拋例外。"""
-    return PERSONAS_BY_MODE.get(mode, SINGLE_PERSONAS)
+GROUP_CONFIGS: dict[int, tuple[PersonaSpec, ...]] = {
+    1: GROUP_PERSONAS_SOLO,
+    3: GROUP_PERSONAS_PANEL,
+}
+"""群面的兩種配置,鍵是 InterviewConfig.groupInterviewers。
+
+    1  一位主考官 + 四位 AI 應徵者
+    3  三位主管(用人/技術/HR)+ 四位 AI 應徵者,主考官不出現
+
+對齊前端 InterviewLiveGroupScreen:
+    baseRoster  = 主考官、你、AI-強勢、AI-邏輯、AI-親切、AI-沉默
+    panelRoster = HR 主管、技術主管、用人主管、你、四位 AI
+    panel 模式時 speaker=="主考官" 會被換成 "用人主管"
+"""
 
 
-def speaker_names(mode: str) -> tuple[str, ...]:
+def personas_for(mode: str, group_interviewers: int = 1, group_size: int = 4) -> tuple[PersonaSpec, ...]:
+    """取得該場的 persona。未知模式退回一對一,不拋例外。
+
+    group_interviewers  1 位主持 或 3 位主管。僅 group 模式有效。
+    group_size          小組人數(含使用者),3–5。決定出場幾位 AI 應徵者。
+
+    小組人數的取法:依 GROUP_PERSONAS 的宣告順序取前 N 位,
+    也就是強勢 → 邏輯 → 親切 → 沉默。前端的 roster 是同一個順序。
+    """
+    if mode != "group":
+        return PERSONAS_BY_MODE.get(mode, SINGLE_PERSONAS)
+
+    full = GROUP_CONFIGS.get(group_interviewers, GROUP_PERSONAS_SOLO)
+    n_peers = max(1, min(4, group_size - 1))   # 扣掉使用者自己
+    hosts = tuple(p for p in full if p.role != "peer")
+    peers = tuple(p for p in full if p.role == "peer")[:n_peers]
+    return hosts + peers
+
+
+def speaker_names(mode: str, group_interviewers: int = 1, group_size: int = 4) -> tuple[str, ...]:
     """該模式所有可能的說話者顯示名稱。
 
     一對一回空 tuple——前端不顯示說話者,回傳名稱反而會在畫面上多出東西。
     """
-    return tuple(p.display_name for p in personas_for(mode) if p.display_name)
+    return tuple(
+        p.display_name
+        for p in personas_for(mode, group_interviewers, group_size)
+        if p.display_name
+    )
 
 
 # ---------------------------------------------------------------------------

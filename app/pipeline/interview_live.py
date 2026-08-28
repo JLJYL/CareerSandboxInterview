@@ -34,6 +34,7 @@ from collections.abc import Callable, Sequence
 from app.contracts.interview_protocols import JDInput
 from app.pipeline.jd_normalize import normalize_locale
 from app.prompts.interview_live import (
+    compose_dispatch_prompt,
     compose_interrupt_prompt,
     compose_opening_prompt,
     compose_turn_prompt,
@@ -43,7 +44,7 @@ from app.prompts.interview_personas import (
     personas_for,
     speaker_names,
 )
-from app.prompts.probe_rules import MAX_TURNS_PER_SESSION
+from app.prompts.probe_rules import MAX_TURNS_PER_SESSION, turn_cap_for
 from app.schemas.interview import (
     InterviewContext,
     Persona,
@@ -118,10 +119,10 @@ def context_block(ctx: InterviewContext, jd: JDInput | None = None) -> str:
     return "\n".join(lines)
 
 
-def _persona_dtos(mode: str) -> list[Persona]:
+def _persona_dtos(mode: str, group_interviewers: int = 1, group_size: int = 4) -> list[Persona]:
     return [
         Persona(id=p.id, display_name=p.display_name, role=p.role, blurb=p.blurb)
-        for p in personas_for(mode)
+        for p in personas_for(mode, group_interviewers, group_size)
         if p.display_name
     ]
 
@@ -191,6 +192,40 @@ def is_near_duplicate(question: str, asked: Sequence[str]) -> str | None:
     return None
 
 
+async def _dispatch(
+    llm: LLMCall, mode: str, answer: str, counts: dict[str, int],
+    gi: int, gs: int,
+) -> tuple[str, str | None]:
+    """先決定誰說話,再由生成那一步寫內容。
+
+    【為什麼拆兩步】
+    合併版要模型同時做三件事:決定誰說話、依那個人的人格寫問題、遵守追問規則。
+    七位 persona 全部展開之後 prompt 超過 4200 字,實測 gpt-4o-mini 在那個長度下
+    人格會塌陷——AI-邏輯 該質疑推論,寫出來卻是「你有沒有想過怎麼驗證」。
+
+    拆開之後派發只有 542 字,而生成端只看一份人格。
+    多一次呼叫的延遲換人格辨識度——群面的價值就在多種性格,
+    性格塌陷等於這個模式沒有意義。
+
+    失敗時回 ("", None),由呼叫端退回單步流程。
+    """
+    names = speaker_names(mode, gi, gs)
+    if not names:
+        return "", None
+    user = (
+        f"【使用者這段回答】\n{answer}\n\n"
+        "【目前為止的發言次數】\n"
+        + "\n".join(f"  {n}:{counts.get(n, 0)} 次" for n in names)
+    )
+    try:
+        raw = await asyncio.to_thread(
+            llm, compose_dispatch_prompt(mode, group_interviewers=gi, group_size=gs), user
+        )
+    except Exception:  # noqa: BLE001
+        return "", None
+    return repair_speaker(raw, mode, gi, gs)
+
+
 def salvage_question(raw: str) -> str | None:
     """模型沒包 JSON、直接回問題時,把它救回來。
 
@@ -219,14 +254,15 @@ def salvage_question(raw: str) -> str | None:
 
 
 def required_speaker(
-    mode: str, spoken_by: Sequence[str], turn_idx: int, answer: str = ""
+    mode: str, spoken_by: Sequence[str], turn_idx: int, answer: str = "",
+    group_interviewers: int = 1, group_size: int = 4,
 ) -> str | None:
     """這一輪必須由誰開口。沒有硬性要求時回 None。
 
     回傳的名稱會同時寫進 prompt(讓問題的語氣對得上)與覆寫最終的 speaker
     (讓指派必然成立)。只做前者模型會不照做,只做後者問題的語氣會跟人格不符。
     """
-    names = speaker_names(mode)
+    names = speaker_names(mode, group_interviewers, group_size)
     if not names or turn_idx < SILENT_FORCE_AFTER_TURNS:
         return None
     # 對方明確說不會時不強制指派——那一輪本來就該由主考官或 HR 主管接住。
@@ -239,7 +275,7 @@ def required_speaker(
     # 實測群面五輪,第 3 輪強制給了主考官、第 5 輪給 AI-強勢,
     # AI-親切 因為排在宣告順序最後而永遠輪不到。
     fillable = [
-        p.display_name for p in personas_for(mode)
+        p.display_name for p in personas_for(mode, group_interviewers, group_size)
         if p.display_name and p.role != "moderator"
     ]
     counts = {n: list(spoken_by).count(n) for n in fillable}
@@ -247,7 +283,9 @@ def required_speaker(
     return silent[0] if silent else None
 
 
-def repair_speaker(raw: str, mode: str) -> tuple[str, str | None]:
+def repair_speaker(
+    raw: str, mode: str, group_interviewers: int = 1, group_size: int = 4
+) -> tuple[str, str | None]:
     """把模型回的 speaker 修成合法值。回傳 (修好的名稱, 問題說明)。
 
     合約規定 speaker 是開放字串不是 Literal(CareerCategory 事故的教訓),
@@ -256,7 +294,7 @@ def repair_speaker(raw: str, mode: str) -> tuple[str, str | None]:
     修復順序:完全相同 → 去空白後相同 → 被包含 → 都不是就取第一個。
     取第一個而不是留空,是因為 panel/group 模式沒有說話者的話畫面會壞掉。
     """
-    names = speaker_names(mode)
+    names = speaker_names(mode, group_interviewers, group_size)
     if not names:  # single 模式不顯示說話者
         return "", None
     s = (raw or "").strip()
@@ -277,8 +315,8 @@ def repair_speaker(raw: str, mode: str) -> tuple[str, str | None]:
 # ---------------------------------------------------------------------------
 
 
-async def _gen_opening(llm: LLMCall, mode: str, ctx_text: str) -> dict:
-    raw = await asyncio.to_thread(llm, compose_opening_prompt(mode), ctx_text)
+async def _gen_opening(llm: LLMCall, mode: str, ctx_text: str, cfg: dict) -> dict:
+    raw = await asyncio.to_thread(llm, compose_opening_prompt(mode, **cfg), ctx_text)
     return parse_obj(raw)
 
 
@@ -315,7 +353,15 @@ async def start_interview(
     notices: list[str] = []
     ctx_text = context_block(context, jd)
 
-    tasks: dict[str, asyncio.Task] = {"opening": asyncio.ensure_future(_gen_opening(llm, mode, ctx_text))}
+    cfg = dict(
+        group_interviewers=context.group_interviewers,
+        group_size=context.group_size,
+        difficulty=context.difficulty,
+        group_role=context.group_role,
+    )
+    tasks: dict[str, asyncio.Task] = {
+        "opening": asyncio.ensure_future(_gen_opening(llm, mode, ctx_text, cfg))
+    }
     if mode == "group":
         tasks["interrupts"] = asyncio.ensure_future(_gen_interrupts(llm, INTERRUPT_CAP))
 
@@ -341,7 +387,7 @@ async def start_interview(
         interrupts = list(DEFAULT_INTERRUPTS)
         notices.append("開場:未取得搶話台詞,已使用預設")
 
-    personas = _persona_dtos(mode)
+    personas = _persona_dtos(mode, context.group_interviewers, context.group_size)
     opening_speaker = personas[0].display_name if personas else ""
 
     return StartInterviewResponse(
@@ -396,34 +442,58 @@ async def next_turn(
     follow_up_idx 達到上限時強制推進,不問模型——
     「這是第幾次追問」是確定性事實,交給模型判斷會讓它有時多追一次。
     """
-    must_advance = follow_up_idx >= MAX_TURNS_PER_SESSION
+    cap = turn_cap_for(mode)
+    must_advance = cap is not None and follow_up_idx >= cap
 
-    user_parts = [f"【上一個問題】{question or '(未提供)'}", f"【他的回答】{answer}"]
+    # 回答排在前面,而且明說要回應它。
+    #
+    # 早期版本把「上一個問題」排前面,實測模型會錨在前一題的主題上,
+    # 把回答當成補充資料:使用者講協調排程,問的是 SQL;
+    # 使用者說「我沒想過」,問的還是優化查詢——連續三輪不跟著回答走。
+    # gpt-4o 也一樣,所以那不是模型能力問題,是輸入順序造成的錨定。
+    user_parts = [
+        f"【他剛剛說的】\n{answer}",
+        "",
+        "你要回應的是上面這段話。下面的前一題只是脈絡,不是這次的主題。",
+        f"【前一題(脈絡)】{question or '(未提供)'}",
+    ]
     if context:
         user_parts.append("【職位脈絡】\n" + context_block(context))
-    names = speaker_names(mode)
-    forced = required_speaker(mode, spoken_by, follow_up_idx, answer)
-    if names:
-        counts = {n: list(spoken_by).count(n) for n in names}
-        user_parts.append(
-            "【目前為止的發言次數】\n"
-            + "\n".join(f"  {n}:{c} 次" for n, c in counts.items())
-        )
-    if forced:
-        user_parts.append(
-            f"【這一輪必須由「{forced}」開口】\n"
-            "他到目前為止一次都沒講過話。即使內容命中別人的領域,也由他來問——\n"
-            "用他的人格與語氣寫這個問題,不要寫成別人會問的樣子。"
-        )
+    gi = context.group_interviewers if context else 1
+    gs = context.group_size if context else 4
+    names = speaker_names(mode, gi, gs)
+    forced = required_speaker(mode, spoken_by, follow_up_idx, answer, gi, gs)
+    counts = {n: list(spoken_by).count(n) for n in names}
+
+    # 第一步:決定誰說話。強制指派時跳過這次呼叫——答案已經確定了。
+    focus = forced or ""
+    dispatch_note = f"本輪:指派給未發言過的「{forced}」" if forced else ""
+    if names and not focus:
+        picked, problem = await _dispatch(llm, mode, answer, counts, gi, gs)
+        if picked:
+            focus = picked
+            if problem:
+                dispatch_note = f"本輪:派發{problem}"
+    if names and not focus:
+        # 派發失敗:退回發言次數最少的一位,不要讓生成端自己猜。
+        focus = min(names, key=lambda n: counts.get(n, 0))
+        dispatch_note = "本輪:派發失敗,已改由發言最少的人開口"
     if must_advance:
         user_parts.append(
             f"【注意】整場已經問到第 {follow_up_idx + 1} 題,達到上限 "
-            f"{MAX_TURNS_PER_SESSION} 題。請問最後一題,並把 shouldAdvance 設為 true。"
+            f"{cap} 題。請問最後一題,並把 shouldAdvance 設為 true。"
         )
 
     try:
         raw = await asyncio.to_thread(
-            llm, compose_turn_prompt(mode, list(asked_questions)), "\n\n".join(user_parts)
+            llm,
+            compose_turn_prompt(
+                mode, list(asked_questions),
+                group_interviewers=gi, group_size=gs, focus_speaker=focus,
+                difficulty=context.difficulty if context else "中等",
+                group_role=context.group_role if context else "一般應徵者",
+            ),
+            "\n\n".join(user_parts),
         )
     except Exception as exc:  # noqa: BLE001
         r = _fallback_turn(mode, fallback, follow_up_idx)
@@ -446,8 +516,10 @@ async def next_turn(
             r.notices = [f"本輪:模型未產出問題,已使用備援追問。原始輸出:{snippet}"]
             return r
 
-    notices: list[str] = [salvage_note] if salvage_note else []
-    speaker, problem = repair_speaker(str(data.get("speaker", "")), mode)
+    notices: list[str] = [x for x in (salvage_note, dispatch_note) if x]
+    # 說話者由派發那一步決定,不採用生成端回的值——
+    # 生成端的 prompt 已經寫死「speaker 一律填 X」,回別的就是它沒照做。
+    speaker, problem = repair_speaker(focus or str(data.get("speaker", "")), mode, gi, gs)
     if problem:
         notices.append(f"本輪:{problem}")
     if forced and speaker != forced:
@@ -456,18 +528,36 @@ async def next_turn(
         notices.append(f"本輪:模型指派給「{speaker}」,已改為未發言過的「{forced}」")
         speaker = forced
 
-    # 搶救回來的問題預設當追問。它是針對剛剛那段回答寫的,
-    # 本質上就是追問——實測搶救的兩題都是追問卻被標成新主題。
-    is_follow_up = bool(data.get("isFollowUp", bool(salvage_note)))
+    # isFollowUp:一對一的輸出格式拿掉了這一欄(欄位越少越可能被遵守),
+    # 群面與 panel 仍然會回,有回就用它的。
+    #
+    # 【一對一怎麼判斷】
+    # 早期版本用「topic 跟上一輪相同就是追問」,那是錯的:
+    # 實測五輪全部在追問,但模型每輪都給了誠實的新 topic
+    # (實習內容 → 查詢重寫的具體做法 → 協調過程),於是判成 0/5。
+    #
+    # 追問的定義是「接著剛剛那段回答問」,跟 topic 換不換沒有必然關係——
+    # 追問也可以帶出新的領域名稱。把兩件事綁在一起是我的錯。
+    #
+    # 一對一沒有「新主問題」的概念:每一輪都是接著上一句問,
+    # 直到整場輪次用完進入反問環節。所以預設為 True,
+    # 只有明確換到不相干主題(topic 跟前一輪與上一題都無關)時才是 False。
+    if "isFollowUp" in data:
+        is_follow_up = bool(data["isFollowUp"])
+    else:
+        is_follow_up = True
 
     # 「整場該不該結束」由輪次決定,一律不採用模型的判斷。
     # 實測:模型因為使用者一句「我沒想過」就把 shouldAdvance 設成 true,
     # 提前結束了整場面試。那是確定性事實,不是判斷題。
     should_advance = must_advance
     if must_advance:
-        notices.append(f"本輪:整場已達上限 {MAX_TURNS_PER_SESSION} 題,標記結束")
+        notices.append(f"本輪:整場已達上限 {cap} 題,標記結束")
     elif bool(data.get("shouldAdvance", False)):
-        notices.append("本輪:模型想提前結束,已忽略——結束時機由輪次決定")
+        if cap is None:
+            notices.append("本輪:模型想結束討論,已忽略——群面由使用者自己決定何時結束")
+        else:
+            notices.append("本輪:模型想提前結束,已忽略——結束時機由輪次決定")
 
     # 新主問題跟問過的重複時,改用備援池裡沒用過的一題。
     # 重試會增加面試中的延遲,而備援池是開場時針對這份 JD 生成的,直接用就行。

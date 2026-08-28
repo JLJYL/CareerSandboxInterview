@@ -116,6 +116,28 @@ MAX_TURNS_PER_SESSION = 4
 後端收到 follow_up_idx >= 此值時,把 should_advance 設為 True,
 前端會據此進入反問環節。"""
 
+MAX_TURNS_GROUP: int | None = None
+"""群面的輪次上限。None 代表沒有上限。
+
+【依據】
+InterviewLiveGroupScreen 的 followUpIdx 只遞增,沒有任何上限檢查,
+也沒有進入反問環節的邏輯——群面本來就是討論到使用者自己結束。
+
+早期版本把一對一的 4 題上限套到群面,後果是:
+選 5 人小組(7 位 persona)時只跑 5 輪,AI-親切 與 AI-沉默 永遠不會出場。
+使用者選了 5 人,實際只體驗到 2 位同儕。
+"""
+
+
+def turn_cap_for(mode: str) -> int | None:
+    """該模式的輪次上限。None 代表不限。
+
+    一對一與 panel 走 InterviewLiveIndividualScreen 的邏輯(4 題後進反問環節);
+    群面沒有上限。
+    """
+    return MAX_TURNS_GROUP if mode == "group" else MAX_TURNS_PER_SESSION
+
+
 REPEAT_PROBE_AT = 2
 """第幾輪會故意重複問一次剛剛那題。
 
@@ -124,7 +146,7 @@ REPEAT_PROBE_AT = 2
 那是刻意的設計:看使用者第二次講得一不一樣。"""
 
 
-def compose_probe_rules(asked_questions: list[str]) -> str:
+def compose_probe_rules(asked_questions: list[str], *, include_triggers: bool = True) -> str:
     """把規則組成可插入 system prompt 的段落。
 
     傳的是**已問過的問題原文**,不是領域標籤。
@@ -137,7 +159,12 @@ def compose_probe_rules(asked_questions: list[str]) -> str:
     標籤是給前端累積用的描述性資料,不該同時當成防重複的比對鍵。
     比對真正的問題原文,模型才沒有東西可以操弄。
     """
-    parts = [PROBE_TRIGGERS, "", HONEST_ADMISSION, "", PROBE_PROHIBITIONS, "", WHY_NO_LEADING]
+    # include_triggers=False 時由呼叫端提供依難度而異的判準,
+    # 見 app/prompts/interview_live.py 的 DIFFICULTY_TRIGGERS。
+    # 兩份判準同時出現會互相打架——一份說「不要追問數字」,
+    # 另一份說「無數字就追問幅度」。
+    parts = ([PROBE_TRIGGERS, ""] if include_triggers else [])
+    parts += [HONEST_ADMISSION, "", PROBE_PROHIBITIONS, "", WHY_NO_LEADING]
     if asked_questions:
         listed = "\n".join(f"  {i}. {q}" for i, q in enumerate(asked_questions, 1))
         parts += [
