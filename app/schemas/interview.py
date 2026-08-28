@@ -399,6 +399,23 @@ class TurnRequest(_Base):
     follow_up_idx: int = 0
     question: str = ""  # 本輪的題目
     fallback: list[str] = Field(default_factory=list)  # 對齊 A1 簽章
+    mode: InterviewMode | None = None
+    """這一場的面試模式。前端在開場時就知道,每輪帶過來即可。
+
+    【為什麼是選填】
+    早期版本漏了這一欄,後端只能從 spokenBy 反推——出現過的說話者屬於哪一組
+    persona。那個反推在兩種情況下會錯:
+
+        第一輪 spokenBy 還是空的,一律當成 single
+        一對一本來就不回 speaker,所以永遠推不出 panel 與 group 的差別
+                                (要靠開場的 openingSpeaker 被放進 spokenBy)
+
+    現在改成前端直接帶。留成選填而不是必填,是因為前端還沒改——
+    None 時退回反推,前端補上之後反推就不會被用到,合約不用再改一次。
+
+    交接清單:請前端在每次 turns 請求帶上 mode,值同開場時送的那個。
+    """
+
     input_mode: str = "unknown"
     """"voice"(裝置端 STT)/ "typed"(鍵盤)/ "unknown"。見 INPUT_MODE_RULE。"""
 
