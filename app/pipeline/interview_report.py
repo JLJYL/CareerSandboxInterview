@@ -257,11 +257,22 @@ def ungrounded_numbers(better: str, source: str) -> list[str]:
 
 
 def build_transcript_text(turns: Sequence[TurnDTO]) -> str:
+    """組出給 LLM 讀的逐字稿。被引擎切斷的輪次會標出來。
+
+    標記的理由:被切斷跟自己講完是兩回事。不標的話 starParts 會因為
+    缺 R 段而寫「你沒有交代結果」,那是責備一個被打斷的人。
+    """
     parts = []
     for i, t in enumerate(turns, 1):
         parts.append(f"[第 {i} 題] {t.question}")
-        parts.append(f"[回答] {t.answer}")
+        mark = "(被切斷)" if t.ended_by == "timeout" else ""
+        parts.append(f"[回答]{mark} {t.answer}")
     return "\n".join(parts)
+
+
+def truncated_turns(turns: Sequence[TurnDTO]) -> list[int]:
+    """被引擎切斷的輪次編號,從 1 起算。"""
+    return [i for i, t in enumerate(turns, 1) if t.ended_by == "timeout"]
 
 
 # ---------------------------------------------------------------------------
@@ -359,8 +370,12 @@ async def gen_question_feedbacks(
     return out, notices
 
 
-async def gen_star_parts(llm: LLMCall, transcript: str) -> list[StarPartDTO]:
-    raw = await asyncio.to_thread(llm, compose_star_prompt(), f"【逐字稿】\n{transcript}")
+async def gen_star_parts(
+    llm: LLMCall, transcript: str, has_truncated: bool = False
+) -> list[StarPartDTO]:
+    raw = await asyncio.to_thread(
+        llm, compose_star_prompt(has_truncated=has_truncated), f"【逐字稿】\n{transcript}"
+    )
     names = dict(STAR_PARTS)
     out = []
     for item in parse_array(raw):
@@ -444,12 +459,16 @@ async def generate_report(
     stats_text, fluency_measurable = format_stats(stats, input_mode)
     star_llm = llm_verbatim or llm
 
+    # 被引擎切斷的輪次。使用者還在講就被送出,不是他自己講完的——
+    # 缺的段落不該算在他頭上。
+    cut = truncated_turns(turns)
+
     results, notices = await gather_blocks(
         {
             "face": gen_face(llm, transcript, stats_text),
             "subs": gen_sub_scores(llm, transcript, stats_text),
             "questions": gen_question_feedbacks(llm, turns),
-            "star": gen_star_parts(star_llm, transcript),
+            "star": gen_star_parts(star_llm, transcript, bool(cut)),
         }
     )
 
@@ -518,4 +537,9 @@ async def generate_report(
         resume_grounded=resume_grounded,
         notices=notices,
     )
+    if cut:
+        report.notices.append(
+            f"報告:第 {'、'.join(map(str, cut))} 題的回答被語音辨識切斷,"
+            "那幾題缺少的段落不代表使用者沒講"
+        )
     return repair_report(report)

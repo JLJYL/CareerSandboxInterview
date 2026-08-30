@@ -382,7 +382,7 @@ def compose_turn_prompt(
     mode: str, asked_questions: list[str], *,
     group_interviewers: int = 1, group_size: int = 4,
     difficulty: str = "中等", group_role: str = "一般應徵者",
-    focus_speaker: str = "",
+    focus_speaker: str = "", truncated: bool = False,
 ) -> str:
     """每輪追問的 system prompt。
 
@@ -409,7 +409,9 @@ def compose_turn_prompt(
     elif mode == "group":
         parts.append(GROUP_PEER_STANCE)
 
-    parts.append(compose_probe_rules(asked_questions, include_triggers=False))
+    parts.append(
+        compose_probe_rules(asked_questions, include_triggers=False, truncated=truncated)
+    )
 
     if mode == "single":
         parts.append(TURN_OUTPUT_SINGLE)

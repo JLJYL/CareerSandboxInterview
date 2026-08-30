@@ -853,3 +853,62 @@ async def test_multi_mode_still_uses_the_field() -> None:
         llm=llm_returning({**TURN, "isFollowUp": False}, dispatch="技術主管"),
     )
     assert r.is_follow_up is False
+
+
+# ---------------------------------------------------------------------------
+# ended_by:被切斷跟自己講完是兩回事
+# ---------------------------------------------------------------------------
+
+
+def test_truncated_rule_only_when_timeout() -> None:
+    """被引擎切斷時先把話接完,不要換新題。"""
+    from app.prompts.probe_rules import compose_probe_rules
+
+    cut = compose_probe_rules([], truncated=True)
+    normal = compose_probe_rules([], truncated=False)
+    assert "還沒講完的部分" in cut
+    assert "還沒講完的部分" not in normal
+
+
+def test_truncated_rule_forbids_blaming() -> None:
+    """不要因為回答不完整而追問「為什麼沒有交代結果」——
+    那是責備一個被打斷的人。"""
+    from app.prompts.probe_rules import TRUNCATED_ANSWER
+
+    assert "責備一個被打斷的人" in TRUNCATED_ANSWER
+    assert "不會為麥克風道歉" in TRUNCATED_ANSWER
+
+
+@pytest.mark.asyncio
+async def test_ended_by_reaches_the_prompt() -> None:
+    """欄位加了就要有人讀。沒人讀的欄位不該存在。"""
+    seen = {}
+
+    def spy(system: str, user: str) -> str:
+        if "決定這一輪由誰開口" in system:
+            return ""
+        seen["system"] = system
+        return json.dumps({"nextQuestion": "接著說", "topic": "t"}, ensure_ascii=False)
+
+    await next_turn(
+        mode="single", answer="我用 SQL 重寫查詢 然後", follow_up_idx=0,
+        asked_questions=[], question="q", fallback=[], llm=spy, ended_by="timeout",
+    )
+    assert "還沒講完的部分" in seen["system"]
+
+
+@pytest.mark.asyncio
+async def test_normal_end_does_not_trigger_the_rule() -> None:
+    seen = {}
+
+    def spy(system: str, user: str) -> str:
+        if "決定這一輪由誰開口" in system:
+            return ""
+        seen["system"] = system
+        return json.dumps({"nextQuestion": "x", "topic": "t"}, ensure_ascii=False)
+
+    await next_turn(
+        mode="single", answer="x", follow_up_idx=0, asked_questions=[],
+        question="q", fallback=[], llm=spy, ended_by="user",
+    )
+    assert "還沒講完的部分" not in seen["system"]

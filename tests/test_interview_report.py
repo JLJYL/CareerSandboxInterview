@@ -380,3 +380,37 @@ async def test_downgrade_leaves_a_countable_notice() -> None:
     hits = [n for n in r.notices if VERBATIM_FAIL_MARKER in n]
     assert len(hits) == 1, "一次失敗要留下剛好一筆可數的紀錄"
     assert "S" in hits[0], "要看得出是哪一段失敗"
+
+
+# ---------------------------------------------------------------------------
+# ended_by 在報告端的兩個消費點
+# ---------------------------------------------------------------------------
+
+
+def test_truncated_turns_are_marked_in_transcript() -> None:
+    """不標的話 starParts 會因為缺 R 段而寫「你沒有交代結果」,
+    那是責備一個被打斷的人。"""
+    from app.pipeline.interview_report import build_transcript_text
+
+    text = build_transcript_text([
+        TurnDTO(question="q1", answer="講到一半", ended_by="timeout"),
+        TurnDTO(question="q2", answer="講完了", ended_by="user"),
+    ])
+    assert "[回答](被切斷) 講到一半" in text
+    assert "[回答] 講完了" in text
+
+
+@pytest.mark.asyncio
+async def test_report_notes_truncated_turns() -> None:
+    r = await run(turns=[
+        TurnDTO(question="q1", answer="我們辦過一場聯名活動", ended_by="timeout", input_mode="voice"),
+        TurnDTO(question="q2", answer="我沒先測試就直接全推", ended_by="user", input_mode="voice"),
+    ])
+    assert any("被語音辨識切斷" in n for n in r.notices)
+    assert any("不代表使用者沒講" in n for n in r.notices)
+
+
+@pytest.mark.asyncio
+async def test_no_note_when_nothing_truncated() -> None:
+    r = await run()
+    assert not any("被語音辨識切斷" in n for n in r.notices)
