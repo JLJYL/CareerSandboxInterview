@@ -433,6 +433,7 @@ async def next_turn(
     spoken_by: Sequence[str] = (),
     question: str = "",
     prev_topic: str = "",
+    ended_by: str = "unknown",
     fallback: Sequence[str],
     llm: LLMCall,
     context: InterviewContext | None = None,
@@ -490,6 +491,7 @@ async def next_turn(
             compose_turn_prompt(
                 mode, list(asked_questions),
                 group_interviewers=gi, group_size=gs, focus_speaker=focus,
+                truncated=ended_by == "timeout",
                 difficulty=context.difficulty if context else "中等",
                 group_role=context.group_role if context else "一般應徵者",
             ),

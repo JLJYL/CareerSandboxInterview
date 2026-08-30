@@ -151,15 +151,20 @@ class TurnDTO(_Base):
     ended_by: str = "unknown"
     """本輪怎麼結束的:"user"(使用者按下結束)/ "timeout"(引擎逾時)/ "unknown"。
 
-    【為什麼要有這一欄】
-    segment_starts_ms 比 answer_segments 多一筆時,那一筆的意義原本藏在長度差裡。
-    藏在長度差裡的意義會消失:任何人 zip() 起來就安靜砍掉多的那筆,
-    而三個月後有人看到兩個陣列長度不一樣,可能以為是 bug 去「修正」它。
+    【用途:判斷這段回答有沒有講完】
+    被引擎切斷跟自己講完是兩回事,而下游有三處會因為分不出來而做錯:
 
-    把意義寫成欄位之後,長度差就退化成純粹的實作細節,不需要有人去解讀。
+        starParts   被切斷導致缺 R 段,報告寫「缺結果,補上這件事最後怎麼了」
+                    ——那是責備一個被打斷的人
+        missingPoints 他正要講那個亮點就被切了,報告說他漏講
+        live 引擎    該追問「你剛剛還沒講完的部分是什麼」,而不是換新題
 
-    這是同一類問題的第五次:一個事實只存在於資料的形狀裡而沒有被宣告。
-    前四次是 segmentation、filler_reliability、input_mode、answer_segments。
+    第三個最有價值,因為它是即時的——面試進行中就能補救,不用等報告。
+
+    【不是為了消歧義長度差】
+    早期版本的理由是「segmentStartsMs 比 answerSegments 多一筆時,
+    那筆的意義藏在長度差裡」。那件事用註解就能解決,不值得為它加一個欄位。
+    加了沒人讀的欄位,就是這份合約一路在避免的東西。
     """
 
 
@@ -418,6 +423,13 @@ class TurnRequest(_Base):
 
     input_mode: str = "unknown"
     """"voice"(裝置端 STT)/ "typed"(鍵盤)/ "unknown"。見 INPUT_MODE_RULE。"""
+
+    ended_by: str = "unknown"
+    """這段回答怎麼結束的:"user" / "timeout" / "unknown"。
+
+    "timeout" 時追問要先把話接完,不要換新題——他還在講就被引擎送出了。
+    這是三個消費點裡唯一即時的一個:面試進行中就能補救,不用等報告。
+    """
 
     context: InterviewContext = Field(default_factory=InterviewContext)
     """面試設定。每輪都帶的理由跟 question/askedTopics 一樣:

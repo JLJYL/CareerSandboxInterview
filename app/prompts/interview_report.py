@@ -227,6 +227,19 @@ QUESTION_OUTPUT = """輸出一個 JSON 陣列,每個元素帶 id 對應輸入的
 每一題都要有,不多不少。不要有其他文字或 markdown 標記。"""
 
 
+TRUNCATED_CAVEAT = """【本場有回答被引擎切斷】
+
+下面標了「(被切斷)」的回答,是使用者還在講的時候語音辨識就送出了,
+不是他自己講完的。
+
+所以:
+    缺 R(結果)段時,hint 不要寫成「你沒有交代結果」——他可能正要講。
+    改寫成「這段被切斷了,結果的部分沒有錄到」。
+    不要把被切斷的段落當成表達不完整的證據。
+    present 仍然照逐字稿判斷:錄到的算有,沒錄到的算沒有。
+    改的是 hint 的措辭與歸因,不是判定。"""
+
+
 STAR_OUTPUT = """輸出一個 JSON 陣列,四個元素,順序固定為 S、T、A、R:
 
     [
@@ -276,11 +289,12 @@ def compose_question_prompt() -> str:
     ])
 
 
-def compose_star_prompt() -> str:
-    return "\n\n".join([
-        "你的工作是把使用者講的經歷拆成 STAR 四段。",
-        COMMON_RULES, STT_CAVEAT, STAR_RULES, STAR_OUTPUT,
-    ])
+def compose_star_prompt(*, has_truncated: bool = False) -> str:
+    parts = ["你的工作是把使用者講的經歷拆成 STAR 四段。", COMMON_RULES, STT_CAVEAT]
+    if has_truncated:
+        parts.append(TRUNCATED_CAVEAT)
+    parts += [STAR_RULES, STAR_OUTPUT]
+    return "\n\n".join(parts)
 
 
 MAX_IMPROVEMENTS = 4

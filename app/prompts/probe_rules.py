@@ -37,6 +37,21 @@ PROBE_TRIGGERS = """判斷是否追問時,依序檢查回答的三項缺口:
 # 借自參考 repo `next_question_generation` 的 Avoid 段落,改寫為模式描述。
 # 這些是不寫進 prompt 就一定會發生的錯。
 
+TRUNCATED_ANSWER = """【這段回答被語音辨識切斷了】
+
+他還在講的時候引擎就送出了,不是他自己講完的。
+
+    先問他還沒講完的部分,不要換新題。
+    「你剛剛講到一半,後面要說的是什麼?」
+    「那句話還沒說完,接著說。」
+
+不要因為他的回答不完整而追問「為什麼沒有交代結果」——
+那是責備一個被打斷的人。
+
+也不要道歉或解釋系統的問題。面試官不會為麥克風道歉,
+就當他自然停頓,請他接著講。"""
+
+
 HONEST_ADMISSION = """【對方明確表示不會、沒想過、答不出來時】
 
 換一個他答得出來的問題,不要問同一件事的變體。
@@ -146,7 +161,9 @@ REPEAT_PROBE_AT = 2
 那是刻意的設計:看使用者第二次講得一不一樣。"""
 
 
-def compose_probe_rules(asked_questions: list[str], *, include_triggers: bool = True) -> str:
+def compose_probe_rules(
+    asked_questions: list[str], *, include_triggers: bool = True, truncated: bool = False
+) -> str:
     """把規則組成可插入 system prompt 的段落。
 
     傳的是**已問過的問題原文**,不是領域標籤。
@@ -164,6 +181,9 @@ def compose_probe_rules(asked_questions: list[str], *, include_triggers: bool = 
     # 兩份判準同時出現會互相打架——一份說「不要追問數字」,
     # 另一份說「無數字就追問幅度」。
     parts = ([PROBE_TRIGGERS, ""] if include_triggers else [])
+    if truncated:
+        # 被切斷時這條優先——先把話接完,其他判準這一輪不適用
+        parts += [TRUNCATED_ANSWER, ""]
     parts += [HONEST_ADMISSION, "", PROBE_PROHIBITIONS, "", WHY_NO_LEADING]
     if asked_questions:
         listed = "\n".join(f"  {i}. {q}" for i, q in enumerate(asked_questions, 1))
