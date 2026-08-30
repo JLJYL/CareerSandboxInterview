@@ -46,7 +46,7 @@ data/vocab_golden_standin.json
 data/skills_v1*.json
 data/skills_v2.json
 
-app/api/
+# app/api/
 app/main.py
 app/config.py
 app/prompts/customize.py
