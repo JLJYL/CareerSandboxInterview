@@ -37,10 +37,57 @@ PROBE_TRIGGERS = """判斷是否追問時,依序檢查回答的三項缺口:
 # 借自參考 repo `next_question_generation` 的 Avoid 段落,改寫為模式描述。
 # 這些是不寫進 prompt 就一定會發生的錯。
 
+TRUNCATED_ANSWER = """【這段回答被語音辨識切斷了】
+
+他還在講的時候引擎就送出了,不是他自己講完的。
+
+    先問他還沒講完的部分,不要換新題。
+    「你剛剛講到一半,後面要說的是什麼?」
+    「那句話還沒說完,接著說。」
+
+不要因為他的回答不完整而追問「為什麼沒有交代結果」——
+那是責備一個被打斷的人。
+
+也不要道歉或解釋系統的問題。面試官不會為麥克風道歉,
+就當他自然停頓,請他接著講。"""
+
+
+HONEST_ADMISSION = """【對方明確表示不會、沒想過、答不出來時】
+
+換一個他答得出來的問題,不要問同一件事的變體。
+
+    對方說「這個我沒想過」
+    錯   那你在這個過程中有沒有觀察到什麼挑戰呢?   ← 同一件事換個說法
+    對   沒關係,當場想。你會從哪裡開始?
+    對   可以。那換個你熟的,講一個你最有把握的決定。
+
+兩種正確做法的差別:
+    第一種留在原題但降低門檻——不要求他有經驗,只問他會怎麼想
+    第二種直接換題,讓他挑自己有把握的
+
+【誠實承認不會不是扣分項】
+語氣要讓他知道這件事。真實面試裡,承認不知道比硬掰有價值,
+而這是練習環境,他更需要知道這一點。
+
+不要說「沒關係」之後又追問同一個方向——那等於嘴上原諒、實際上繼續逼。
+
+【怎麼判斷】
+看的是他有沒有明確表示答不出來,不是他答得好不好。
+答得含糊但有內容,那要追問;明確說不會,那要換路。"""
+
+
 PROBE_PROHIBITIONS = """追問時嚴禁以下五種情況:
 
-1. 重複已經涵蓋過的領域。
-   已問領域清單會另外提供,追問必須落在清單之外。
+1. 問對方已經回答過的東西。
+   已問過的問題會列給你參考。換一個說法問同一件事不算新問題。
+
+   **這一條只約束新的主問題,不約束追問。**
+   追問本來就該留在同一個話題上——那就是追問的定義。
+
+   實測依據:早期版本把這條寫成「追問必須落在已問領域清單之外」,
+   結果開場主題是「資料分析經驗」時,對方講了兩段資料分析的回答,
+   模型兩輪都產不出問題——它唯一該追問的東西被禁止了。
+
 2. 封閉式問題。
    凡是可以用是、否、或單一名詞回答完畢的問題一律不可用,
    追問必須要求對方展開敘述。
@@ -68,25 +115,85 @@ WHY_NO_LEADING = """禁止誘導的原因:誘導式追問會讓使用者順著�
 # ---------------------------------------------------------------------------
 # 前端以 followUpIdx 控制,後端仍應自我約束,避免前端傳錯值時無限追問。
 
-MAX_FOLLOW_UP_PER_QUESTION = 1
-"""每個主問題最多追問一次。
+MAX_TURNS_PER_SESSION = 4
+"""整場最多幾輪主要問答,超過就進入反問環節。
 
-依據:InterviewLiveIndividualScreen 的 followUpIdx 控制邏輯。
-後端收到 follow_up_idx >= 此值時,一律回傳新的主問題並將
-should_advance 設為 True。"""
+【這個值的語意曾經被我搞錯,更正紀錄留著】
+前端的 followUpIdx **不是**「這個主問題追問了幾次」,是「整場問到第幾題」:
+
+    InterviewLiveIndividualScreen.kt
+    followUpIdx == 2 && !repeatFired  → 故意重複問一次剛剛那題(看穩定度)
+    followUpIdx >= 4                  → phase = "REVERSE",進入反問環節
+
+早期版本我寫成 MAX_FOLLOW_UP_PER_QUESTION = 1,實測六輪裡有三輪被強制推進,
+對話變成「追問一次就換主題」,節奏很碎。
+
+後端收到 follow_up_idx >= 此值時,把 should_advance 設為 True,
+前端會據此進入反問環節。"""
+
+MAX_TURNS_GROUP: int | None = None
+"""群面的輪次上限。None 代表沒有上限。
+
+【依據】
+InterviewLiveGroupScreen 的 followUpIdx 只遞增,沒有任何上限檢查,
+也沒有進入反問環節的邏輯——群面本來就是討論到使用者自己結束。
+
+早期版本把一對一的 4 題上限套到群面,後果是:
+選 5 人小組(7 位 persona)時只跑 5 輪,AI-親切 與 AI-沉默 永遠不會出場。
+使用者選了 5 人,實際只體驗到 2 位同儕。
+"""
 
 
-def compose_probe_rules(asked_topics: list[str]) -> str:
+def turn_cap_for(mode: str) -> int | None:
+    """該模式的輪次上限。None 代表不限。
+
+    一對一與 panel 走 InterviewLiveIndividualScreen 的邏輯(4 題後進反問環節);
+    群面沒有上限。
+    """
+    return MAX_TURNS_GROUP if mode == "group" else MAX_TURNS_PER_SESSION
+
+
+REPEAT_PROBE_AT = 2
+"""第幾輪會故意重複問一次剛剛那題。
+
+前端已實作(repeatFired),後端不需要處理——但要知道它存在,
+否則會把那一輪的重複當成模型出錯。
+那是刻意的設計:看使用者第二次講得一不一樣。"""
+
+
+def compose_probe_rules(
+    asked_questions: list[str], *, include_triggers: bool = True, truncated: bool = False
+) -> str:
     """把規則組成可插入 system prompt 的段落。
 
-    asked_topics 必須實際傳入,不能只靠 prompt 自律。
-    「不得重複已問領域」這條規則沒有清單就無法執行,模型會自行想像
-    哪些問過了,結果就是照樣重複。
+    傳的是**已問過的問題原文**,不是領域標籤。
+
+    【為什麼改掉標籤】
+    早期版本傳領域標籤,並要求「新主問題不得重複已問領域」。
+    模型滿足這條的方式是操弄標籤而不是真的換內容——實測六輪裡,
+    問題問到協調排程,標籤卻回收成「資料清理經驗」。
+
+    標籤是給前端累積用的描述性資料,不該同時當成防重複的比對鍵。
+    比對真正的問題原文,模型才沒有東西可以操弄。
     """
-    parts = [PROBE_TRIGGERS, "", PROBE_PROHIBITIONS, "", WHY_NO_LEADING]
-    if asked_topics:
-        listed = "、".join(asked_topics)
-        parts += ["", f"本場已涵蓋的領域(不得重複):{listed}"]
+    # include_triggers=False 時由呼叫端提供依難度而異的判準,
+    # 見 app/prompts/interview_live.py 的 DIFFICULTY_TRIGGERS。
+    # 兩份判準同時出現會互相打架——一份說「不要追問數字」,
+    # 另一份說「無數字就追問幅度」。
+    parts = ([PROBE_TRIGGERS, ""] if include_triggers else [])
+    if truncated:
+        # 被切斷時這條優先——先把話接完,其他判準這一輪不適用
+        parts += [TRUNCATED_ANSWER, ""]
+    parts += [HONEST_ADMISSION, "", PROBE_PROHIBITIONS, "", WHY_NO_LEADING]
+    if asked_questions:
+        listed = "\n".join(f"  {i}. {q}" for i, q in enumerate(asked_questions, 1))
+        parts += [
+            "",
+            "【本場已經問過的問題】",
+            listed,
+            "",
+            "換新主問題時,不要問上面任何一題的變體。追問則不受此限。",
+        ]
     else:
-        parts += ["", "本場尚未涵蓋任何領域。"]
+        parts += ["", "【本場尚未問過任何問題】"]
     return "\n".join(parts)

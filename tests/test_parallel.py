@@ -13,7 +13,7 @@ import pytest
 
 from app.pipeline.parallel import BlockFailure, gather_blocks
 from app.prompts.probe_rules import (
-    MAX_FOLLOW_UP_PER_QUESTION,
+    MAX_TURNS_PER_SESSION,
     PROBE_PROHIBITIONS,
     compose_probe_rules,
 )
@@ -172,19 +172,21 @@ def test_block_failure_equality() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_asked_topics_appear_in_rules() -> None:
-    """已問領域必須實際帶進 prompt。
+def test_asked_questions_appear_in_rules() -> None:
+    """已問過的問題必須實際帶進 prompt。
 
-    只寫「不得重複」而不給清單,模型會自行想像哪些問過了,結果照樣重複。
+    只寫「不得重複」而不給清單,模型會自行想像問過什麼,結果照樣重複。
+    傳問題原文而非領域標籤——實測模型會操弄標籤來滿足「不重複」,
+    問的內容卻沒變。
     """
-    text = compose_probe_rules(["資料分析", "團隊衝突"])
-    assert "資料分析" in text
-    assert "團隊衝突" in text
+    text = compose_probe_rules(["請自我介紹", "你怎麼處理需求衝突?"])
+    assert "請自我介紹" in text
+    assert "你怎麼處理需求衝突?" in text
 
 
-def test_rules_work_with_no_asked_topics() -> None:
+def test_rules_work_with_no_asked_questions() -> None:
     text = compose_probe_rules([])
-    assert "尚未涵蓋" in text
+    assert "尚未問過" in text
 
 
 def test_prohibitions_are_patterns_not_examples() -> None:
@@ -192,6 +194,39 @@ def test_prohibitions_are_patterns_not_examples() -> None:
     assert "「" not in PROBE_PROHIBITIONS or "例如" not in PROBE_PROHIBITIONS
 
 
-def test_follow_up_cap_is_one() -> None:
-    """對齊前端 followUpIdx 的控制邏輯。"""
-    assert MAX_FOLLOW_UP_PER_QUESTION == 1
+def test_turn_cap_matches_frontend() -> None:
+    """對齊前端:followUpIdx >= 4 進入反問環節。
+
+    這個值曾經被寫成 1(誤以為是「每主問題追問一次」),
+    實測六輪裡三輪被強制推進,對話節奏很碎。
+    """
+    assert MAX_TURNS_PER_SESSION == 4
+
+
+def test_follow_up_is_not_restricted_by_asked_list() -> None:
+    """追問本來就該留在同一個話題上——那就是追問的定義。
+
+    早期版本把「不得重複已問領域」套在追問上,結果模型兩輪產不出問題。
+    """
+    text = compose_probe_rules(["請自我介紹"])
+    assert "追問則不受此限" in text
+
+
+def test_honest_admission_gets_a_different_question() -> None:
+    """對方明確說不會時要換路,不是同一件事換個說法再問。
+
+    實測:使用者說「這個我沒想過」,模型回「那你有沒有觀察到什麼挑戰呢?」
+    ——嘴上換了問法,實際還在逼同一件事。
+    前端 MockInterviewProber 有 probesHonest 池處理這個,prompt 原本漏了。
+    """
+    from app.prompts.probe_rules import HONEST_ADMISSION
+
+    assert "換個你熟的" in HONEST_ADMISSION
+    assert "不是扣分項" in HONEST_ADMISSION
+    assert "嘴上原諒" in HONEST_ADMISSION, "要明說「沒關係」之後不能繼續逼同一個方向"
+
+
+def test_honest_admission_is_in_the_composed_prompt() -> None:
+    from app.prompts.probe_rules import compose_probe_rules
+
+    assert "沒想過" in compose_probe_rules([])

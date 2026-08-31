@@ -259,8 +259,23 @@ COLLAB_PROHIBITED_INDICATORS = """協作評分明確禁用的指標。
 我們是回饋產品。使用者看到「參與主動性偏低」就會去多講話——
 用發言量計分等於在訓練他 babble,並把一個已知的性別偏誤寫進評分公式。
 
-發言次數仍可放進 CollabSignal.signals 當**背景資訊**交給 LLM,
-但不可以是等第的主要依據,BARS 錨點的文字也不得以次數描述等第。
+發言量指標仍可放進 CollabSignal.signals 當**背景資訊**,但必須加 `bg_` 前綴
+(例如 `bg_utterance_count`),讓那道界線在資料裡看得見。
+
+【為什麼要前綴,不能只寫在註解裡】
+只在 docstring 寫「可當背景資料但不得單獨決定等第」,那個保護很弱——
+發言次數是那堆數字裡最直觀的一個,LLM 會錨定上去。
+前綴讓 B 的 prompt 可以機械地把 `bg_` 開頭的放進「背景」而不是「依據」,
+而且這條界線可以被測試檢驗。
+
+實測佐證:A 側原本把 first_speak_position 的分母寫成總則數,
+結果同樣在第 2 則開口、後面多講 5 次,位置就從 1.00 變成 0.17,
+看起來「開口早很多」——發言量從後門混進了那個訊號。
+測試抓到了,分母改成「別人給了幾次機會」。
+
+**禁令要能被測試檢驗才是真的禁令。**
+
+BARS 錨點的文字一律不得以次數描述等第。
 
 【禁用】打斷次數。
 群面畫面在 AI 發言時以 isTyping 擋住輸入,使用者實際上打斷不了,
@@ -343,8 +358,10 @@ class CollabSignal:
     signals: dict[str, float] = field(default_factory=dict)
     """這個維度的可觀察值。鍵名由 A 決定,但必須是**可從純文字逐字稿算出**的量。
 
-    例:{"utterance_count": 4, "first_speak_index": 2,
-         "referred_to_others": 1, "causal_connector_rate": 0.12}
+    例:{"first_speak_position": 0.5, "framing_in_first": 1.0,
+         "causal_connector_rate": 0.12, "bg_utterance_count": 4}
+
+    **`bg_` 前綴代表背景資訊,不得當作等第依據。** 見 COLLAB_PROHIBITED_INDICATORS。
 
     B 側只讀不算——B 不重新定義這些量的意義,只把它們連同逐字稿交給 LLM。
     """
@@ -563,7 +580,7 @@ class FakeCollabObserver:
         return [
             CollabSignal(
                 "參與主動性",
-                {"utterance_count": float(n), "first_speak_index": 0.0},
+                {"first_speak_position": 0.5, "bg_utterance_count": float(n)},
                 f"共發言 {n} 次",
             ),
             CollabSignal(

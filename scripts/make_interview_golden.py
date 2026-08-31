@@ -367,10 +367,14 @@ def build_report() -> None:
             experiences=EXPERIENCES,
             turns=TURNS,
             group_says=[
-                UtteranceDTO(speaker="主考官", text="今天的題目是公司要推新的會員制度", start_ms=0, end_ms=4200),
-                UtteranceDTO(speaker="user", text="我覺得第一步應該先做客群分析", start_ms=5000, end_ms=9100),
-                UtteranceDTO(speaker="AI-邏輯", text="可是這沒有數據支撐吧", start_ms=9100, end_ms=12000),
-                UtteranceDTO(speaker="user", text="我同意前面那位的說法 可以先做小規模驗證", start_ms=12500, end_ms=18000),
+                UtteranceDTO(speaker="主考官", content="今天的題目是公司要推新的會員制度",
+                             is_user=False, start_ms=0, end_ms=4200),
+                UtteranceDTO(speaker="user", content="我覺得第一步應該先做客群分析",
+                             is_user=True, input_mode="voice", start_ms=5000, end_ms=9100),
+                UtteranceDTO(speaker="AI-邏輯", content="可是這沒有數據支撐吧",
+                             is_user=False, start_ms=9100, end_ms=12000),
+                UtteranceDTO(speaker="user", content="我同意前面那位的說法 可以先做小規模驗證",
+                             is_user=True, input_mode="voice", start_ms=12500, end_ms=18000),
             ],
         ),
     )

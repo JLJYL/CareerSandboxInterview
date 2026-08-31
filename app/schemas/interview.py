@@ -131,6 +131,42 @@ class TurnDTO(_Base):
     為空時後端退回以 \n 切分 answer。
     """
 
+    segment_starts_ms: list[int] = Field(default_factory=list)
+    """每一段開始聆聽的時點,毫秒,以本輪回答開始為原點。
+
+    【用途】
+    段界的語意在前端修好截斷之後改變了:原本是「STT 自動送出點」,
+    現在是「引擎重啟點」。兩者的間隔性質不同,而黃金集那六段是舊行為錄的,
+    所以新格式要重新驗證一次。沒有這一欄就沒得驗。
+
+    【筆數可能比 answer_segments 多 1】
+    多的那一筆代表:使用者按下結束時,系統正要開始聽新的一段,但那一段沒有內容。
+    這個長度差的意義由 ended_by 表達,見下。
+
+    【前端】
+    怡君已完成並合進主 repo。為空時視為無時間資料,
+    依賴時間的量一律不可用,由 TextStats.segmentation 反映。
+    """
+
+    ended_by: str = "unknown"
+    """本輪怎麼結束的:"user"(使用者按下結束)/ "timeout"(引擎逾時)/ "unknown"。
+
+    【用途:判斷這段回答有沒有講完】
+    被引擎切斷跟自己講完是兩回事,而下游有三處會因為分不出來而做錯:
+
+        starParts   被切斷導致缺 R 段,報告寫「缺結果,補上這件事最後怎麼了」
+                    ——那是責備一個被打斷的人
+        missingPoints 他正要講那個亮點就被切了,報告說他漏講
+        live 引擎    該追問「你剛剛還沒講完的部分是什麼」,而不是換新題
+
+    第三個最有價值,因為它是即時的——面試進行中就能補救,不用等報告。
+
+    【不是為了消歧義長度差】
+    早期版本的理由是「segmentStartsMs 比 answerSegments 多一筆時,
+    那筆的意義藏在長度差裡」。那件事用註解就能解決,不值得為它加一個欄位。
+    加了沒人讀的欄位,就是這份合約一路在避免的東西。
+    """
+
 
 class ExperienceDTO(_Base):
     """一筆使用者經歷。鏡射 data/remote/ExperienceDtos.kt 的 ExperienceResponse。
@@ -162,7 +198,31 @@ class InterviewContext(_Base):
     language: str = "中文"  # 中文 / English
     type: str = "行為"  # 行為 / 技術 / 情境
     difficulty: str = "中等"  # 新手 / 中等 / 困難
-    group_interviewers: int = 1  # group 模式:1 位主持 / 3 位 panel
+    group_interviewers: int = 1
+    """群面的面試官配置:1 位主持 / 3 位主管。
+
+    3 的時候主考官不出現,改由用人主管、技術主管、HR 主管輪流主持。
+    對齊前端 InterviewLiveGroupScreen 的 panelRoster。
+    """
+
+    group_size: int = 4
+    """群面的小組人數,含使用者本人,3–5。決定出場幾位 AI 應徵者。
+
+    【前端目前沒有帶這一欄】
+    InterviewSetupGroupScreen 有「小組人數」選項,但選完只存在畫面的區域變數,
+    沒有寫進 InterviewConfig。所以後端收到的一律是預設值 4。
+    這是前端缺口,列入交接清單。
+    """
+
+    group_role: str = "一般應徵者"
+    """使用者在群面裡的相對定位:一般應徵者 / 較資深應徵者 / 較資淺應徵者。
+
+    這不是裝飾——「較資深」的說明是「其他人比你新鮮,你會被期待多分享經驗」,
+    它會改變 AI 應徵者對使用者的態度。
+
+    【前端目前沒有帶這一欄】
+    同 group_size,選完沒有存進 InterviewConfig。
+    """
     custom_role: str = ""
     custom_company: str = ""
     custom_seniority: str = "新鮮人"  # 新鮮人 / 1-3年 / 資深
@@ -223,11 +283,48 @@ class UtteranceDTO(_Base):
     需請前端改為記錄所有發言者。messages 已帶 speaker 欄位,改動不大。
     """
 
-    speaker: str = "user"  # "user" 或 persona 顯示名稱
-    text: str = ""
-    input_mode: str = "unknown"  # "voice" / "typed" / "unknown",僅 user 的發言有意義
-    start_ms: int = 0  # 毫秒,無計時資料時給 0,至少保住順序
-    end_ms: int = 0  # 毫秒,有值才算得出打斷
+    speaker: str = "user"
+    """發言者。"user" 或 persona 的顯示名稱。"""
+
+    content: str = ""
+    """發言內容。
+
+    【欄位名跟著前端】
+    前端的 GroupUtterance 用 content,早期版本這裡叫 text——
+    名字不同會讓反序列化拿到空字串,而且不會報錯:
+    協作維度會收到一批空發言,分數照樣算得出來,只是全部沒有依據。
+    """
+
+    is_user: bool = False
+    """這句是不是使用者本人講的。
+
+    協作評分只評使用者。沒有這一欄就得靠 speaker == "user" 判斷,
+    而 speaker 是 persona 的顯示名稱、可能隨調校變動——
+    用一個會變的欄位去判斷「這是不是本人」不安全。
+    """
+
+    segments: list[str] = Field(default_factory=list)
+    """STT 逐段送出的原始片段。理由同 TurnDTO.answer_segments。"""
+
+    segment_starts_ms: list[int] = Field(default_factory=list)
+    """每段開始聆聽的時點,毫秒。理由同 TurnDTO.segment_starts_ms。"""
+
+    input_mode: str = "unknown"
+    """"voice" / "typed" / "unknown"。僅 is_user 為真的發言有意義。
+
+    群面同時有語音與文字輸入(搶話偵測需要打字停頓),所以逐句都要標。
+    """
+
+    start_ms: int = 0
+    """這句話開始的時點,毫秒。
+
+    跟 segment_starts_ms 的差別:那是段落層級,這是整句層級。
+    前端目前只提供 segment_starts_ms,所以這一欄通常是 0——
+    需要時取 segment_starts_ms[0]。保留是為了讓打斷偵測有明確的欄位可用。
+    """
+
+    end_ms: int = 0
+    """這句話結束的時點,毫秒。有值才算得出打斷。"""
 
 
 class SpeechStats(_Base):
@@ -307,8 +404,55 @@ class TurnRequest(_Base):
     follow_up_idx: int = 0
     question: str = ""  # 本輪的題目
     fallback: list[str] = Field(default_factory=list)  # 對齊 A1 簽章
+    mode: InterviewMode | None = None
+    """這一場的面試模式。前端在開場時就知道,每輪帶過來即可。
+
+    【為什麼是選填】
+    早期版本漏了這一欄,後端只能從 spokenBy 反推——出現過的說話者屬於哪一組
+    persona。那個反推在兩種情況下會錯:
+
+        第一輪 spokenBy 還是空的,一律當成 single
+        一對一本來就不回 speaker,所以永遠推不出 panel 與 group 的差別
+                                (要靠開場的 openingSpeaker 被放進 spokenBy)
+
+    現在改成前端直接帶。留成選填而不是必填,是因為前端還沒改——
+    None 時退回反推,前端補上之後反推就不會被用到,合約不用再改一次。
+
+    交接清單:請前端在每次 turns 請求帶上 mode,值同開場時送的那個。
+    """
+
     input_mode: str = "unknown"
     """"voice"(裝置端 STT)/ "typed"(鍵盤)/ "unknown"。見 INPUT_MODE_RULE。"""
+
+    ended_by: str = "unknown"
+    """這段回答怎麼結束的:"user" / "timeout" / "unknown"。
+
+    "timeout" 時追問要先把話接完,不要換新題——他還在講就被引擎送出了。
+    這是三個消費點裡唯一即時的一個:面試進行中就能補救,不用等報告。
+    """
+
+    context: InterviewContext = Field(default_factory=InterviewContext)
+    """面試設定。每輪都帶的理由跟 question/askedTopics 一樣:
+    session 尚未落地時後端查不到,只能由前端帶。
+
+    難度、群面配置、使用者定位都在這裡——沒有它,每一輪的追問深度與
+    出場的 persona 都會退回預設值。"""
+    spoken_by: list[str] = Field(default_factory=list)
+    """本場已經開口過的說話者,依序累積 TurnResponse.speaker。
+
+    僅 panel 與 group 需要。single 恆為空——只有一位面試官,沒有派發問題。
+
+    【為什麼要帶】
+    派發規則有一條「整場不要只有一位主管在講,某位完全沒開口時優先給他」,
+    但模型看不到誰開過口,那條規則就永遠不會生效。
+
+    實測:panel 五輪裡 HR 主管講了 4 次、用人主管 0 次;
+    group 四輪裡 AI-強勢與 AI-親切完全沒出現。
+
+    這是同一類問題的第三次:規則要求模型知道它拿不到的資訊。
+    前兩次是 asked_topics 與已問問題原文。
+    """
+
     asked_topics: list[str] = Field(default_factory=list)
     """本場已涵蓋的領域,前端累積 TurnResponse.topic 後回傳。
 

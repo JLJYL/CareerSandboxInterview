@@ -237,6 +237,60 @@ Android STT 停頓 1–2 秒就自動送出,一次回答必然被切成數段,�
 送到後端時以 `answerSegments` 帶原始片段,`answer` 用 `\n` 接起來供顯示。
 段界是 `TextStats.segmentation = "stt_segment"` 的來源,用空字串接會靜默遺失。
 
+### 段界時點與結束方式(W2 增補)
+
+`TurnDTO` 加了兩格:
+
+| 欄位 | 用途 |
+|---|---|
+| `segmentStartsMs` | 每段開始聆聽的時點(毫秒),前端已完成 |
+| `endedBy` | `"user"` / `"timeout"` / `"unknown"` |
+
+前端修好截斷之後,段界的語意從「STT 自動送出點」變成「引擎重啟點」,
+兩者的間隔性質不同。黃金集那六段是舊行為錄的,新格式要重新驗證一次。
+
+`segmentStartsMs` 的筆數可能比 `answerSegments` 多 1——那筆代表使用者按下結束時
+系統正要開始聽新的一段。這個意義由 `endedBy` 表達,不要藏在長度差裡:
+藏在長度差裡的意義會消失,任何人 `zip()` 起來就安靜砍掉多的那筆。
+
+### 協作訊號的 bg_ 前綴(W2 增補)
+
+發言量指標放進 `CollabSignal.signals` 時必須加 `bg_` 前綴。
+只在註解寫「不得當作依據」的保護太弱,前綴讓這條界線可以被測試檢驗。
+
+實測佐證:`first_speak_position` 原本用總則數當分母,結果同樣在第 2 則開口、
+後面多講 5 次,位置就從 1.00 變成 0.17——發言量從後門混進了那個訊號。
+
+### TurnRequest.mode(W3 補上)
+
+合約定案時漏了這一欄,後端只能從 `spokenBy` 反推,兩個已知失準點:
+
+    第一輪 spokenBy 還是空的 → 一律當成 single
+    一對一不回 speaker       → 要靠開場的 openingSpeaker 被放進 spokenBy
+                              才分得出 panel 與 group
+
+現在 `TurnRequest` 有 `mode`,值同開場時送的那個。
+
+**留成選填而不是必填**,因為前端還沒改——為空時退回反推,
+前端補上之後反推就不會被用到,合約不用再改一次。
+
+**前端待辦**:每次 `turns` 請求帶上 `mode`。
+
+### groupSays 的欄位名跟著前端(W3 對齊)
+
+`UtteranceDTO` 的欄位名以前端的 `GroupUtterance` 為準:
+
+| 後端 | 前端 | 備註 |
+|---|---|---|
+| `content` | `content` | 早期版本叫 `text`,名字不同會靜默拿到空字串 |
+| `isUser` | `isUser` | 協作評分只評使用者。不用 `speaker == "user"` 判斷——那個名稱會隨 persona 調校變動 |
+| `segments` | `segments` | 同 `TurnDTO.answerSegments` |
+| `segmentStartsMs` | `segmentStartsMs` | 同 `TurnDTO.segmentStartsMs` |
+| `inputMode` | 待前端補 | 群面同時有語音與文字輸入,逐句都要標 |
+
+前端已把 `groupSays` 改為 `groupTranscript`,舊欄位標了 `@Deprecated`,
+理由是「只存使用者發言,已不足以支援評分需求」。
+
 ### STT 引擎(已定案,無選擇題)
 
 前端使用 Android 裝置端 `SpeechRecognizer`(`ui/components/InPageVoice.kt`,
