@@ -238,8 +238,14 @@ COLLAB_PROHIBITED_INDICATORS = """協作評分明確禁用的指標。
 我們是回饋產品。使用者看到「參與主動性偏低」就會去多講話——
 用發言量計分等於在訓練他 babble,並把一個已知的性別偏誤寫進評分公式。
 
-發言量指標仍可放進 CollabSignal.signals 當**背景資訊**,但必須加 `bg_` 前綴
-(例如 `bg_utterance_count`),讓那道界線在資料裡看得見。
+發言量指標**一律不可出現**,連當背景資訊都不行。
+
+早期版本允許加 `bg_` 前綴當背景資訊。rubric 到手後這個折衷被推翻:
+禁令是「一律不可作為評分依據」,而且 babble 假說有性別偏誤
+(MacLaren 2020),那是「不可用於任何選拔」的等級。
+
+放到 LLM 面前就是風險,前綴擋不住——這個專案反覆證實
+prompt 裡的數字會被錨定。
 
 【為什麼要前綴,不能只寫在註解裡】
 只在 docstring 寫「可當背景資料但不得單獨決定等第」,那個保護很弱——
@@ -302,9 +308,27 @@ class Utterance:
     """
 
     speaker_id: str
-    """"user" 或 persona 的顯示名稱(主考官 / AI-邏輯 / AI-強勢 / AI-親切)。"""
+    """發言者的顯示名稱。
+
+    **不要用它判斷是不是使用者本人。** 前端實際送的是「你」不是「user」
+    (InterviewLiveGroupScreen 的 recordGroupUtterance(speaker = "你")),
+    而且 persona 的顯示名稱會隨調校變動。用 is_user。
+    """
 
     text: str
+
+    is_user: bool = False
+    """這句是不是使用者本人講的。
+
+    【為什麼不能靠 speaker_id 推】
+    前端送的是「你」,早期版本的切片邏輯寫 speaker_id == "user",
+    照前端實際的 payload 會讓四個維度全部切錯——
+    使用者的發言一則都取不到,而 AI 的發言全部被當成使用者的。
+
+    而且不會報錯:切片是空的,LLM 收到空切片回 level 0,
+    報告顯示「這次沒有可觀察的內容」。看起來像正常降級,實際上是切錯了。
+    """
+
     start_ms: int = 0
     """毫秒。沒有計時資料時全部給 0,至少保住陣列順序。"""
 
@@ -313,47 +337,60 @@ class Utterance:
 
 
 @dataclass(frozen=True)
-class CollabSignal:
-    """協作維度的可觀察值。僅 group 模式使用。
+class CollabSlice:
+    """一個協作維度對應的逐字稿切片。僅 group 模式使用。
 
-    【這裡不給分數,原因見下】
-    原設計是 A 直接回 0–100 的分數。委外 rubric 的管線推翻了這個假設:
+    【這裡沒有數字,原因是 rubric 到了之後才看清楚的】
+    原設計是 A 交四組可觀察值(發言次數、首次發言時機、連接詞密度、打斷次數),
+    B 的 LLM 對照 BARS 指派等第。rubric 到手後發現那四項有三項被明文禁用:
 
-        逐字稿 → A 抽可觀察值 → B 的 LLM 對照 BARS 錨點指派等第
+        發言次數、字數、時間佔比、**首次發言的絕對早晚** —— babble 假說,
+                                    且該效應有性別偏誤(MacLaren 2020)
+        發言長度、長度變異             —— 論點建構明訂不看長度
+        打斷次數                       —— 介面擋住輸入,結構上恆為 0
 
-    BARS 錨點是行為描述(「僵局時推進」「在關鍵時點介入」),判斷某段發言
-    算不算,本質上是語意判斷,確定性規則做不到。A 能可靠產出的是可觀察值,
-    不是等第。
+    剩下的線索全部是語意判斷:「是否推動討論往可行方向收斂」
+    「是否正確指涉特定他人講的內容」「面對分歧是先肯定再轉折還是直接否定」。
+    那些確定性規則做不到,照切線原則本來就該由 LLM 判斷。
 
-    【W2 過渡期】
-    rubric 未回來之前,A 只交 signals 與 evidence,level 留 None。
-    B 側收到 None 時不產出 collab_dims,並在 notices 註明原因。
+    所以 A 側的價值在**切片**不在**打分**:把逐字稿依維度切成四份,
+    每份只含該維度需要看的內容。切片是確定性的、可測試的、跟 LLM 無關。
 
-    name 必須是 COLLAB_DIM_NAMES 四個之一。
+    【為什麼連 causal_connector_count 都不留】
+    它是 rubric 論點建構三條線索中唯一機械可判的,但 A 實測過它沒有鑑別力:
+    兩段同樣「正常發揮」的錄音,每百字 0.00 vs 1.50,橫跨整個量程。
+
+    而且這個專案反覆證實 prompt 裡的數字會被 LLM 錨定——
+    表達流暢度給區間就輸出邊界值、內容深度十格有七格是 68。
+    用一個弱數字去壓兩個強的語意線索,比完全不給更糟。
+
+    【為什麼不是「signals 可以為空」】
+    留一個永遠是空 dict 的欄位,等於宣告一件不存在的事。
+    改型別才誠實。
     """
 
     name: str
+    """四個固定名稱之一,見 COLLAB_DIM_NAMES。"""
 
-    signals: dict[str, float] = field(default_factory=dict)
-    """這個維度的可觀察值。鍵名由 A 決定,但必須是**可從純文字逐字稿算出**的量。
+    excerpts: list[str] = field(default_factory=list)
+    """這個維度要看的逐字稿片段,依原順序。
 
-    例:{"first_speak_position": 0.5, "framing_in_first": 1.0,
-         "causal_connector_rate": 0.12, "bg_utterance_count": 4}
+    每個維度看的東西不同(rubric 第一節):
+        參與主動性  使用者的每一則發言,帶「他人之後/自己起頭」標記
+        傾聽與回應  使用者發言 ＋ 緊鄰的前一則他人發言(成對)
+        論點建構    使用者的每一則發言,單則獨立(rubric 明訂看「一段發言內部」)
+        協作姿態    整段討論(立場衝突可能出現在任何地方,切片會漏掉)
 
-    **`bg_` 前綴代表背景資訊,不得當作等第依據。** 見 COLLAB_PROHIBITED_INDICATORS。
-
-    B 側只讀不算——B 不重新定義這些量的意義,只把它們連同逐字稿交給 LLM。
+    綁定不同切片是壓 halo 的關鍵:rubric 第八節第 2 點實測,
+    一次評四維的維度間相關 r̄ ≈ .86–.92(幾乎分不開),
+    分開評掉到 .26–.35(接近人類評審的 .34)。
     """
 
-    evidence: str = ""
-    """給 LLM 的自然語言摘要,例如「共發言 4 次,其中 1 次明確接續他人論點」。
-    時間資料不可用時要在這裡註明,B 才知道 hint 措辭不能過度宣稱。"""
+    note: str = ""
+    """這個切片的產生方式與已知限制,寫給 B 放進 prompt 或 notices。
 
-    level: int | None = None
-    """BARS 等第。**A 不填,一律 None。** 由 B 的 LLM 對照錨點指派。
-
-    None 的意思是「尚未指派」,不是「等第為 0」。
-    刻意用 None 而非 0,因為 0 分與未評分在報告上是兩件完全不同的事。
+    例:「協作姿態未做切片,整段給出——立場衝突的偵測是語意判斷,
+    寬鬆初篩會漏掉沒有標記詞的分歧,也會誤收單純的轉折。」
     """
 
 
@@ -441,35 +478,26 @@ class GapComputer(Protocol):
 
 @runtime_checkable
 class CollabObserver(Protocol):
-    """群面協作四項的可觀察值抽取。成員 A 負責,W2 交付。
+    """群面協作維度的逐字稿切片。成員 A 負責。
 
-    原名 CollabScorer。改名的理由:它不再指派分數,只抽可觀察值。
-    留著舊名字會讓三個月後的人以為它會計分。
+    原本叫 CollabScorer、後來改成回可觀察值,現在只回切片——
+    每一次改名都是因為它做的事變小了,而每一次變小都是因為
+    「這件事確定性規則做不到」被看清楚。
+
+    最終的形狀:A 決定「看哪一段」,B 的 LLM 決定「這一段算幾級」。
     """
 
-    def observe(self, utterances: list[Utterance]) -> list[CollabSignal]:
-        """回傳四筆,順序對齊 COLLAB_DIM_NAMES,level 一律 None。
+    def observe(self, utterances: list[Utterance]) -> list[CollabSlice]:
+        """回傳四份切片,順序對齊 COLLAB_DIM_NAMES。
 
-        【可用的可觀察值】
-        只能是**從純文字逐字稿算得出來**的量。沒有影像、沒有音訊、
-        沒有語速語調。實際的量與鍵名等 rubric 回來後定案,以下是方向:
+        【純機械操作,沒有語意判斷】
+        前三個維度的切法是確定的:過濾 is_user、成對取前一則、單則獨立。
+        第四個(協作姿態)不切,整段給出——立場衝突的偵測是語意判斷。
 
-          參與主動性 —— 首次發言的相對位置、是否在無人回應時接續
-          傾聽與回應 —— 明確指涉前一位發言者論點的次數
-          論點建構   —— 因果連接詞密度、主張與理由的共現
-          協作姿態   —— 同意詞與反對詞的比例、分歧後是否收斂
-
-        【明確禁用的指標】見 COLLAB_PROHIBITED_INDICATORS。
-
-        【時間資料】
-        Utterance.start_ms / end_ms 目前恆為 0(前端尚未提供)。
-        依賴時間的量一律不可用,要在 evidence 註明。
-
-        【前端阻擋事項】
-        Utterance.speaker_id 需要前端把 groupSays 改成記錄所有發言者。
-        未完成之前輸入裡只有使用者自己的發言,「傾聽與回應」與「協作姿態」
-        兩項不管 rubric 怎麼寫都算不出來——那不是難,是資訊不在場。
-        這兩項在前端完成前應回空 signals 並在 evidence 註明。
+        【已知限制要寫進 note】
+        沒有 speaker 身分時(前端尚未提供)「傾聽與回應」切不出成對片段,
+        那時回空 excerpts 並在 note 說明。空切片不是失敗,是誠實的降級——
+        B 收到空的會在報告裡標明該維度不可用,而不是給一個沒有依據的分數。
         """
         ...
 
@@ -545,37 +573,47 @@ class FakeGapComputer:
 
 
 class FakeCollabObserver:
-    """固定回傳四筆,順序正確,level 一律 None。
+    """固定回傳四份切片,順序正確。
 
-    level 保持 None 是刻意的:B 的過渡期行為(收到 None 就不產出 collab_dims)
-    必須在 W1 就測得到,不能等 A 交件才發現沒處理。
+    【為什麼 Fake 要示範降級】
+    第二份(傾聽與回應)在輸入只有使用者發言時回空 excerpts。
+    B 的「收到空切片就標明該維度不可用」那條路徑必須在 W1 就測得到,
+    不能等 A 交件才發現沒處理。
     """
 
-    def observe(self, utterances: list[Utterance]) -> list[CollabSignal]:
-        mine = [u for u in utterances if u.speaker_id == "user"]
-        others = [u for u in utterances if u.speaker_id != "user"]
-        n = len(mine)
-        no_speaker_info = not others
+    def observe(self, utterances: list[Utterance]) -> list[CollabSlice]:
+        mine = [u for u in utterances if u.is_user]
+        others = [u for u in utterances if not u.is_user]
+
+        # 傾聽與回應:使用者發言 ＋ 緊鄰的前一則他人發言
+        pairs: list[str] = []
+        prev_other: Utterance | None = None
+        for u in utterances:
+            if u.is_user:
+                if prev_other is not None:
+                    pairs.append(f"[{prev_other.speaker_id}] {prev_other.text}\n[你] {u.text}")
+            else:
+                prev_other = u
+
         return [
-            CollabSignal(
+            CollabSlice(
                 "參與主動性",
-                {"first_speak_position": 0.5, "bg_utterance_count": float(n)},
-                f"共發言 {n} 次",
+                [f"[{'接續' if others else '起頭'}] {u.text}" for u in mine],
+                "每則發言標了它是接在他人之後還是自己起頭。不含發言次數。",
             ),
-            CollabSignal(
+            CollabSlice(
                 "傾聽與回應",
-                {} if no_speaker_info else {"referred_to_others": 1.0},
-                "輸入僅含使用者發言,無法比對他人論點" if no_speaker_info
-                else "有 1 次明確接續他人論點",
+                pairs,
+                "" if pairs else "輸入只有使用者發言,無法配對前一則他人發言,此維度不可評",
             ),
-            CollabSignal(
+            CollabSlice(
                 "論點建構",
-                {"causal_connector_rate": 0.12},
-                "平均發言 32 字,因果連接詞密度 0.12",
+                [u.text for u in mine],
+                "單則獨立,rubric 明訂看一段發言內部的理由與結論結構。",
             ),
-            CollabSignal(
+            CollabSlice(
                 "協作姿態",
-                {} if no_speaker_info else {"agree_disagree_ratio": 2.0},
-                "無時間資料,打斷偵測不可用" ,
+                [f"[{u.speaker_id}] {u.text}" for u in utterances],
+                "未切片,整段給出——立場衝突可能出現在任何地方,切片會漏掉。",
             ),
         ]

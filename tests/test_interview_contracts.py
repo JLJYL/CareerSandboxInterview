@@ -249,23 +249,54 @@ def test_collab_observer_returns_four_in_order() -> None:
     assert [r.name for r in rows] == list(COLLAB_DIM_NAMES)
 
 
-def test_collab_observer_never_assigns_level() -> None:
-    """A 只交可觀察值,等第由 B 的 LLM 對照 BARS 指派。
+def test_collab_observer_returns_slices_not_scores() -> None:
+    """A 交的是切片不是分數。
 
-    level 是 None 不是 0——0 分與未評分在報告上是兩件完全不同的事。
+    rubric 到手後發現原本的四項可觀察值有三項被明文禁用
+    (發言次數、首次發言早晚、發言長度、打斷次數),
+    剩下的線索全部是語意判斷——那本來就該由 LLM 做。
     """
-    rows = FakeCollabObserver().observe([Utterance("user", "x")])
-    assert all(r.level is None for r in rows)
+    rows = FakeCollabObserver().observe([
+        Utterance("AI-邏輯", "母數是多少"),
+        Utterance("你", "我覺得先做客群分析", is_user=True),
+    ])
+    assert [r.name for r in rows] == list(COLLAB_DIM_NAMES)
+    assert all(hasattr(r, "excerpts") for r in rows)
+    assert not any(hasattr(r, "signals") for r in rows), "不再有數字欄位"
 
 
-def test_collab_signals_degrade_without_speaker_info() -> None:
-    """輸入只有使用者發言時,兩個維度算不出來,要空 signals 加 evidence 說明。
+def test_each_dimension_gets_a_different_slice() -> None:
+    """綁定不同切片是壓 halo 的關鍵。
 
-    前端 groupSays 尚未改成記錄所有發言者之前,這是預期狀態。
+    rubric 第八節第 2 點:一次評四維的維度間相關 r̄ ≈ .86–.92,
+    分開評掉到 .26–.35。
     """
-    rows = {r.name: r for r in FakeCollabObserver().observe([Utterance("user", "x")])}
-    assert rows["傾聽與回應"].signals == {}
-    assert "無法比對" in rows["傾聽與回應"].evidence
+    rows = {
+        r.name: r
+        for r in FakeCollabObserver().observe([
+            Utterance("AI-邏輯", "母數是多少"),
+            Utterance("你", "我覺得先做客群分析", is_user=True),
+        ])
+    }
+    # 傾聽與回應是成對的,論點建構是單則獨立的
+    assert "AI-邏輯" in rows["傾聽與回應"].excerpts[0]
+    assert "AI-邏輯" not in rows["論點建構"].excerpts[0]
+    # 協作姿態不切片,含所有發言者
+    assert len(rows["協作姿態"].excerpts) == 2
+
+
+def test_slice_degrades_without_speaker_info() -> None:
+    """輸入只有使用者發言時,傾聽與回應切不出成對片段。
+
+    空切片不是失敗,是誠實的降級——B 收到空的會標明該維度不可用,
+    而不是給一個沒有依據的分數。
+    """
+    rows = {
+        r.name: r
+        for r in FakeCollabObserver().observe([Utterance("你", "只有我在講", is_user=True)])
+    }
+    assert rows["傾聽與回應"].excerpts == []
+    assert "無法配對" in rows["傾聽與回應"].note
 
 
 def test_collab_prohibits_volume_indicators() -> None:
@@ -340,9 +371,32 @@ def test_text_stats_declares_segmentation() -> None:
 
 def test_utterance_carries_speaker_and_order() -> None:
     """協作四項有三項需要發言者身分與時序。"""
-    u = Utterance("AI-邏輯", "母數是多少", 3000, 5000)
+    u = Utterance("AI-邏輯", "母數是多少", start_ms=3000, end_ms=5000)
     assert u.speaker_id == "AI-邏輯"
     assert u.end_ms > u.start_ms
+
+
+def test_slicing_uses_is_user_not_speaker_name() -> None:
+    """前端送的 speaker 是「你」不是「user」。
+
+    早期版本的切片寫 speaker_id == "user",照前端實際的 payload 會讓
+    四個維度全部切錯——使用者的發言一則都取不到。
+
+    而且不會報錯:切片是空的,LLM 回 level 0,
+    報告顯示「這次沒有可觀察的內容」,看起來像正常降級。
+    """
+    rows = {
+        r.name: r
+        for r in FakeCollabObserver().observe([
+            Utterance("主考官", "題目是會員制度"),
+            Utterance("你", "我覺得先做客群分析", is_user=True),
+            Utterance("AI-邏輯", "母數是多少"),
+            Utterance("你", "同意前面那位", is_user=True),
+        ])
+    }
+    assert len(rows["參與主動性"].excerpts) == 2, "使用者講了兩則"
+    assert len(rows["論點建構"].excerpts) == 2
+    assert len(rows["協作姿態"].excerpts) == 4, "整段給出,含所有發言者"
 
 
 def test_group_says_carries_all_speakers() -> None:
@@ -505,24 +559,17 @@ def test_segment_starts_defaults_empty() -> None:
     assert TurnDTO().segment_starts_ms == []
 
 
-def test_volume_signals_must_carry_bg_prefix() -> None:
-    """發言量指標必須加 bg_ 前綴,讓禁令可以被機械檢驗。
+def test_volume_indicators_are_fully_banned() -> None:
+    """發言量指標一律不可出現,連當背景資訊都不行。
 
-    只在 docstring 寫「不得單獨決定等第」的保護很弱——
-    發言次數是那堆數字裡最直觀的一個,LLM 會錨定上去。
+    早期版本允許加 bg_ 前綴當背景資訊。rubric 推翻了那個折衷:
+    禁令是「一律不可作為評分依據」,而且 babble 假說有性別偏誤,
+    那是「不可用於任何選拔」的等級。
     """
-    from app.contracts.interview_protocols import (
-        COLLAB_PROHIBITED_INDICATORS,
-        FakeCollabObserver,
-        Utterance,
-    )
+    from app.contracts.interview_protocols import COLLAB_PROHIBITED_INDICATORS
 
-    assert "bg_" in COLLAB_PROHIBITED_INDICATORS
-    rows = FakeCollabObserver().observe([Utterance("user", "x"), Utterance("AI-邏輯", "y")])
-    for r in rows:
-        for key in r.signals:
-            if "count" in key or "utterance" in key:
-                assert key.startswith("bg_"), f"{key} 是發言量指標,必須加 bg_ 前綴"
+    assert "一律不可出現" in COLLAB_PROHIBITED_INDICATORS
+    assert "性別偏誤" in COLLAB_PROHIBITED_INDICATORS
 
 
 def test_positional_rescue_skips_valid_names() -> None:
