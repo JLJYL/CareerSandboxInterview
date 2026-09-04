@@ -367,6 +367,72 @@ def _entry_fields(entry: Any) -> tuple[str, str, list[str]]:
 # ---------------------------------------------------------------- 文字正規化
 
 
+#: 外觀相同但碼位不同的字元 → 正規形。
+#:
+#: 【為什麼要有這張表】
+#: 逐字稿端本來就折疊全形(U+FF01–FF5E 整段減 0xFEE0),但詞彙表端只做
+#: strip().lower()。兩端不對稱的後果是**含全形字元的詞彙表條目完全抓不到**,
+#: 而且不報錯——那個技能只是永遠偵測不到。目前詞彙表剛好是乾淨的(實測 0 筆),
+#: 但 build_vocab.py 是從 104 與政府開放資料重建的,而那些來源確實含這些字元。
+#:
+#: 【只收有唯一正確答案的】
+#: 跟 jd_normalize 的判準一致:確定性字串替換才進機械層,有歧義的不收。
+#:
+#:   U+2571 ╱  製表符對角線。外觀像斜線,實際是 BOX DRAWINGS。104 與政府
+#:             資料大量使用(實測黃金集 26 次、詞彙表 4 次),而詞彙表**內部
+#:             就不一致**——「專案成本╱品質╱風險管理」用它,
+#:             「專案時間/進度控管」用半形。同樣的意思因為一個看不見的字元
+#:             差異而得到不同比對結果。
+#:   U+FF0F ／  全形斜線。已在 FF01–FF5E 範圍內,列在這裡是為了詞彙表端也蓋到。
+#:   U+200B     零寬空格。完全看不見,落在技能名稱裡會造成無法解釋的比對失敗。
+#:             實測出現在 104 職缺的散文裝飾裡,不在技能名稱。
+#:             ★ 映射成半形空格而非移除——gap.py 用 scan() 回傳的位移去切
+#:               **原始** JD 文字當證據,折疊若改變字串長度,證據就會錯位。
+#:               嚴格等長是這張表的硬性約束,新增條目一律 1 字元對 1 字元。
+_LOOKALIKE_MAP: dict[str, str] = {
+    "\u2571": "/",   # ╱ BOX DRAWINGS LIGHT DIAGONAL
+    "\uff0f": "/",   # ／ FULLWIDTH SOLIDUS
+    "\u200b": " ",   # 零寬空格 → 半形空格(等長)
+}
+
+
+def fold_chars(text: str) -> str:
+    """字元層折疊。**所有把字串當成比對鍵或掃描對象的地方都要用這一支**。
+
+    做四件事:
+
+        1. 外觀相同碼位不同的字元 → 正規形(見 _LOOKALIKE_MAP)
+        2. 全形 ASCII → 半形(U+FF01–FF5E 減 0xFEE0)
+        3. 全形空格 → 半形空格
+        4. 英文轉小寫
+
+    ★ 嚴格等長:輸出與輸入的字元數一定相同。gap.py 依賴這個性質——
+      它用 scan() 回傳的位移去切原始 JD 文字當證據,長度一變證據就錯位。
+
+    ★★ 哪裡漏用就會產生不對稱,而不對稱的症狀是**靜默失敗**:
+       比對不到,不報錯,那個技能只是永遠抓不到。目前的使用點:
+
+           SurfaceIndex.from_vocab      詞彙表表面形與詞頭
+           TranscriptAnalyzer.__init__  stt_aliases 的兩側
+           normalize_for_scan           逐字稿(規則同步,但自己跑迴圈以維護位移表)
+           gap.py 的三處 index.scan     JD 與履歷的散文
+           interview_eval.build_name_index  黃金集標記鍵
+    """
+    out: list[str] = []
+    for ch in text:
+        mapped = _LOOKALIKE_MAP.get(ch)
+        if mapped is not None:
+            out.append(mapped)
+            continue
+        o = ord(ch)
+        if 0xFF01 <= o <= 0xFF5E:
+            ch = chr(o - 0xFEE0)
+        elif o == 0x3000:
+            ch = " "
+        out.append(ch.lower())
+    return "".join(out)
+
+
 def normalize_for_scan(raw: str) -> tuple[str, list[int]]:
     """逐字稿 → (可掃描字串, 位移對照表)。
 
@@ -386,6 +452,11 @@ def normalize_for_scan(raw: str) -> tuple[str, list[int]]:
     chars: list[str] = []
     idx: list[int] = []
     for i, ch in enumerate(raw):
+        mapped = _LOOKALIKE_MAP.get(ch)
+        if mapped is not None:
+            chars.append(mapped)
+            idx.append(i)
+            continue
         o = ord(ch)
         if 0xFF01 <= o <= 0xFF5E:
             ch = chr(o - 0xFEE0)
@@ -489,7 +560,9 @@ class SurfaceIndex:
             if not skill_id:
                 continue
             for surface in surfaces:
-                key = surface.strip().lower()
+                # ★ fold_chars 而不是只 strip().lower()——逐字稿端會折疊全形
+                #   與相似字元,詞彙表端不折疊的話兩邊永遠對不上,而且不報錯。
+                key = fold_chars(surface.strip())
                 if not key:
                     continue
                 # 單字元的中文表面形太吵（「圖」「數」），只留單字元的英文（R、C）
@@ -503,10 +576,10 @@ class SurfaceIndex:
             for entry in vocab:
                 sid, _zh, forms = _entry_fields(entry)
                 for f in forms:
-                    name_to_id.setdefault(f.strip().lower(), sid)
+                    name_to_id.setdefault(fold_chars(f.strip()), sid)
             for stt_form, canonical in extra_aliases.items():
-                sid = name_to_id.get(str(canonical).strip().lower())
-                key = str(stt_form).strip().lower()
+                sid = name_to_id.get(fold_chars(str(canonical).strip()))
+                key = fold_chars(str(stt_form).strip())
                 if sid and key and key not in mapping:
                     mapping[key] = sid
                     stt_forms.add(key)
@@ -519,9 +592,10 @@ class SurfaceIndex:
                     continue
                 for surface in surfaces:
                     head = extract_head(surface.strip())
-                    if head and head.lower() not in mapping:
-                        mapping[head.lower()] = skill_id
-                        heads.add(head.lower())
+                    folded_head = fold_chars(head) if head else ""
+                    if folded_head and folded_head not in mapping:
+                        mapping[folded_head] = skill_id
+                        heads.add(folded_head)
         index = cls(mapping)
         index._heads = heads
         index._stt_forms = stt_forms

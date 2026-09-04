@@ -1,0 +1,36 @@
+{
+  "case_id": "case-04",
+  "meta": {
+    "brief": "多位他人連續發言,使用者隔了幾則才開口。",
+    "structure": "他人×3 → 使用者 → 他人×2 → 使用者",
+    "source": "synthetic",
+    "rationale": "配對對象該是「最近一位」而不是「第一位」。使用者聽了三個人講完才回應,他回應的是最後那位,不是最早那位。這格鎖住浮動視窗有在更新。"
+  },
+  "utterances": [
+    {"speaker": "AI-邏輯", "text": "我覺得要先看資料", "is_user": false},
+    {"speaker": "AI-強勢", "text": "資料哪來 現在什麼都還沒有", "is_user": false},
+    {"speaker": "AI-親切", "text": "或許可以先做小規模的測試", "is_user": false},
+    {"speaker": "你", "text": "小規模測試我同意 但要先定義成功長什麼樣", "is_user": true},
+    {"speaker": "AI-邏輯", "text": "成功就是轉換率提升吧", "is_user": false},
+    {"speaker": "AI-強勢", "text": "提升多少才算", "is_user": false},
+    {"speaker": "你", "text": "至少要比現在高兩個百分點 不然統計上看不出差別", "is_user": true}
+  ],
+  "expected": {
+    "參與主動性": {
+      "count": 2,
+      "tags": ["接續他人之後", "接續他人之後"]
+    },
+    "傾聽與回應": {
+      "count": 2,
+      "paired_with": ["AI-親切", "AI-強勢"],
+      "note": "配最近一位,不是最早那位——浮動視窗每遇到他人發言就更新"
+    },
+    "論點建構": {
+      "count": 2
+    },
+    "協作姿態": {
+      "count": 7
+    }
+  },
+  "bars_labels": null
+}

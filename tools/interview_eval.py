@@ -41,7 +41,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.contracts.interview_protocols import JDInput  # noqa: E402
 from app.pipeline.gap import GapComputer  # noqa: E402
 from app.pipeline import transcript as T_MOD  # noqa: E402
-from app.pipeline.transcript import TranscriptAnalyzer  # noqa: E402
+from app.pipeline.transcript import TranscriptAnalyzer, fold_chars  # noqa: E402
 
 #: 目前的執行模式，供報表與 baseline 命名使用。用 list 是為了讓
 #: print_report 這種模組層函式讀得到，不必到處傳參數。
@@ -169,6 +169,11 @@ def build_name_index(vocab: list[Any]) -> dict[str, str]:
       兩邊命名空間不同,不翻譯就永遠零命中。
       這正是 D1 異議第二條要定死回傳型別的原因——差集算錯不會報錯,
       只會安靜地回全 0。
+
+    ★★ 鍵一律過 fold_chars。標記鍵來自 104 與政府開放資料的原字串,
+      裡面混用 ╱(U+2571 製表符)與 /(U+002F)、全形與半形括號;
+      詞彙表**自己內部也不一致**。不折疊的話這些條目會被判成
+      「詞彙表沒有這個技能」而排除計分,指標就是在少算的資料上算出來的。
     """
     out: dict[str, str] = {}
     for entry in vocab:
@@ -178,7 +183,7 @@ def build_name_index(vocab: list[Any]) -> dict[str, str]:
             continue
         for form in [get("name_zh"), get("name_en")] + list(get("aliases") or []):
             if form:
-                out.setdefault(str(form), str(sid))
+                out.setdefault(fold_chars(str(form)), str(sid))
     return out
 
 
@@ -253,14 +258,24 @@ def run_case(case: dict[str, Any], vocab: list[Any],
     # 標記鍵翻成 skill_id;翻不到的丟進 unmapped 另外報,不要靜默吞掉
     raw_labels = case["labels"]["skills"]
     labels, unmapped = {}, []
+    # sid → 折疊到它身上的標記鍵清單。長度 > 1 代表詞彙表把人標成
+    # 不同技能的東西當成同一個,見 print_report 的合併警告。
+    conflated: dict[str, list[str]] = {}
     for name, lab in raw_labels.items():
-        sid = name2id.get(name)
+        sid = name2id.get(fold_chars(name))
         if not sid:
             unmapped.append(name)
-        elif sid in labels:
+            continue
+        conflated.setdefault(sid, []).append(name)
+        if sid in labels:
             # 兩個標記鍵指到同一個 skill_id（詞彙表把它們合併了）。
             # 直接覆寫會靜默丟掉一筆標記,所以取較保守的:has/wants 取小,
             # said 取大（寧可算他講了,少給建議勝過假指控）。
+            #
+            # ★ 保守合併會讓「人標 has=2 的那一筆」被另一筆 has=0 壓成 0,
+            #   機器正確抓到反而算成 FP。那不是模型錯,是資料模型跟標記模型
+            #   對不上。不改成樂觀合併(會反過來製造假指控),而是把衝突
+            #   列出來讓讀數字的人知道,見 print_report。
             prev = labels[sid]
             labels[sid] = {
                 "has": min(prev.get("has", 0), lab.get("has", 0)),
@@ -269,6 +284,7 @@ def run_case(case: dict[str, Any], vocab: list[Any],
             }
         else:
             labels[sid] = lab
+    conflated = {sid: names for sid, names in conflated.items() if len(names) > 1}
 
     has_truth = {k: v.get("has", 0) for k, v in labels.items()}
     wants_truth = {k: v.get("wants", 0) for k, v in labels.items()}
@@ -290,7 +306,7 @@ def run_case(case: dict[str, Any], vocab: list[Any],
 
     machine_gap = set(machine["gap"])
     ranked = [c.skill_id for c in computer.compute(resume, jd, transcript)]
-    human_rank = [name2id.get(x, x) for x in case["labels"].get("gap_ranking", [])]
+    human_rank = [name2id.get(fold_chars(x), x) for x in case["labels"].get("gap_ranking", [])]
 
     return {
         "case_id": case["case_id"],
@@ -305,6 +321,7 @@ def run_case(case: dict[str, Any], vocab: list[Any],
         "human_rank": human_rank,
         "free_add_done": case["labels"].get("free_add_done", False),
         "unmapped": unmapped,
+        "conflated": conflated,
         "mapped": sorted(set(labels)),
     }
 
@@ -389,6 +406,21 @@ def print_report(results: list[dict[str, Any]], agg: dict[str, Any]) -> float:
     if agg["rank_top1_in_top3"] is not None:
         print(f"\n【排序】人工首選落在機器前三名: "
               f"{agg['rank_top1_in_top3']:.3f}（{agg['rank_total']} 個 case 有排序標記）")
+
+    # 詞彙表把人標成不同技能的東西當成同一個。這不是模型錯,但會讓
+    # precision 看起來像模型錯——保守合併(has 取小)會把「人標有」壓成
+    # 「人標沒有」,機器正確抓到就變成 FP。列出來讓讀數字的人知道。
+    conflated: dict[str, set[str]] = {}
+    for r in results:
+        for sid, names in (r.get("conflated") or {}).items():
+            conflated.setdefault(sid, set()).update(names)
+    if conflated:
+        print("\n  ⚠ 詞彙表把以下標記鍵當成同一個技能（人標時是分開的）")
+        for sid, names in sorted(conflated.items()):
+            print(f"      {sid} ← {'、'.join(sorted(names))}")
+        print("      → 合併時 has/wants 取小,所以人標「有」的那筆會被人標「沒有」的壓掉,")
+        print("        機器正確抓到反而算成 FP。這幾筆造成的 precision 損失不是模型錯誤,")
+        print("        是詞彙表的別名結構跟標記的粒度對不上。")
 
     unmapped = sorted({n for r in results for n in r.get("unmapped", [])})
     mapped = sorted({n for r in results for n in r.get("mapped", [])})

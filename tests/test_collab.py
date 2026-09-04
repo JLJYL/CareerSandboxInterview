@@ -1,135 +1,224 @@
-"""CollabObserver 驗收測試（成員 A，W2）。
+"""CollabObserver 的測試(成員 A,W3)。
 
-守三件事：契約符合性、禁用指標不被拿來計量、資訊不在場時回空而不近似。
+之前的驗證都是手動腳本,沒有進到 CI 會跑的測試,任何人改動
+`collab.py` 都沒有防護網。這支補上,尤其涵蓋兩類手動腳本才發現的情況：
+
+    浮動掃描邏輯    使用者連續發言時,參與主動性/傾聽與回應該不該
+                    因為斷句方式改變判斷(見 test_participation_floating_*)
+    引號邊界        標籤跟真正的發言文字之間要有「」當邊界,不然會讓
+                    B 的 verify_evidence 把老實的 LLM 判成編造引用
+                    (見 test_*_wraps_text_in_quotes)
+
+第二類是串到 `collab_score.score_collab` 才發現的問題,單獨測切片
+格式測不出來——這支測試把兩種都涵蓋,以後回歸不會被漏掉。
 """
 
 from __future__ import annotations
 
+import re
+
+import pytest
+
 from app.contracts.interview_protocols import (
     CollabObserver as CollabObserverProto,
-    Utterance,
 )
-from app.pipeline.collab import CollabObserver
+from app.contracts.interview_protocols import Utterance
+from app.pipeline.collab import CollabObserver, FakeCollabObserver
 from app.schemas.interview import COLLAB_DIM_NAMES
 
-ONLY_USER = [
-    Utterance("user", "我覺得應該先做市場調查因為不知道客群就沒辦法定價"),
-    Utterance("user", "對啊我同意"),
-]
+PARTICIPATION, RESPONSIVENESS, ARGUMENT, COLLABORATION = COLLAB_DIM_NAMES
 
-WITH_OTHERS = [
-    Utterance("AI-邏輯", "我覺得應該先看預算"),
-    Utterance("AI-強勢", "預算不是重點吧"),
-    Utterance("user", "我建議先釐清目標客群，因為不知道客群就沒辦法決定預算"),
-    Utterance("AI-親切", "有道理"),
-    Utterance("AI-邏輯", "那要怎麼做"),
-    Utterance("user", "可以分成兩個方向，第一是問卷，第二是訪談"),
-]
+_QUOTE = re.compile(r"「(.+?)」")
 
 
-# ---------------------------------------------------------------- 契約符合性
+def _by_name(slices, name):
+    return next(s for s in slices if s.name == name)
 
 
-def test_satisfies_protocol():
+# --------------------------------------------------------------------- 基本形狀
+
+def test_protocol_compliance():
+    """CollabObserver 必須滿足合約的 Protocol,否則 deps.py 不會選用它。"""
     assert isinstance(CollabObserver(), CollabObserverProto)
 
 
-def test_returns_four_signals_aligned_to_dim_names():
-    """回傳四筆、順序對齊 COLLAB_DIM_NAMES。
+def test_observe_returns_four_slices_in_dim_order():
+    obs = CollabObserver()
+    slices = obs.observe([Utterance("你", "測試", is_user=True)])
+    assert len(slices) == 4
+    assert [s.name for s in slices] == list(COLLAB_DIM_NAMES)
 
-    ★ 名字直接 import 常數而非在實作裡再寫一份字串。
-      合約只寫「name 必須是 COLLAB_DIM_NAMES 四個之一」但沒定義它,
-      定義在 app/schemas/interview.py。兩份字串各自維護就是
-      D1 那個「skill_id vs 顯示字串」的同款坑——對不上不會報錯,只會安靜失效。
+
+def test_empty_utterances_all_dims_empty():
+    obs = CollabObserver()
+    for s in obs.observe([]):
+        assert s.excerpts == []
+
+
+def test_fake_observer_shape_matches_real():
+    """Fake 的形狀要跟真實作一致,測試才能在兩者間自由替換。"""
+    fake_slices = FakeCollabObserver().observe([])
+    real_slices = CollabObserver().observe([])
+    assert [s.name for s in fake_slices] == [s.name for s in real_slices]
+
+
+# --------------------------------------------------------------- 只有使用者發言
+
+class TestOnlyUserSpeaks:
+    """沒有他人發言時,四維度該有的降級行為。"""
+
+    @pytest.fixture
+    def slices(self):
+        utts = [
+            Utterance("你", "我覺得應該先做市場調查", is_user=True),
+            Utterance("你", "因為不知道客群就沒辦法定價", is_user=True),
+        ]
+        return CollabObserver().observe(utts)
+
+    def test_participation_still_works(self, slices):
+        """參與主動性不需要他人在場,純看使用者自己的發言。"""
+        s = _by_name(slices, PARTICIPATION)
+        assert len(s.excerpts) == 2
+
+    def test_argument_still_works(self, slices):
+        """論點建構是唯一完全不需要他人發言就能算的維度。"""
+        s = _by_name(slices, ARGUMENT)
+        assert s.excerpts == ["我覺得應該先做市場調查", "因為不知道客群就沒辦法定價"]
+
+    def test_responsiveness_empty_with_reason(self, slices):
+        """沒有他人發言可比對——資訊不在場,不是難,不做近似。"""
+        s = _by_name(slices, RESPONSIVENESS)
+        assert s.excerpts == []
+        assert s.note  # 必須說明原因,不能是空字串
+
+    def test_collaboration_gets_user_only_transcript(self, slices):
+        """協作姿態一律拿到整段(這裡只有使用者),不是空的。"""
+        s = _by_name(slices, COLLABORATION)
+        assert len(s.excerpts) == 2
+
+
+# ------------------------------------------------------------- 浮動掃描邏輯
+
+class TestFloatingNearestOther:
+    """使用者把回應拆成連續多則時,不該因為斷句方式改變判斷。
+
+    這是跟 B 的 FakeCollabObserver(整場只判一次)刻意不同的地方,
+    也是這支測試要鎖住的行為,回歸了要能立刻抓到。
     """
-    got = CollabObserver().observe(WITH_OTHERS)
-    assert [s.name for s in got] == list(COLLAB_DIM_NAMES)
+
+    @pytest.fixture
+    def utts(self):
+        return [
+            Utterance("AI-邏輯", "我覺得應該先看預算", is_user=False),
+            Utterance("你", "我建議先看客群", is_user=True),
+            Utterance("你", "因為客群決定預算怎麼配", is_user=True),  # 連續第二則
+            Utterance("AI-親切", "有道理", is_user=False),
+            Utterance("你", "可以分兩個方向做", is_user=True),
+        ]
+
+    def test_second_consecutive_utterance_still_tagged_as_following(self, utts):
+        """第二則使用者發言前面是自己講的,但往前找最近他人仍然存在，
+        該標「接續他人之後」，不是「自己起頭」。"""
+        s = _by_name(CollabObserver().observe(utts), PARTICIPATION)
+        assert "[接續他人之後]" in s.excerpts[0]
+        assert "[接續他人之後]" in s.excerpts[1], (
+            "連續第二則不該因為斷句方式被標成自己起頭"
+        )
+
+    def test_both_consecutive_utterances_pair_with_same_other(self, utts):
+        """連續兩則使用者發言都該配對同一則他人發言，直到下一位他人出現。"""
+        s = _by_name(CollabObserver().observe(utts), RESPONSIVENESS)
+        assert len(s.excerpts) == 3
+        assert "我覺得應該先看預算" in s.excerpts[0]
+        assert "我覺得應該先看預算" in s.excerpts[1], (
+            "連續第二則應配對同一則他人發言，不是空手"
+        )
+        assert "有道理" in s.excerpts[2]
+
+    def test_first_utterance_with_no_prior_other_is_starting(self, utts):
+        """整場第一則使用者發言前面沒有任何他人，該標自己起頭。"""
+        only_user_first = [Utterance("你", "開場我先講", is_user=True)]
+        s = _by_name(CollabObserver().observe(only_user_first), PARTICIPATION)
+        assert "[自己起頭]" in s.excerpts[0]
 
 
-def test_level_is_always_none():
-    """level 由 B 的 LLM 對照 BARS 指派，A 一律不填。"""
-    for utts in (ONLY_USER, WITH_OTHERS, []):
-        assert all(s.level is None for s in CollabObserver().observe(utts))
+# ----------------------------------------------------------- 引號邊界(evidence 保護)
 
+class TestQuoteBoundaryForEvidenceSafety:
+    """標籤跟真正的話之間要有「」邊界。
 
-# ---------------------------------------------------------------- 禁用指標
-
-
-def test_utterance_count_is_marked_as_background_only():
-    """★ 發言次數只能當背景資訊，不能是計量訊號。
-
-    合約 COLLAB_PROHIBITED_INDICATORS 依 babble 假說禁用發言量指標，
-    但允許放進 signals 當背景。本實作用 bg_ 前綴讓那道界線在**資料裡**
-    看得見——只寫在 prompt 或註解裡的「不要依賴這個」是很弱的保護，
-    它是那堆數字裡最直觀的一個，LLM 會錨定上去。
+    B 的 verify_evidence 要求 LLM 回的 evidence 是逐字稿裡真的出現過的
+    子字串;prompt 又要求 LLM「引用逐字稿裡的話」。如果標籤跟話黏在一起
+    沒有邊界,誠實的 LLM 也可能把標籤一起引用進去,導致被誤判成編造。
+    這裡直接檢查:每一則帶標籤的切片,真正的發言文字都必須被「」包住,
+    且用正規表達式抓出來的內容要跟原始文字完全一致。
     """
-    sig = CollabObserver().observe(WITH_OTHERS)[0]
-    counts = [k for k in sig.signals if "count" in k and "connector" not in k]
-    assert counts, "發言次數應該仍被帶出來當背景"
-    assert all(k.startswith("bg_") for k in counts), \
-        f"發言量指標必須加 bg_ 前綴標示不參與評分：{counts}"
+
+    @pytest.fixture
+    def utts(self):
+        return [
+            Utterance("AI-邏輯", "我覺得應該先看預算", is_user=False),
+            Utterance("你", "我建議先看客群", is_user=True),
+        ]
+
+    def test_participation_excerpt_wraps_text_in_quotes(self, utts):
+        s = _by_name(CollabObserver().observe(utts), PARTICIPATION)
+        match = _QUOTE.search(s.excerpts[0])
+        assert match is not None, "參與主動性的發言文字必須用「」包住"
+        assert match.group(1) == "我建議先看客群"
+
+    def test_collaboration_excerpt_wraps_text_in_quotes(self, utts):
+        s = _by_name(CollabObserver().observe(utts), COLLABORATION)
+        for excerpt in s.excerpts:
+            match = _QUOTE.search(excerpt)
+            assert match is not None, f"協作姿態的每則發言都必須用「」包住:{excerpt!r}"
+
+    def test_responsiveness_excerpt_wraps_both_sides_in_quotes(self, utts):
+        s = _by_name(CollabObserver().observe(utts), RESPONSIVENESS)
+        quotes = _QUOTE.findall(s.excerpts[0])
+        assert len(quotes) == 2, "他人那句、使用者那句都要各自被「」包住"
+        assert quotes == ["我覺得應該先看預算", "我建議先看客群"]
 
 
-def test_participation_does_not_rank_by_volume():
-    """講得多不代表參與主動性訊號比較好。
+# --------------------------------------------------------------------- is_user
 
-    兩份逐字稿發言次數差三倍，但首次發言位置相同——
-    非背景訊號應該一致。
+def test_uses_is_user_not_speaker_id_string_match():
+    """前端送的 speaker_id 是「你」不是 "user"——絕對不能用字串比對。
+
+    這是曾經讓四個維度全部切錯、且不報錯的靈點失敗風險,鎖住不能回歸。
     """
-    o = CollabObserver()
-    few = [Utterance("AI", "先看預算"), Utterance("user", "我建議先釐清客群")]
-    many = few + [Utterance("user", f"補充第{i}點") for i in range(5)]
-    a = {k: v for k, v in o.observe(few)[0].signals.items() if not k.startswith("bg_")}
-    b = {k: v for k, v in o.observe(many)[0].signals.items() if not k.startswith("bg_")}
-    assert a["first_speak_position"] == b["first_speak_position"]
-    assert a["framing_in_first"] == b["framing_in_first"]
+    utts = [
+        Utterance("AI-邏輯", "我覺得應該先看預算", is_user=False),
+        Utterance("你", "我建議先看客群", is_user=True),  # speaker_id 是「你」
+    ]
+    slices = CollabObserver().observe(utts)
+    assert _by_name(slices, ARGUMENT).excerpts == ["我建議先看客群"], (
+        "若誤用 speaker_id == 'user' 判斷,這裡會是空的"
+    )
 
 
-def test_no_interruption_metric():
-    """打斷次數合約明確禁用：介面在 AI 發言時擋住輸入，結構上恆為 0。"""
-    for sig in CollabObserver().observe(WITH_OTHERS):
-        assert not any("interrupt" in k for k in sig.signals)
+# --------------------------------------------------------------------- 論點建構
+
+def test_argument_excerpts_are_independent_no_cross_reference():
+    """論點建構每則獨立,不應該把他人發言混進去。"""
+    utts = [
+        Utterance("AI-邏輯", "我覺得應該先看預算", is_user=False),
+        Utterance("你", "我建議先看客群", is_user=True),
+        Utterance("你", "因為客群決定預算", is_user=True),
+    ]
+    s = _by_name(CollabObserver().observe(utts), ARGUMENT)
+    assert s.excerpts == ["我建議先看客群", "因為客群決定預算"]
+    assert not any("預算" in e and "我建議" in e for e in s.excerpts if e != s.excerpts[1])
 
 
-# ---------------------------------------------------------------- 資訊不在場
+# --------------------------------------------------------------------- 空白文字
 
-
-def test_two_dims_empty_without_speaker_info():
-    """★ 沒有他人發言時，後兩項回空而不做近似。
-
-    可以想到的替代品（數「剛剛那位」「我同意」這類詞）測的是
-    「有沒有做出回應的姿態」，不是「有沒有接住論點」——
-    那會產出一個看起來合理、實際上量錯東西的數字，比沒有數字糟。
-    """
-    got = {s.name: s for s in CollabObserver().observe(ONLY_USER)}
-    assert got[COLLAB_DIM_NAMES[1]].signals == {}
-    assert got[COLLAB_DIM_NAMES[3]].signals == {}
-    assert "不可用" in got[COLLAB_DIM_NAMES[1]].evidence
-    assert "不可用" in got[COLLAB_DIM_NAMES[3]].evidence
-
-
-def test_computable_dims_work_without_speaker_info():
-    """相對地，前兩項不依賴他人發言，沒有發言者資料照樣算得出來。"""
-    got = {s.name: s for s in CollabObserver().observe(ONLY_USER)}
-    assert got[COLLAB_DIM_NAMES[0]].signals
-    assert got[COLLAB_DIM_NAMES[2]].signals
-
-
-def test_empty_input_does_not_raise():
-    """沒有任何發言是正常情況，不拋例外。"""
-    got = CollabObserver().observe([])
-    assert len(got) == 4
-    assert all(s.signals == {} for s in got)
-
-
-# ---------------------------------------------------------------- 論點建構
-
-
-def test_causal_rate_is_per_hundred_chars_not_per_utterance():
-    """密度用每百字而非每則發言——後者會讓話多的人分數高，那又繞回發言量。"""
-    o = CollabObserver()
-    short = [Utterance("user", "因為時間不夠所以先做問卷")]
-    padded = [Utterance("user", "因為時間不夠所以先做問卷" + "然後我們就開始執行了" * 5)]
-    a = o.observe(short)[2].signals["causal_connector_rate"]
-    b = o.observe(padded)[2].signals["causal_connector_rate"]
-    assert a > b, "同樣的因果連接詞被大量無關文字稀釋後，密度應下降"
+def test_blank_text_utterances_are_skipped():
+    """空字串或純空白的發言不該產出空切片。"""
+    utts = [
+        Utterance("你", "   ", is_user=True),
+        Utterance("你", "", is_user=True),
+        Utterance("你", "這則才算數", is_user=True),
+    ]
+    s = _by_name(CollabObserver().observe(utts), ARGUMENT)
+    assert s.excerpts == ["這則才算數"]

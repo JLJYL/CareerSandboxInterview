@@ -33,7 +33,7 @@ from typing import Any, Iterable
 
 from app.contracts.interview_protocols import GapCandidate, JDInput
 from app.pipeline.transcript import (
-    SurfaceIndex, TranscriptAnalyzer, extract_head, resolve_skill_id,
+    SurfaceIndex, TranscriptAnalyzer, extract_head, resolve_skill_id, fold_chars,
 )
 
 # ---------------------------------------------------------------- 參數
@@ -192,7 +192,7 @@ def collect_resume_skills(resume: list[dict], normalizer, index: SurfaceIndex,
                 prev.experience_ids.append(eid)
         if scan_prose:
             desc = _as_text(exp.get("description"))
-            for start, end, surface, sid_hint in index.scan(desc.lower()):
+            for start, end, surface, sid_hint in index.scan(fold_chars(desc)):
                 sid = _resolve(normalizer, index, surface) or sid_hint
                 if sid and sid not in out:
                     out[sid] = _Ev(sid, "prose", f"experiences[{eid}].description@{start}:{end}",
@@ -218,7 +218,7 @@ def collect_jd_skills(jd: JDInput, normalizer, index: SurfaceIndex) -> dict[str,
             out[sid] = _Ev(sid, "structured", f"required_skills[{i}]", text, w)
 
     desc = jd.description or ""
-    for start, end, surface, sid_hint in index.scan(desc.lower()):
+    for start, end, surface, sid_hint in index.scan(fold_chars(desc)):
         sid = _resolve(normalizer, index, surface) or sid_hint
         if not sid or sid in out:
             continue
@@ -384,7 +384,7 @@ def _resolve(normalizer: Any, index: SurfaceIndex, text: str) -> str | None:
     sid = resolve_skill_id(normalizer, text)
     if sid:
         return sid
-    hits = index.scan(text.lower())
+    hits = index.scan(fold_chars(text))
     return hits[0][3] if hits else None
 
 

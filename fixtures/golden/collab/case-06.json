@@ -1,0 +1,34 @@
+{
+  "case_id": "case-06",
+  "meta": {
+    "brief": "使用者全程沒發言,只有他人在講。",
+    "structure": "他人×4,使用者零則",
+    "source": "synthetic",
+    "rationale": "群面裡真的會發生——使用者被其他人蓋過去、或緊張到沒開口。三個只看使用者的維度應該回空並說明原因,而不是產出空切片讓 LLM 去評一個不存在的表現。協作姿態仍給整段,因為「這場討論使用者完全沒參與」本身就是 LLM 該看到的事實。"
+  },
+  "utterances": [
+    {"speaker": "主考官", "text": "題目是新產品的定價策略", "is_user": false},
+    {"speaker": "AI-邏輯", "text": "我覺得要看成本結構", "is_user": false},
+    {"speaker": "AI-強勢", "text": "成本不是重點 要看市場願意付多少", "is_user": false},
+    {"speaker": "AI-親切", "text": "兩個都要考慮吧", "is_user": false}
+  ],
+  "expected": {
+    "參與主動性": {
+      "count": 0,
+      "note_required": true
+    },
+    "傾聽與回應": {
+      "count": 0,
+      "note_required": true
+    },
+    "論點建構": {
+      "count": 0,
+      "note_required": true
+    },
+    "協作姿態": {
+      "count": 4,
+      "note": "整段仍給出——使用者完全沒參與是 LLM 該看到的事實"
+    }
+  },
+  "bars_labels": null
+}
