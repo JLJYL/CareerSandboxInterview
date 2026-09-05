@@ -39,6 +39,8 @@ W1/W2 的正規化器吃的是**離散技能字串**（JD 的 requiredSkills、�
 
 from __future__ import annotations
 
+import json
+import pathlib
 import re
 from collections import defaultdict
 from typing import Any, Iterable, Protocol, Sequence
@@ -389,6 +391,43 @@ def _entry_fields(entry: Any) -> tuple[str, str, list[str]]:
 #:             ★ 映射成半形空格而非移除——gap.py 用 scan() 回傳的位移去切
 #:               **原始** JD 文字當證據,折疊若改變字串長度,證據就會錯位。
 #:               嚴格等長是這張表的硬性約束,新增條目一律 1 字元對 1 字元。
+#: 繁體→簡體的字元層對照表路徑。
+#:
+#: 【為什麼需要】
+#: Whisper 對中文繁簡輸出**沒有一致保證**。怡君 2026-09-05 的實測報告:
+#: 同一位講者、同一支後端、同樣的呼叫方式,五段 App 錄音輸出繁體,
+#: 一段電腦錄音輸出簡體。原因未定(懷疑是收音鏈路差異),但不影響結論——
+#: 我們不能假設逐字稿一定是繁體。
+#:
+#: 【不修的後果:靜默的假指控】
+#: 詞彙表是繁體。逐字稿回簡體時,中文技能**全部**比對不到——實測 7 個測 7 個失敗。
+#: 而 gap = 履歷∩JD − 提及,提及變小,交集裡的技能就變成假指控。
+#: 拿黃金集實測(只把逐字稿轉簡體、其餘不動):假指控 7 → 10 筆。
+#: 不報錯,只是告訴使用者「你什麼都沒講到」。
+#:
+#: 【為什麼是繁→簡,不是簡→繁】
+#: 繁→簡是多對一,確定性的;簡→繁是一對多,要消歧義、會猜錯。
+#: 比對只需要兩邊落到同一個形,取確定性的那個方向。
+#: 產出給人看的文字一律用**原始**逐字稿(evidence 靠位移切原文),
+#: 所以這裡轉成簡體不會讓使用者看到簡體。
+T2S_CHARS_PATH = pathlib.Path(__file__).resolve().parents[2] / "data" / "t2s_chars.v1.json"
+
+
+def _load_t2s() -> dict[str, str]:
+    """讀繁簡字元對照。讀不到就回空 dict——降級但不擋啟動。
+
+    ★ 只收 1 字元對 1 字元的項目(建表時已過濾),因為 fold_chars 必須等長:
+      gap.py 用 scan() 的位移去切**原始**文字當證據,長度一變證據就錯位。
+    """
+    try:
+        raw = json.loads(T2S_CHARS_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return {k: v for k, v in raw.get("chars", {}).items() if len(k) == 1 == len(v)}
+
+
+_T2S_CHARS: dict[str, str] = _load_t2s()
+
 _LOOKALIKE_MAP: dict[str, str] = {
     "\u2571": "/",   # ╱ BOX DRAWINGS LIGHT DIAGONAL
     "\uff0f": "/",   # ／ FULLWIDTH SOLIDUS
@@ -429,7 +468,9 @@ def fold_chars(text: str) -> str:
             ch = chr(o - 0xFEE0)
         elif o == 0x3000:
             ch = " "
-        out.append(ch.lower())
+        # 繁→簡。放在最後:全形轉半形之後才輪到中文字元。
+        # 已經是簡體的字不在表裡,原樣通過(冪等)。
+        out.append(_T2S_CHARS.get(ch, ch).lower())
     return "".join(out)
 
 
@@ -462,6 +503,16 @@ def normalize_for_scan(raw: str) -> tuple[str, list[int]]:
             ch = chr(o - 0xFEE0)
         elif o == 0x3000:
             ch = " "
+        # ★ 這裡刻意**不做繁簡轉換**,那是 fold_chars / SurfaceIndex.scan 的事。
+        #
+        #   這支的輸出同時餵給兩條路。表面掃描走 scan(),它自己會折疊(含繁簡),
+        #   對得上折疊過的索引鍵。但**語意段拿的是這支的原始輸出**,而語意段的
+        #   詞彙表向量用的是未折疊的表面形——這裡若轉成簡體,視窗是簡體、
+        #   詞彙表是繁體,相似度就被字形差異污染了。
+        #
+        #   ☆ 語意段兩側都折疊會更一致,但那會改變送進 bge-m3 的文字,
+        #     相似度分布跟著變,而 MENTION_THRESHOLD=0.45 是在現有向量上
+        #     校準出來的。等下一輪重新校準時再一起處理,不要現在動。
         chars.append(ch.lower())
         idx.append(i)
 
@@ -602,7 +653,21 @@ class SurfaceIndex:
         return index
 
     def scan(self, text: str) -> list[tuple[int, int, str, str]]:
-        """→ [(start, end, surface, skill_id), ...]，位移是 text 上的。"""
+        """→ [(start, end, surface, skill_id), ...]，位移是 text 上的。
+
+        ★ 折疊在這裡做,不在呼叫端。索引鍵是折疊過的(全形→半形、
+          相似字元正規化、繁→簡),掃描文字若沒折疊就永遠對不上,
+          而且不報錯——只是什麼都掃不到。
+
+          之前把折疊放在呼叫端,結果 tests/test_interview_w1.py 直接
+          呼叫 scan() 時漏掉,整個索引靜默失效。責任放在這裡,
+          呼叫端就不可能忘。
+
+        ★★ fold_chars 嚴格等長,所以回傳的位移在**原始** text 上也成立,
+          呼叫端可以直接拿去切原文當證據。等長是這個設計的前提,
+          _LOOKALIKE_MAP 與繁簡表新增條目時一律 1 字元對 1 字元。
+        """
+        text = fold_chars(text)
         hits: list[tuple[int, int, str, str]] = []
         i, n = 0, len(text)
         while i < n:
