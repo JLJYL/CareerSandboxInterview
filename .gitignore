@@ -46,8 +46,13 @@ data/vocab_golden_standin.json
 data/skills_v1*.json
 data/skills_v2.json
 
-# app/api/
-# app/main.py
+# 下面兩行曾經誤擋這個 repo 自己的檔案,已解除:
+#   app/api/     擋掉三個端點檔案,commit 訊息寫了但檔案沒進去
+#   app/main.py  擋掉 FastAPI 進入點,症狀是「lifespan 沒有跑到」,
+#                錯誤訊息指向 deps.py,不會有人聯想到是版控問題
+# 這一段的原意是防 CareerSandboxModule 的複本被提交,那個目的仍然有效,
+# 但加新路徑之前先確認它不是這個 repo 自己的檔案。
+# tests/test_api.py::test_app_main_is_tracked_by_git 會擋下同樣的錯誤。
 app/config.py
 app/prompts/customize.py
 app/prompts/extraction.py
