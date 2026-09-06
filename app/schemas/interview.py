@@ -603,6 +603,22 @@ class CollabDimDTO(_Base):
     score: int = Field(ge=0, le=100)
     hint: str = ""
 
+    evidence: str = ""
+    """支持這個等第的逐字稿原句。
+
+    【為什麼要這一欄】
+    協作是唯一零量化錨點的評分——rubric 明文禁用發言次數、字數、
+    時間佔比、首次發言早晚、發言長度,四個維度全靠語意判斷。
+
+    沒有 evidence 就沒有辦法檢查這個等第是根據什麼給的,
+    也沒有辦法用 starParts 那種機械檢查驗證它不是編的。
+
+    必須是逐字稿裡真的出現過的字串。找不到對應的句子時留空,
+    不要湊一句——那跟 starParts.fromAnswer 是同一條規則。
+
+    前端的 CollabDim 沒有這一欄,所以它不會顯示在畫面上,
+    只用於驗收與 notices。"""
+
 
 class MissingPointDTO(_Base):
     """一個漏講加分點。鏡射 MissingPoint(A5)。"""

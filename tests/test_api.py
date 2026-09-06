@@ -223,11 +223,9 @@ def test_group_report_has_no_collab_without_rubric(client) -> None:
             {"speaker": "AI-邏輯", "content": "母數是多少", "isUser": False},
         ],
     }).json()
+    # fake_llm 不認得協作 prompt,四個維度都會回空 dict → 全部未評分
     assert d["collabDims"] == []
-    # rubric 未到位時要說明原因,不能只是靜靜地不顯示
-    assert any("rubric" in n or "協作評分尚未啟用" in n for n in d["notices"])
-    assert any("協作訊號已抽取" in n for n in d["notices"]), \
-        "訊號有抽,只是還不能指派等第——這兩件事要分得出來"
+    assert any("協作" in n for n in d["notices"]), "未評分要說明原因,不能靜靜地不顯示"
 
 
 def test_report_rejects_empty_turns(client) -> None:
@@ -314,3 +312,73 @@ def test_mode_rejects_unknown_value(client) -> None:
         "answer": "x", "followUpIdx": 0, "mode": "video",
     })
     assert r.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# 協作評分:逐維度分開評
+# ---------------------------------------------------------------------------
+
+
+def test_collab_scored_per_dimension(client, monkeypatch) -> None:
+    """一次評四維的維度間相關 r̄ ≈ .86–.92,分開評掉到 .26–.35。
+
+    這裡驗四次獨立呼叫,每次只帶一個維度。
+    """
+    seen = []
+
+    def spy(system: str, user: str) -> str:
+        if "這個維度評分" in system:
+            seen.append(system)
+            return json.dumps({"level": 3, "evidence": "我覺得先做客群分析",
+                               "hint": "開場就先表態,搶到定錨位置"}, ensure_ascii=False)
+        return fake_llm(system, user)
+
+    import app.api.routes as routes
+    monkeypatch.setattr(routes, "get_llm", lambda: spy)
+
+    d = client.post("/interviews/itv_x/report", json={
+        "mode": "group", "context": CTX,
+        "turns": [{"question": "q", "answer": "我覺得先做市場調查"}],
+        "groupSays": [
+            {"speaker": "AI-邏輯", "content": "母數是多少", "isUser": False},
+            {"speaker": "user", "content": "我覺得先做客群分析", "isUser": True},
+        ],
+    }).json()
+
+    assert len(seen) == 4, "四個維度要分開呼叫,不是一次評完"
+    names = [n for n in ("參與主動性", "傾聽與回應", "論點建構", "協作姿態")
+             if any(n in s for s in seen)]
+    assert len(names) == 4, "每次呼叫只帶一個維度"
+    assert d["collabDims"], "評出來的維度要進報告"
+
+
+def test_collab_evidence_must_be_verbatim() -> None:
+    """協作是零量化錨點的評分,沒有原文檢查就無法驗證等第不是編的。
+
+    跟 starParts.fromAnswer 同一條規則、同一種檢查。
+    """
+    from app.pipeline.collab_score import verify_evidence
+    from app.schemas.interview import CollabDimDTO
+
+    transcript = "我覺得先做客群分析\n那樣不行啦 還是要先調查"
+    real = CollabDimDTO(name="論點建構", score=76, evidence="我覺得先做客群分析")
+    fake = CollabDimDTO(name="參與主動性", score=88, evidence="我在台積電帶過十人團隊")
+
+    assert verify_evidence([real], transcript) == []
+    assert len(verify_evidence([fake], transcript)) == 1
+    assert verify_evidence([CollabDimDTO(name="x", score=76)], transcript) == [], \
+        "找不到對應句子時留空是對的,不該被當成違規"
+
+
+def test_collab_stance_bars_marks_negation() -> None:
+    """等第 2 與 3 的界線是有沒有否定的語言,不是後面有沒有接理由。
+
+    實測:「那樣不行啦 還是要先調查」被判成 3——
+    那句話是等第 2 的教科書範例。
+    """
+    from app.prompts.collab_rubric import BARS
+
+    stance = BARS["協作姿態"]
+    assert "那樣不行" in stance, "要給出否定詞的具體標記"
+    assert "即使後面接了理由" in stance
+    assert "以否定詞開頭 → 2" in stance, "要給一個可以照著做的判斷步驟"

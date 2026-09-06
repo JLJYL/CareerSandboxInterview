@@ -42,9 +42,9 @@ from app.contracts.interview_protocols import JDInput, Utterance
 from app.pipeline.interview_live import next_turn, start_interview
 from app.pipeline.interview_report import generate_report
 from app.pipeline.jd_extract import extract_jd
+from app.pipeline.collab_score import score_collab
 from app.pipeline.missing_points import generate_missing_points
 from app.schemas.interview import (
-    CollabDimDTO,
     ReportRequest,
     ReportResponse,
     StartInterviewRequest,
@@ -183,16 +183,19 @@ async def create_report(req: ReportRequest, session_id: str = SESSION_ID) -> Rep
     report.missing_points = points
     report.notices = list(report.notices) + jd_notices + mp_notices
 
-    # 協作訊號:僅群面。目前只抽可觀察值,等第等後端組的 BARS rubric。
-    # level 全是 None 時 repair_report 會清空 collab_dims 並記入 notices,
-    # 前端不顯示協作區塊——那比補四個 0 分好,0 分會讓使用者以為自己拿了零分。
+    # 協作維度:僅群面。A 切片,B 的 LLM 逐維度對照 BARS 評。
+    #
+    # 四次獨立呼叫不是浪費。rubric 第八節第 2 點實測:一次讀完整段吐四個分數,
+    # 維度間相關 r̄ ≈ .86–.92——那個相關高到四個分數等於同一個分數。
+    # 分開評掉到 .26–.35,接近人類評審的 .34。
     if req.mode == "group" and req.group_says:
         try:
-            signals = get_collab().observe(
+            slices = get_collab().observe(
                 [
                     Utterance(
                         speaker_id=u.speaker,
                         text=u.content,
+                        is_user=u.is_user,
                         start_ms=u.start_ms or (u.segment_starts_ms[0] if u.segment_starts_ms else 0),
                         end_ms=u.end_ms,
                     )
@@ -200,19 +203,16 @@ async def create_report(req: ReportRequest, session_id: str = SESSION_ID) -> Rep
                 ]
             )
         except Exception as exc:  # noqa: BLE001
-            log.warning("協作訊號抽取失敗: %s", exc)
-            report.notices.append(f"協作訊號抽取失敗({type(exc).__name__}),本次不顯示協作區塊")
+            log.warning("協作切片失敗: %s", exc)
+            report.notices.append(
+                f"協作切片失敗({type(exc).__name__}),本次不顯示協作區塊"
+            )
         else:
-            scored = [s for s in signals if s.level is not None]
-            if scored:
-                report.collab_dims = [
-                    CollabDimDTO(name=s.name, score=int(s.level), hint=s.evidence)
-                    for s in scored
-                ]
-            else:
-                report.notices.append(
-                    f"協作訊號已抽取({len(signals)} 項),但 BARS rubric 尚未到位,無法指派等第"
-                )
+            dims, collab_notices = await score_collab(
+                slices, get_llm(), "\n".join(u.content for u in req.group_says)
+            )
+            report.collab_dims = dims
+            report.notices += collab_notices
 
     # 這一行必須在最後:repair_report 會在 resume_grounded=False 時清空
     # missing_points,而上面才剛把它填進去。
