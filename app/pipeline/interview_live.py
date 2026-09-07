@@ -492,6 +492,7 @@ async def next_turn(
                 mode, list(asked_questions),
                 group_interviewers=gi, group_size=gs, focus_speaker=focus,
                 truncated=ended_by == "timeout",
+                engine=context.transcription_engine if context else "api",
                 difficulty=context.difficulty if context else "中等",
                 group_role=context.group_role if context else "一般應徵者",
             ),

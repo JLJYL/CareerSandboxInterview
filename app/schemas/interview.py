@@ -195,6 +195,28 @@ class InterviewContext(_Base):
     """
 
     round: str = "初試"  # 初試 / 複試 / 主管面
+    transcription_engine: str = "api"
+    """逐字稿是怎麼產生的:"api"(雲端轉錄)/ "device"(裝置端即時辨識)。
+
+    【為什麼要知道】
+    兩種引擎的失真方式相反,而 prompt 要據此改變行為:
+
+        device  會漏字、沒標點、保留詞彙型填充詞
+                → 追問時要假設「沒講到可能是被吃掉的」
+        api     不漏字、有標點、填充詞被模型清掉
+                → 可以相信「沒講到就是真的沒講」,追問才追得下去
+
+    寫成同一段說明會讓模型做錯事:告訴它「填充詞保留」而逐字稿一個都沒有,
+    它會推論使用者講話很流暢——那是把「模型清掉了」誤讀成「使用者沒講」。
+
+    【預設 api】
+    前端已於 2026-09 改用 MediaRecorder + Whisper,舊的 SpeechRecognizer
+    整支移除。預設值跟著現況走,舊資料(黃金測試集那六段)要明確傳 "device"。
+
+    填充詞可不可用不由這一欄決定,那由 TextStats.filler_reliability 決定——
+    這一欄影響的是 prompt 的措辭,不是計分。
+    """
+
     language: str = "中文"  # 中文 / English
     type: str = "行為"  # 行為 / 技術 / 情境
     difficulty: str = "中等"  # 新手 / 中等 / 困難

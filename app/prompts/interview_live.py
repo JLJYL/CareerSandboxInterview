@@ -30,16 +30,38 @@ LIVE_COMMON = """通用規則:
 4. 對象是正在練習的學生。可以嚴格,不要刻薄。"""
 
 
-STT_CAVEAT_LIVE = """關於你讀到的回答:
+STT_CAVEAT_LIVE_DEVICE = """關於你讀到的回答:
 
-那是 Android 語音辨識的輸出,沒有標點,英文技術詞常被轉錯
-(JavaScript 可能寫成「加巴screen」,Git 可能寫成「gats」)。
+那是裝置端語音辨識的輸出,沒有標點,英文技術詞常被轉錯
+(JavaScript 可能寫成「加巴screen」,Git 可能寫成「gats」),
+而且**可能漏掉整段**——引擎重啟的空窗期會吃掉內容。
 
 所以:
     不要因為用詞奇怪就追問「你是什麼意思」——那可能是辨識錯誤。
     看不懂的詞,從上下文推測它想講什麼,推不出來就跳過那個詞,
     針對他講得清楚的部分追問。
     絕對不要評論他的發音、用字或表達方式。"""
+
+
+STT_CAVEAT_LIVE_API = """關於你讀到的回答:
+
+那是雲端轉錄的輸出,整段一次轉完,**內容是完整的**,有標點。
+填充詞已經被模型清掉了,所以你看不到「嗯」「那個」——那不代表他沒講。
+
+所以:
+    可以相信內容的完整性。他沒講到的東西就是真的沒講,不是被吃掉。
+    英文技術詞仍可能轉錯,看不懂就從上下文推測。
+    絕對不要評論他的發音、用字或表達方式,也不要評論他講得流不流暢——
+    那件事在這份逐字稿裡看不出來。"""
+
+
+def stt_caveat_live(engine: str) -> str:
+    """依轉錄引擎給出對應的說明。
+
+    這一段直接影響追問的行為:裝置端要假設「沒講到可能是被吃掉的」,
+    雲端則可以相信「沒講到就是真的沒講」——後者才追得下去。
+    """
+    return STT_CAVEAT_LIVE_API if engine == "api" else STT_CAVEAT_LIVE_DEVICE
 
 
 DIFFICULTY_TRIGGERS: dict[str, str] = {
@@ -382,7 +404,7 @@ def compose_turn_prompt(
     mode: str, asked_questions: list[str], *,
     group_interviewers: int = 1, group_size: int = 4,
     difficulty: str = "中等", group_role: str = "一般應徵者",
-    focus_speaker: str = "", truncated: bool = False,
+    focus_speaker: str = "", truncated: bool = False, engine: str = "device",
 ) -> str:
     """每輪追問的 system prompt。
 
@@ -392,7 +414,7 @@ def compose_turn_prompt(
     parts = [
         "你的工作是在一場模擬面試裡,聽完對方的回答之後接話。",
         LIVE_COMMON,
-        STT_CAVEAT_LIVE,
+        stt_caveat_live(engine),
         _persona_block(personas_for(mode, group_interviewers, group_size), focus_speaker),
         difficulty_triggers(difficulty),
     ]

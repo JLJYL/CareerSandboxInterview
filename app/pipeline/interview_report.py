@@ -280,9 +280,11 @@ def truncated_turns(turns: Sequence[TurnDTO]) -> list[int]:
 # ---------------------------------------------------------------------------
 
 
-async def gen_face(llm: LLMCall, transcript: str, stats_text: str) -> list[FaceDimensionDTO]:
+async def gen_face(
+    llm: LLMCall, transcript: str, stats_text: str, engine: str = "api"
+) -> list[FaceDimensionDTO]:
     raw = await asyncio.to_thread(
-        llm, compose_face_prompt(), f"【逐字稿】\n{transcript}\n\n【逐字稿統計】\n{stats_text}"
+        llm, compose_face_prompt(engine), f"【逐字稿】\n{transcript}\n\n【逐字稿統計】\n{stats_text}"
     )
     out = []
     by_letter = {ltr: name for ltr, name in FACE_DIMENSIONS}
@@ -308,11 +310,13 @@ async def gen_face(llm: LLMCall, transcript: str, stats_text: str) -> list[FaceD
     return out
 
 
-async def gen_sub_scores(llm: LLMCall, transcript: str, stats_text: str) -> list[SubScoreDTO]:
+async def gen_sub_scores(
+    llm: LLMCall, transcript: str, stats_text: str, engine: str = "api"
+) -> list[SubScoreDTO]:
     """五項。表達流暢度不在這裡,由 score_fluency() 算。"""
     raw = await asyncio.to_thread(
         llm,
-        compose_sub_score_prompt(),
+        compose_sub_score_prompt(engine),
         f"【逐字稿】\n{transcript}\n\n【逐字稿統計】\n{stats_text}",
     )
     out = []
@@ -328,7 +332,7 @@ async def gen_sub_scores(llm: LLMCall, transcript: str, stats_text: str) -> list
 
 
 async def gen_question_feedbacks(
-    llm: LLMCall, turns: Sequence[TurnDTO]
+    llm: LLMCall, turns: Sequence[TurnDTO], engine: str = "api"
 ) -> tuple[list[QuestionFeedbackDTO], list[str]]:
     """逐題點評。better 只能重組回答,不吃履歷。
 
@@ -339,7 +343,7 @@ async def gen_question_feedbacks(
     body = ["【逐題內容】"]
     for i, t in enumerate(turns, 1):
         body += [f"{i}. 題目:{t.question}", f"   回答:{t.answer}"]
-    raw = await asyncio.to_thread(llm, compose_question_prompt(), "\n".join(body))
+    raw = await asyncio.to_thread(llm, compose_question_prompt(engine), "\n".join(body))
     by_id = {}
     for item in parse_array(raw):
         if not isinstance(item, dict):
@@ -371,10 +375,12 @@ async def gen_question_feedbacks(
 
 
 async def gen_star_parts(
-    llm: LLMCall, transcript: str, has_truncated: bool = False
+    llm: LLMCall, transcript: str, has_truncated: bool = False, engine: str = "api"
 ) -> list[StarPartDTO]:
     raw = await asyncio.to_thread(
-        llm, compose_star_prompt(has_truncated=has_truncated), f"【逐字稿】\n{transcript}"
+        llm,
+        compose_star_prompt(has_truncated=has_truncated, engine=engine),
+        f"【逐字稿】\n{transcript}",
     )
     names = dict(STAR_PARTS)
     out = []
@@ -448,6 +454,7 @@ async def generate_report(
     resume_text: str,
     resume_grounded: bool,
     llm: LLMCall,
+    engine: str = "api",
     llm_verbatim: LLMCall | None = None,
 ) -> ReportResponse:
     """產出報告。四個區塊並行,任一失敗不影響其他。
@@ -465,10 +472,10 @@ async def generate_report(
 
     results, notices = await gather_blocks(
         {
-            "face": gen_face(llm, transcript, stats_text),
-            "subs": gen_sub_scores(llm, transcript, stats_text),
-            "questions": gen_question_feedbacks(llm, turns),
-            "star": gen_star_parts(star_llm, transcript, bool(cut)),
+            "face": gen_face(llm, transcript, stats_text, engine),
+            "subs": gen_sub_scores(llm, transcript, stats_text, engine),
+            "questions": gen_question_feedbacks(llm, turns, engine),
+            "star": gen_star_parts(star_llm, transcript, bool(cut), engine),
         }
     )
 
