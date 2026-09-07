@@ -37,6 +37,9 @@ LLMCall = Callable[[str, str], str]
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 VOCAB_PATH = pathlib.Path(os.getenv("VOCAB_PATH", ROOT / "fixtures" / "vocab" / "skills_v1.json"))
+STT_ALIASES_PATH = pathlib.Path(
+    os.getenv("STT_ALIASES_PATH", ROOT / "data" / "stt_confusions.v1.json")
+)
 
 # 啟動時建立,請求期間共用。由 lifespan 填入。
 _analyzer: Any | None = None
@@ -47,6 +50,26 @@ _collab: Any | None = None
 def load_vocab() -> list:
     raw = json.loads(VOCAB_PATH.read_text(encoding="utf-8"))
     return raw.get("skills", raw) if isinstance(raw, dict) else raw
+
+
+def load_stt_aliases() -> dict[str, str]:
+    """讀 STT_TERM_PROBE 的安全別名表。
+
+    只回傳 ``safe_aliases``——碰撞別名(colliding_aliases)不能無條件套用,
+    要靠履歷做條件判定,見 GapComputer.resolve_confusions,不在這裡處理。
+
+    檔案是照 Android 內建語音辨識實測的(見檔案 device 欄位)。改接 Whisper
+    API 後轉寫形會不同,這張表屆時要整份換掉,但讀取路徑不必再動——
+    新表就位後直接覆蓋 STT_ALIASES_PATH 指向的檔案即可。
+
+    找不到檔案時回空 dict 並靜默降級,不擋啟動:沒有別名表只是
+    退回掃全詞彙表比對,不是致命錯誤。
+    """
+    try:
+        raw = json.loads(STT_ALIASES_PATH.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    return dict(raw.get("safe_aliases", {}))
 
 
 def build_components() -> tuple[Any, Any, Any]:
@@ -64,6 +87,7 @@ def build_components() -> tuple[Any, Any, Any]:
         load_vocab(),
         enable_semantic=os.getenv("ENABLE_SEMANTIC", "0") == "1",
         engine_filler_policy="partial",
+        stt_aliases=load_stt_aliases(),
     )
     gap = GapComputer(analyzer)
 

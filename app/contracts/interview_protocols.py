@@ -317,6 +317,29 @@ class Utterance:
 
     text: str
 
+    is_interviewer: bool = False
+    """這句是不是面試官(主持人)講的。
+
+    三種身分:使用者(is_user)、面試官(is_interviewer)、同儕競爭者(兩者皆否)。
+
+    【為什麼要分開面試官與同儕】
+    主考官宣布題目不是在提論點。把它拿去配對「傾聽與回應」,
+    使用者的開場發言會被評成 level 1(完全沒有回應前一位)——
+    那不是傾聽失敗,那是開場。
+
+    「參與主動性」同理:使用者在主考官出題之後第一個開口,
+    行為上是起頭,不是接續。
+
+    【值從哪裡來】
+    routes.py 依 speaker 查 personas_for() 的 role 欄位推導,不需要前端送。
+    那份 persona 註冊表就是定義顯示名稱的地方——改名會同時改到兩邊,
+    所以這不是「用會變的字串判斷身分」,是查它自己的定義。
+
+    查不到的名稱視為同儕(is_interviewer=False)。那是保守的方向:
+    誤判成同儕只是回到加這一欄之前的行為,誤判成面試官會讓
+    真正的同儕發言從配對裡消失。
+    """
+
     is_user: bool = False
     """這句是不是使用者本人講的。
 
@@ -583,37 +606,67 @@ class FakeCollabObserver:
 
     def observe(self, utterances: list[Utterance]) -> list[CollabSlice]:
         mine = [u for u in utterances if u.is_user]
-        others = [u for u in utterances if not u.is_user]
+        # 只跟同儕配對。面試官宣布題目不是在提論點,
+        # 拿它配對會讓使用者的開場發言被評成「完全沒有回應前一位」。
+        peers = [u for u in utterances if not u.is_user and not u.is_interviewer]
 
-        # 傾聽與回應:使用者發言 ＋ 緊鄰的前一則他人發言
+        # 傾聽與回應:使用者發言 ＋ 最近一則**同儕**發言,成對。
+        # 用浮動視窗不是嚴格相鄰:使用者連續講兩則,兩則都配對同一位同儕。
         pairs: list[str] = []
-        prev_other: Utterance | None = None
+        seen_peer: Utterance | None = None
+        first_user_after_peer = False
         for u in utterances:
             if u.is_user:
-                if prev_other is not None:
-                    pairs.append(f"[{prev_other.speaker_id}] {prev_other.text}\n[你] {u.text}")
-            else:
-                prev_other = u
+                if seen_peer is not None:
+                    pairs.append(
+                        f"他人({seen_peer.speaker_id})「{seen_peer.text}」\n"
+                        f"你「{u.text}」"
+                    )
+                    first_user_after_peer = True
+            elif not u.is_interviewer:
+                seen_peer = u
+
+        # 參與主動性:接續/起頭同樣看最近一則同儕,不是任何非使用者。
+        marks: list[str] = []
+        seen_peer = None
+        for u in utterances:
+            if u.is_user:
+                tag = "接續他人之後" if seen_peer is not None else "自己起頭"
+                marks.append(f"[{tag}]「{u.text}」")
+            elif not u.is_interviewer:
+                seen_peer = u
 
         return [
             CollabSlice(
                 "參與主動性",
-                [f"[{'接續' if others else '起頭'}] {u.text}" for u in mine],
-                "每則發言標了它是接在他人之後還是自己起頭。不含發言次數。",
+                marks,
+                "方括號是接續/起頭的標記,「」裡面才是逐字稿原文,引用時只取「」裡面的內容。"
+                "標記只是脈絡,不是評分依據——接續也可以是主動推進。"
+                "面試官出題不算「他人」,使用者在出題後第一個開口仍是起頭。",
             ),
             CollabSlice(
                 "傾聽與回應",
                 pairs,
-                "" if pairs else "輸入只有使用者發言,無法配對前一則他人發言,此維度不可評",
+                ""
+                if pairs
+                else (
+                    "沒有同儕發言,無法配對,此維度不可評"
+                    if not peers
+                    else "有同儕發言但使用者沒有接在後面,此維度不可評"
+                ),
             ),
             CollabSlice(
                 "論點建構",
-                [u.text for u in mine],
-                "單則獨立,rubric 明訂看一段發言內部的理由與結論結構。",
+                [f"「{u.text}」" for u in mine],
+                "單則獨立,rubric 明訂看一段發言內部的理由與結論結構。「」裡面是原文。",
             ),
             CollabSlice(
                 "協作姿態",
-                [f"[{u.speaker_id}] {u.text}" for u in utterances],
-                "未切片,整段給出——立場衝突可能出現在任何地方,切片會漏掉。",
+                [
+                    f"[{'你' if u.is_user else u.speaker_id}]「{u.text}」"
+                    for u in utterances
+                ],
+                "未切片,整段給出——立場衝突可能出現在任何地方,切片會漏掉。"
+                "方括號是講者,「」裡面才是原文,引用時只取「」裡面的內容。",
             ),
         ]
