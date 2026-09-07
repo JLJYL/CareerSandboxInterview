@@ -222,3 +222,88 @@ def test_blank_text_utterances_are_skipped():
     ]
     s = _by_name(CollabObserver().observe(utts), ARGUMENT)
     assert s.excerpts == ["這則才算數"]
+
+
+# ------------------------------------------------------------- 面試官排除
+
+class TestInterviewerExcludedFromPairing:
+    """面試官是第三種身分,不是同儕。
+
+    主考官宣布題目不是在提論點。早期版本只分 is_user / 非 is_user,
+    導致使用者的開場被配對成「回應主考官」,BARS 評成 level 1——
+    那不是傾聽失敗,那是開場。參與主動性同理。
+    """
+
+    @pytest.fixture
+    def utts(self):
+        return [
+            Utterance("主考官", "題目是會員制度", is_user=False, is_interviewer=True),
+            Utterance("你", "我覺得先做客群分析", is_user=True),
+            Utterance("AI-邏輯", "母數是多少", is_user=False),
+            Utterance("你", "樣本低於三十就不採用", is_user=True),
+        ]
+
+    def test_opening_after_interviewer_is_self_initiated(self, utts):
+        """主考官出題之後第一個開口,是起頭不是接續。"""
+        s = _by_name(CollabObserver().observe(utts), PARTICIPATION)
+        assert "[自己起頭]" in s.excerpts[0], (
+            f"主考官出題不該算他人接續,實際:{s.excerpts[0]!r}"
+        )
+        assert "[接續他人之後]" in s.excerpts[1]
+
+    def test_interviewer_not_paired_in_responsiveness(self, utts):
+        """傾聽與回應只配同儕,主考官不入列。"""
+        s = _by_name(CollabObserver().observe(utts), RESPONSIVENESS)
+        assert len(s.excerpts) == 1, f"預期只有一對,實得 {len(s.excerpts)}"
+        assert "AI-邏輯" in s.excerpts[0]
+        assert "主考官" not in s.excerpts[0]
+
+    def test_interviewer_midway_does_not_reset_pairing(self, utts):
+        """主考官中途追問,不該讓使用者跟前一位同儕的對應消失。
+
+        實測主考官在「使用者說不會」時會再開口,那時候使用者
+        接下來講的話仍然是在回應前面那位同儕。
+        """
+        with_midway = [
+            Utterance("AI-邏輯", "母數是多少", is_user=False),
+            Utterance("主考官", "可以再說清楚一點嗎", is_user=False, is_interviewer=True),
+            Utterance("你", "樣本低於三十就不採用", is_user=True),
+        ]
+        s = _by_name(CollabObserver().observe(with_midway), RESPONSIVENESS)
+        assert len(s.excerpts) == 1
+        assert "AI-邏輯" in s.excerpts[0], "主考官插話後配對對象不該被清掉"
+
+    def test_collaboration_labels_identity(self, utts):
+        """協作姿態不排除面試官,但要標明身分——
+        反駁主考官跟反駁同儕在這個維度上不是同一回事。"""
+        s = _by_name(CollabObserver().observe(utts), COLLABORATION)
+        joined = "\n".join(s.excerpts)
+        assert "面試官（主考官）" in joined
+        assert "同儕（AI-邏輯）" in joined
+
+
+class TestEmptyResponsivenessCause:
+    """空切片的兩種成因要分開講。"""
+
+    def test_no_peer_says_information_absent(self):
+        """整場沒有同儕 → 資訊不在場,應未評分。"""
+        utts = [
+            Utterance("主考官", "題目是會員制度", is_user=False, is_interviewer=True),
+            Utterance("你", "我覺得先做客群分析", is_user=True),
+        ]
+        s = _by_name(CollabObserver().observe(utts), RESPONSIVENESS)
+        assert not s.excerpts
+        assert "不予評分" in s.note or "資訊不在場" in s.note
+
+    def test_peer_ignored_says_it_is_a_behaviour(self):
+        """有同儕但使用者從不接 → 這是行為,不是資訊缺失,應低分。"""
+        utts = [
+            Utterance("你", "我覺得先做客群分析", is_user=True),
+            Utterance("AI-強勢", "客群不是重點吧", is_user=False),
+            Utterance("AI-邏輯", "那要看什麼", is_user=False),
+        ]
+        s = _by_name(CollabObserver().observe(utts), RESPONSIVENESS)
+        assert not s.excerpts
+        assert "不予評分" not in s.note and "資訊不在場" not in s.note, (
+            f"有同儕發言卻說成資訊不在場:{s.note!r}"
+        )

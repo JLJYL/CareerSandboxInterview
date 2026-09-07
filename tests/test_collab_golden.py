@@ -54,7 +54,12 @@ CASE_IDS = [c["case_id"] for c in CASES]
 
 def _to_utterances(raw: list[dict]) -> list[Utterance]:
     return [
-        Utterance(speaker_id=u["speaker"], text=u["text"], is_user=u["is_user"])
+        Utterance(
+            speaker_id=u["speaker"],
+            text=u["text"],
+            is_user=u["is_user"],
+            is_interviewer=u.get("is_interviewer", False),
+        )
         for u in raw
     ]
 
@@ -196,3 +201,59 @@ def test_known_issue_cases_document_the_fix_condition():
             continue
         for key in ("summary", "root_cause", "impact", "when_fixed"):
             assert issue.get(key), f"{case['case_id']} 的 known_issue 缺少 {key}"
+
+
+@pytest.mark.parametrize("case", CASES, ids=CASE_IDS)
+def test_empty_responsiveness_note_distinguishes_cause(case, observer):
+    """「傾聽與回應」空切片時,note 要說得出是哪一種成因。
+
+        沒有同儕發言                資訊不在場 → 應未評分
+        有同儕發言但使用者沒接在後面  他忽略了同儕 → 這本身是發現,應低分
+
+    兩種都寫「無法評分」的話,LLM 分不出來,第二種會被當成資訊缺失
+    而放過——但那正是這個維度要抓的行為。
+    """
+    exp = case["expected"].get(COLLAB_DIM_NAMES[1], {})
+    if not exp.get("note_must_not_say_unavailable"):
+        return
+    sl = _by_name(observer.observe(_to_utterances(case["utterances"])),
+                  COLLAB_DIM_NAMES[1])
+    assert not sl.excerpts, f"{case['case_id']} 預期是空切片"
+    assert "不予評分" not in sl.note and "資訊不在場" not in sl.note, (
+        f"{case['case_id']}:場上有同儕但使用者沒回應,不該說成資訊不在場。"
+        f"實際 note:{sl.note!r}"
+    )
+
+
+@pytest.mark.parametrize("case", CASES, ids=CASE_IDS)
+def test_interviewer_never_appears_as_pairing_target(case, observer):
+    """面試官不可出現在「傾聽與回應」的配對對象裡。
+
+    主考官宣布題目不是在提論點。配進去的話,使用者的開場會被
+    BARS 評成 level 1(完全沒有回應前一位)——那不是傾聽失敗,是開場。
+    """
+    names = {u["speaker"] for u in case["utterances"] if u.get("is_interviewer")}
+    if not names:
+        return
+    sl = _by_name(observer.observe(_to_utterances(case["utterances"])),
+                  COLLAB_DIM_NAMES[1])
+    for excerpt in sl.excerpts:
+        for n in names:
+            assert f"（{n}）" not in excerpt, (
+                f"{case['case_id']}:面試官「{n}」被當成配對對象:{excerpt!r}"
+            )
+
+
+def test_resolved_cases_keep_their_history():
+    """記錄過已知缺陷的案例,修好之後要保留變更歷程。
+
+    修正前的行為看起來完全正常(沒有錯誤、分數照樣算得出來),
+    只有對照 rubric 才知道它系統性偏低。同類問題再出現時,
+    這裡要有完整的判斷過程可以參照。
+    """
+    for case in CASES:
+        fixed = case.get("fixed")
+        if not fixed:
+            continue
+        for key in ("summary", "was", "impact_before", "resolution"):
+            assert fixed.get(key), f"{case['case_id']} 的 fixed 缺少 {key}"

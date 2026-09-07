@@ -13,20 +13,46 @@
     ]
   },
   "utterances": [
-    {"speaker": "AI-邏輯", "text": "版本控制你們都用什麼", "is_user": false},
-    {"speaker": "你", "text": "我們用gate 然後前端的部分是加巴screen寫的", "is_user": true},
-    {"speaker": "AI-強勢", "text": "那你對後端有沒有興趣", "is_user": false},
-    {"speaker": "你", "text": "後端我沒有興趣 之前有修過資料庫的課", "is_user": true}
+    {
+      "speaker": "AI-邏輯",
+      "text": "版本控制你們都用什麼",
+      "is_user": false,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "你",
+      "text": "我們用gate 然後前端的部分是加巴screen寫的",
+      "is_user": true,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "AI-強勢",
+      "text": "那你對後端有沒有興趣",
+      "is_user": false,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "你",
+      "text": "後端我沒有興趣 之前有修過資料庫的課",
+      "is_user": true,
+      "is_interviewer": false
+    }
   ],
   "expected": {
     "參與主動性": {
       "count": 2,
-      "tags": ["接續他人之後", "接續他人之後"],
+      "tags": [
+        "接續他人之後",
+        "接續他人之後"
+      ],
       "note": "走樣文字原樣進切片,不做任何修正"
     },
     "傾聽與回應": {
       "count": 2,
-      "paired_with": ["AI-邏輯", "AI-強勢"]
+      "paired_with": [
+        "AI-邏輯",
+        "AI-強勢"
+      ]
     },
     "論點建構": {
       "count": 2

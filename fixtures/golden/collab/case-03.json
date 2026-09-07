@@ -7,20 +7,45 @@
     "rationale": "「起頭」這個標記唯一真正成立的情況。第一則之前沒有任何他人發言可以配對,傾聽與回應該少一則——那不是漏掉,是那一則本來就沒有前一位可以回應。"
   },
   "utterances": [
-    {"speaker": "你", "text": "我先講一下我的想法 我覺得可以從通路開始拆", "is_user": true},
-    {"speaker": "AI-邏輯", "text": "通路拆完之後呢", "is_user": false},
-    {"speaker": "你", "text": "拆完看哪一條的轉換率最低 資源就往那邊補", "is_user": true},
-    {"speaker": "AI-親切", "text": "這個順序滿清楚的", "is_user": false}
+    {
+      "speaker": "你",
+      "text": "我先講一下我的想法 我覺得可以從通路開始拆",
+      "is_user": true,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "AI-邏輯",
+      "text": "通路拆完之後呢",
+      "is_user": false,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "你",
+      "text": "拆完看哪一條的轉換率最低 資源就往那邊補",
+      "is_user": true,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "AI-親切",
+      "text": "這個順序滿清楚的",
+      "is_user": false,
+      "is_interviewer": false
+    }
   ],
   "expected": {
     "參與主動性": {
       "count": 2,
-      "tags": ["自己起頭", "接續他人之後"],
+      "tags": [
+        "自己起頭",
+        "接續他人之後"
+      ],
       "note": "第一則之前沒有任何他人發言,是真正的起頭"
     },
     "傾聽與回應": {
       "count": 1,
-      "paired_with": ["AI-邏輯"],
+      "paired_with": [
+        "AI-邏輯"
+      ],
       "note": "第一則使用者發言沒有前一位可配對,不產出——比配一個空的更誠實"
     },
     "論點建構": {

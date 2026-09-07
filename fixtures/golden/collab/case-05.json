@@ -1,45 +1,47 @@
 {
   "case_id": "case-05",
   "meta": {
-    "brief": "★ 主考官在場。固定住「主考官與 AI 同儕無法區分」這個已知限制。",
-    "structure": "主考官(宣布題目) → 使用者 → 他人 → 使用者",
+    "brief": "主考官在場。面試官必須排除在「回應對象」之外。",
+    "structure": "主考官(宣布題目) → 使用者 → 同儕 → 使用者",
     "source": "synthetic",
-    "rationale": "照 test_e2e.py 裡前端真的會送的 payload 形狀寫。主考官的發言跟 AI 同儕在資料上完全一樣(都是 is_user=false),導致使用者的開場被當成「回應主考官的論點」。這格的預期值記錄的是**目前行為**,不是**正確行為**——見 known_issue。"
+    "rationale": "照 test_e2e.py 裡前端真的會送的 payload 形狀寫。這格原本記錄的是一個已知缺陷（主考官與同儕在資料上無法區分），Utterance 補上 is_interviewer 之後缺陷已修，現在記的是正確行為。變更歷程見 fixed。"
   },
   "utterances": [
-    {"speaker": "主考官", "text": "今天的題目是會員制度要怎麼設計 大家可以開始討論", "is_user": false},
-    {"speaker": "你", "text": "我覺得先確認會員制度想解決什麼問題", "is_user": true},
-    {"speaker": "AI-邏輯", "text": "不就是提高回購嗎", "is_user": false},
-    {"speaker": "你", "text": "回購只是其中一個 也可能是要提高客單價 兩個做法差很多", "is_user": true}
+    {"speaker": "主考官", "text": "今天的題目是會員制度要怎麼設計 大家可以開始討論", "is_user": false, "is_interviewer": true},
+    {"speaker": "你", "text": "我覺得先確認會員制度想解決什麼問題", "is_user": true, "is_interviewer": false},
+    {"speaker": "AI-邏輯", "text": "不就是提高回購嗎", "is_user": false, "is_interviewer": false},
+    {"speaker": "你", "text": "回購只是其中一個 也可能是要提高客單價 兩個做法差很多", "is_user": true, "is_interviewer": false}
   ],
   "expected": {
     "參與主動性": {
       "count": 2,
-      "tags": ["接續他人之後", "接續他人之後"],
-      "note": "★ 第一則被標接續,因為主考官先講了。討論意義上他其實是第一個開口的參與者。"
+      "tags": ["自己起頭", "接續他人之後"],
+      "note": "第一則是「自己起頭」——主考官出題不算他人接續。使用者是第一個開口的參與者。"
     },
     "傾聽與回應": {
-      "count": 2,
-      "paired_with": ["主考官", "AI-邏輯"],
-      "note": "★ 第一對是「回應主考官宣布題目」,不是同儕互動。"
+      "count": 1,
+      "paired_with": ["AI-邏輯"],
+      "note": "只有一對。主考官宣布題目不是在提論點，不參與配對；使用者的開場沒有可回應的對象，不產出。"
     },
     "論點建構": {
       "count": 2,
       "note": "不受影響——這個維度只看使用者自己的發言內部結構"
     },
     "協作姿態": {
-      "count": 4
+      "count": 4,
+      "note": "整段給出且標明身分。這個維度不排除面試官——被質疑時是否先承接同樣是協作姿態，但 LLM 要能分辨對象是主持人還是競爭者。"
     }
   },
-  "known_issue": {
-    "summary": "主考官與 AI 同儕在 UtteranceDTO 上無法區分",
-    "root_cause": "UtteranceDTO 只有 speaker(顯示名稱)、content、is_user。speaker 合約明文警告不可用於判斷身分,因為 persona 顯示名稱會隨調校變動。",
-    "impact": [
-      "傾聽與回應:使用者開場被配對成回應主考官宣布題目。主考官不是在提論點,拿 BARS 評「有沒有指涉前一位的具體內容並做加法」,開場會被系統性評低——那不是傾聽失敗,那是開場。",
-      "參與主動性:使用者第一則被標「接續他人之後」,但討論意義上他是第一個開口的參與者,行為上是起頭。"
+  "fixed": {
+    "summary": "主考官與同儕在資料上無法區分（已解決）",
+    "was": "UtteranceDTO 只有 speaker / content / is_user。主考官與 AI 同儕都是 is_user=false，切片層無法分辨，而 speaker 合約明文警告不可用於判斷身分。",
+    "impact_before": [
+      "傾聽與回應：使用者開場被配對成回應主考官宣布題目。拿 BARS 評「有沒有指涉前一位的具體內容並做加法」，開場會被系統性評成 level 1——那不是傾聽失敗，那是開場。",
+      "參與主動性：使用者第一則被標「接續他人之後」，但討論意義上他是第一個開口的參與者，行為上是起頭。"
     ],
-    "not_fixed_because": "沒有可靠欄位可判斷。用 speaker 名稱字串猜是合約明文反對的做法,而且脆弱。已提給 B 決定要不要加欄位。",
-    "when_fixed": "欄位補上後,這一格的 expected 要跟著改:第一則參與主動性應為「自己起頭」,傾聽與回應應只剩 1 則(與 AI-邏輯 配對)。測試會強迫這件事被看見。"
+    "resolution": "Utterance 加 is_interviewer，routes.py 依 speaker 查 personas_for() 的 role 推導，不需要前端送。persona 註冊表就是定義顯示名稱的地方，改名會同時改到兩邊。查不到的名稱視為同儕（保守方向：誤判成同儕只是回到修正前的行為，誤判成面試官會讓真正的同儕發言從配對裡消失）。",
+    "rejected_alternative": "曾考慮「約定主考官固定是 groupSays 第一則」。實測不成立：3 位主管的配置有三位 moderator 輪流主持，而且主考官在使用者說不會時會再開口——主考官不是只在第一則。",
+    "kept_here_why": "這一格保留變更歷程，是因為修正前的行為看起來完全正常（沒有錯誤、分數照樣算得出來），只有對照 rubric 才知道它系統性偏低。同類問題再出現時，這裡有完整的判斷過程可以參照。"
   },
   "bars_labels": null
 }

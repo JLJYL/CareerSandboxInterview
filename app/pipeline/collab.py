@@ -82,27 +82,49 @@ def _clean(text: str) -> str:
     return (text or "").strip()
 
 
+def _is_peer(u: Utterance) -> bool:
+    """是不是同儕競爭者——三種身分裡既不是使用者也不是面試官的那一種。
+
+    ★ 面試官必須排除,這是 W3 後期才補上的。
+
+      主考官宣布題目不是在提論點。把它拿去配對「傾聽與回應」,
+      使用者的開場會被評成 level 1(完全沒有回應前一位)——
+      那不是傾聽失敗,那是開場。「參與主動性」同理:使用者在
+      主考官出題之後第一個開口,行為上是起頭不是接續。
+
+      早期版本只分 is_user / 非 is_user,兩個維度都因此系統性失準。
+      詳見 fixtures/golden/collab/case-05.json 的 known_issue。
+    """
+    return not u.is_user and not u.is_interviewer
+
+
 def _with_nearest_other(utts: list[Utterance]) -> list[Utterance | None]:
-    """對每一則發言，標出「往前看最近一次別人講的話」是哪一則。
+    """對每一則發言，標出「往前看最近一次**同儕**講的話」是哪一則。
 
     同一份掃描結果同時餵給「參與主動性」（有沒有 = 接續 / 起頭）與
     「傾聽與回應」（要跟誰配對）——兩者問的其實是同一個底層問題，
     只是一個只要「有沒有」，一個還要「內容是什麼」。
 
     「最近一次」用浮動視窗，不是嚴格陣列相鄰：使用者連續講兩則，
-    兩則都對應同一則他人發言，直到下一位他人出現才更新。
-    這則本身若是他人發言，對應值填 None（呼叫端只會用到 is_user 那些列）。
+    兩則都對應同一則同儕發言，直到下一位同儕出現才更新。
+
+    ★ 面試官發言**不更新也不清空** pending：主考官在中途追問
+      （實測「使用者說不會」時會再開口）不該讓使用者跟前一位同儕的
+      對應關係消失。面試官在這個維度上是透明的。
+
+    這則本身不是使用者時對應值填 None（呼叫端只會用到 is_user 那些列）。
 
     回傳跟 utts 等長的清單。
     """
     result: list[Utterance | None] = []
-    pending_other: Utterance | None = None
+    pending_peer: Utterance | None = None
     for u in utts:
         if u.is_user:
-            result.append(pending_other)
-        else:
-            pending_other = u
-            result.append(None)
+            result.append(pending_peer)
+            continue
+        if _is_peer(u):
+            pending_peer = u
+        result.append(None)
     return result
 
 
@@ -160,39 +182,54 @@ class CollabObserver:
     # ---------------------------------------------------------------- 傾聽與回應
 
     def _responsiveness(self, utts: list[Utterance]) -> CollabSlice:
-        """使用者發言 + 往前找到的最近一則他人發言，成對出現。
+        """使用者發言 + 往前找到的最近一則**同儕**發言，成對出現。
 
         跟「參與主動性」共用同一次掃描（`_with_nearest_other`）：使用者
-        若把回應拆成連續兩則，兩則仍配對同一位他人；直到下一則他人發言
-        出現才更新配對對象。
+        若把回應拆成連續兩則，兩則仍配對同一位同儕；直到下一則同儕發言
+        出現才更新配對對象。面試官不參與配對——主考官宣布題目不是在提
+        論點，拿去配對會把使用者的開場評成「完全沒有回應前一位」。
 
-        整段都沒有這種組合時回空——沒有前一位發言者的內容可比對，
-        不是難，是資訊不在場，不做任何近似。
+        ★ 空切片有兩種完全不同的成因，note 必須分開講：
+
+              沒有同儕發言                資訊不在場 → 應未評分
+              有同儕發言但使用者沒接在後面  他忽略了同儕 → 這本身是發現，應低分
+
+          兩種都寫「無法評分」的話，LLM 分不出來，第二種會被當成
+          資訊缺失而放過——但那正是這個維度要抓的行為。
         """
         nearest = _with_nearest_other(utts)
         pairs: list[str] = []
-        for u, prior_other in zip(utts, nearest):
-            if not u.is_user or prior_other is None:
+        for u, prior_peer in zip(utts, nearest):
+            if not u.is_user or prior_peer is None:
                 continue
             text = _clean(u.text)
-            other_text = _clean(prior_other.text)
-            if not text or not other_text:
+            peer_text = _clean(prior_peer.text)
+            if not text or not peer_text:
                 continue
             pairs.append(
-                f"他人（{prior_other.speaker_id}）：「{other_text}」\n你：「{text}」"
+                f"同儕（{prior_peer.speaker_id}）：「{peer_text}」\n你：「{text}」"
             )
 
         if not pairs:
+            has_peer = any(_is_peer(u) and _clean(u.text) for u in utts)
+            if not has_peer:
+                return CollabSlice(
+                    COLLAB_DIM_NAMES[1],
+                    [],
+                    "整場沒有同儕發言（只有使用者與面試官），沒有他人論點可比對——"
+                    "此項資訊不在場，不予評分。",
+                )
             return CollabSlice(
                 COLLAB_DIM_NAMES[1],
                 [],
-                "沒有「他人發言後使用者接著回應」的組合，此維度這次無法評分",
+                "場上有同儕發言，但使用者從未接在任何一位同儕之後發言——"
+                "這不是資訊缺失，是可觀察到的行為：他沒有回應同儕。",
             )
         return CollabSlice(
             COLLAB_DIM_NAMES[1],
             pairs,
-            "每組是一則他人發言與使用者其後的回應；只看這一對，"
-            "不含更早的對話內容。",
+            "每組是一則同儕發言與使用者其後的回應；只看這一對，"
+            "不含更早的對話內容。面試官的發言不在配對範圍內。",
         )
 
     # ---------------------------------------------------------------- 論點建構
@@ -219,26 +256,37 @@ class CollabObserver:
         """整段討論，不切——立場衝突可能出現在任何地方，切片會漏掉。
 
         找不找得到分歧、分歧發生在哪一句，是語意判斷，交給 B 的 LLM。
-        沒有他人發言時一樣把整段（僅使用者發言）給出，讓 LLM 自己判斷
-        「這場討論沒有出現立場分歧」並回 level 0，而不是由 A side 先猜。
+        沒有同儕發言時一樣把整段給出，讓 LLM 自己判斷「這場討論沒有出現
+        立場分歧」並回 level 0，而不是由 A side 先猜。
+
+        ★ 這裡不排除面試官，但**標出身分**。跟另外兩個維度不同：
+          那兩個是「使用者在回應誰」，主考官出題不算論點所以要排除；
+          這個是「使用者面對分歧時怎麼處理」，而跟主考官的往來
+          （被質疑時是否先承接）同樣是協作姿態的展現，排掉會漏掉。
+
+          但身分要標清楚——LLM 得知道那是主持人不是競爭對手，
+          「反駁主考官」跟「反駁同儕」在這個維度上不是同一回事。
         """
+        def _label(u: Utterance) -> str:
+            if u.is_user:
+                return "你"
+            if u.is_interviewer:
+                return f"面試官（{u.speaker_id}）"
+            return f"同儕（{u.speaker_id}）"
+
         cleaned = [(u, _clean(u.text)) for u in utts]
-        excerpts = [
-            f"{'你' if u.is_user else u.speaker_id}：「{text}」"
-            for u, text in cleaned
-            if text
-        ]
+        excerpts = [f"{_label(u)}：「{text}」" for u, text in cleaned if text]
 
         if not excerpts:
             return CollabSlice(COLLAB_DIM_NAMES[3], [], "沒有任何發言")
 
-        has_others = any(not u.is_user for u, text in cleaned if text)
+        has_peer = any(_is_peer(u) for u, text in cleaned if text)
         note = (
-            "整段討論依原順序給出；找出分歧發生的段落、判斷是先承接還是"
-            "直接否定，是語意判斷，交給評分者自行辨識。"
-            if has_others
-            else "輸入僅含使用者發言，沒有他人可能造成立場分歧，"
-            "此維度預期無法觀察。"
+            "整段討論依原順序給出，每則已標明發言者身分；找出分歧發生的段落、"
+            "判斷是先承接還是直接否定，是語意判斷，交給評分者自行辨識。"
+            if has_peer
+            else "整場沒有同儕發言（只有使用者與面試官），"
+            "沒有競爭者可能造成立場分歧，此維度預期無法觀察。"
         )
         return CollabSlice(COLLAB_DIM_NAMES[3], excerpts, note)
 
