@@ -382,3 +382,137 @@ def test_collab_stance_bars_marks_negation() -> None:
     assert "那樣不行" in stance, "要給出否定詞的具體標記"
     assert "即使後面接了理由" in stance
     assert "以否定詞開頭 → 2" in stance, "要給一個可以照著做的判斷步驟"
+
+
+def test_evidence_survives_slice_markers() -> None:
+    """切片會加標記,但 verify_evidence 比對的是純發言內容。
+
+    prompt 已經寫明「只引「」裡面的內容」,而且切片用引號劃了邊界——
+    但那是判斷型規則,會有殘留率。
+
+    殘留的後果特別糟:連標記一起抄的引用**跟真的編造分不出來**,
+    兩者都會被標成「依據不可信」。剝掉標記之後,被擋下來的就只剩真的編造。
+    """
+    from app.pipeline.collab_score import verify_evidence
+    from app.schemas.interview import CollabDimDTO
+
+    transcript = "題目是會員制度\n我覺得先做客群分析\n母數是多少"
+
+    def check(ev: str) -> bool:
+        return verify_evidence([CollabDimDTO(name="x", score=76, evidence=ev)], transcript) == []
+
+    # 四種切片格式都要通過
+    assert check("我覺得先做客群分析")
+    assert check("[接續他人之後]「我覺得先做客群分析」")
+    assert check("你：「我覺得先做客群分析」")
+    assert check("他人（主考官）：「題目是會員制度」")
+    # 真的編造仍然要被擋
+    assert not check("我在台積電帶過十人團隊")
+    assert not check("我覺得先做客群分析然後再看資料"), "半真半編也要擋"
+
+
+def test_real_collab_observer_matches_protocol() -> None:
+    """成員 A 的真實作要符合 Protocol,而且切片格式要跟 verify_evidence 對得上。"""
+    try:
+        from app.pipeline.collab import CollabObserver
+    except ImportError:
+        import pytest
+
+        pytest.skip("成員 A 的 collab.py 尚未進 repo")
+
+    from app.contracts.interview_protocols import CollabObserver as Proto
+    from app.contracts.interview_protocols import Utterance
+    from app.pipeline.collab_score import strip_markers
+
+    o = CollabObserver()
+    assert isinstance(o, Proto)
+
+    us = [
+        Utterance("主考官", "題目是會員制度"),
+        Utterance("你", "我覺得先做客群分析", is_user=True),
+        Utterance("AI-邏輯", "母數是多少"),
+    ]
+    src = "".join(u.text for u in us)
+    for sl in o.observe(us):
+        for ex in sl.excerpts:
+            # 每一行剝掉標記之後都該落在逐字稿裡
+            for line in ex.split("\n"):
+                bare = strip_markers(line).replace(" ", "")
+                if bare:
+                    assert bare in src, f"{sl.name} 的片段剝不出原文:{line}"
+
+
+def test_interviewer_derived_from_persona_registry() -> None:
+    """is_interviewer 由後端查 personas_for() 推導,不需要前端送。
+
+    那份註冊表就是定義顯示名稱的地方——persona 改名會同時改到兩邊,
+    不會出現名稱變了而判斷邏輯沒變的情況。
+    """
+    from app.api.routes import _interviewer_names
+    from app.schemas.interview import InterviewContext
+
+    solo = _interviewer_names("group", InterviewContext(group_interviewers=1, group_size=5))
+    assert solo == {"主考官"}
+
+    panel = _interviewer_names("group", InterviewContext(group_interviewers=3, group_size=5))
+    assert panel == {"用人主管", "技術主管", "HR 主管"}
+    assert not any(n.startswith("AI-") for n in panel), "AI 應徵者是同儕不是面試官"
+
+
+# ---------------------------------------------------------------------------
+# 版控防護:這支檔被 .gitignore 誤擋過三次
+# ---------------------------------------------------------------------------
+
+
+def _repo_root():
+    import pathlib
+
+    return pathlib.Path(__file__).resolve().parents[1]
+
+
+def test_app_main_is_tracked_by_git() -> None:
+    """app/main.py 必須在版控裡。
+
+    .gitignore 有一段(27–54 行)是 CareerSandboxModule 的路徑清單,
+    某次 merge 帶過來的。它擋過 app/api/,也擋過 app/main.py。
+
+    這種失敗特別難查:git add -A 不報錯、git status 不顯示、
+    commit 訊息寫了但檔案沒進去,而症狀是「lifespan 沒有跑到」——
+    錯誤訊息指向 deps.py,不會有人聯想到是一支沒進版控的檔案。
+    """
+    import subprocess
+
+    r = subprocess.run(
+        ["git", "ls-files", "app/main.py"],
+        capture_output=True, text=True, cwd=str(_repo_root()),
+    )
+    if r.returncode != 0:
+        import pytest
+
+        pytest.skip("不在 git 工作目錄裡")
+    assert r.stdout.strip() == "app/main.py", (
+        "app/main.py 沒有進版控。檢查 .gitignore 有沒有擋到它:\n"
+        "    git check-ignore -v app/main.py"
+    )
+
+
+def test_lifespan_does_not_bind_deps_at_import() -> None:
+    """lifespan 要呼叫 deps.build_components(),不能在頂端 import。
+
+    頂端匯入會在匯入當下綁死原始函式,測試的 monkeypatch 換不到,
+    而且模組只匯入一次,第一個測試的綁定會留到後面全部——
+    那會讓後面的測試真的去載 bge-m3。
+    """
+    import pathlib
+
+    src = (_repo_root() / "app" / "main.py").read_text(encoding="utf-8")
+
+    # 只看實際的 import 陳述,不看註解——檔案裡有一段寫明「不要這樣寫」的反例,
+    # 整份比對會抓到那一行。
+    imports = [
+        ln.strip()
+        for ln in src.splitlines()
+        if ln.startswith(("import ", "from ")) and "build_components" in ln
+    ]
+    assert imports == [], f"lifespan 依賴不可在頂端匯入:{imports}"
+    assert "deps.build_components()" in src

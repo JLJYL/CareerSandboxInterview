@@ -115,6 +115,27 @@ async def submit_turn(req: TurnRequest, session_id: str = SESSION_ID) -> TurnRes
     )
 
 
+def _interviewer_names(mode: str, ctx) -> set[str]:
+    """該場的面試官(主持人)顯示名稱。
+
+    【為什麼可以用名稱查】
+    合約說「speaker 是顯示名稱,不可用來判斷身分」——那是指不要在各處
+    硬寫 "user"、"主考官" 這類字串。這裡查的是 personas_for(),
+    也就是**定義那些名稱的同一份註冊表**:persona 改名會同時改到兩邊,
+    不會出現名稱變了而判斷邏輯沒變的情況。
+
+    查不到的名稱視為同儕。那是保守方向:誤判成同儕只是回到加這一欄
+    之前的行為,誤判成面試官會讓真正的同儕發言從配對裡消失。
+    """
+    from app.prompts.interview_personas import personas_for
+
+    return {
+        p.display_name
+        for p in personas_for(mode, ctx.group_interviewers, ctx.group_size)
+        if p.display_name and p.role != "peer"
+    }
+
+
 def _mode_from_request(req: TurnRequest) -> str:
     """決定這一輪的模式。
 
@@ -167,6 +188,7 @@ async def create_report(req: ReportRequest, session_id: str = SESSION_ID) -> Rep
         resume_grounded=bool(req.experiences),
         llm=get_llm(),
         llm_verbatim=get_llm_verbatim(),
+        engine=req.context.transcription_engine,
     )
 
     # A5:履歷為空時 GapComputer 回空清單,generate_missing_points 也不會呼叫 LLM。
@@ -190,12 +212,14 @@ async def create_report(req: ReportRequest, session_id: str = SESSION_ID) -> Rep
     # 分開評掉到 .26–.35,接近人類評審的 .34。
     if req.mode == "group" and req.group_says:
         try:
+            hosts = _interviewer_names(req.mode, req.context)
             slices = get_collab().observe(
                 [
                     Utterance(
                         speaker_id=u.speaker,
                         text=u.content,
                         is_user=u.is_user,
+                        is_interviewer=not u.is_user and u.speaker in hosts,
                         start_ms=u.start_ms or (u.segment_starts_ms[0] if u.segment_starts_ms else 0),
                         end_ms=u.end_ms,
                     )
