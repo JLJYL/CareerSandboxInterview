@@ -188,6 +188,7 @@ async def create_report(req: ReportRequest, session_id: str = SESSION_ID) -> Rep
         resume_grounded=bool(req.experiences),
         llm=get_llm(),
         llm_verbatim=get_llm_verbatim(),
+        engine=req.context.transcription_engine,
     )
 
     # A5:履歷為空時 GapComputer 回空清單,generate_missing_points 也不會呼叫 LLM。

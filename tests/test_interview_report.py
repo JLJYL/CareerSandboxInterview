@@ -74,6 +74,7 @@ def fake_llm(face=None, subs=None, questions=None, star=None):
 
 async def run(llm=None, **kw):
     return await generate_report(
+        engine=kw.pop("engine", "device"),
         mode=kw.pop("mode", "single"), turns=kw.pop("turns", TURNS),
         stats=kw.pop("stats", VOICE_STATS), input_mode=kw.pop("input_mode", "voice"),
         resume_text=kw.pop("resume_text", ""), resume_grounded=kw.pop("resume_grounded", False),
@@ -414,3 +415,64 @@ async def test_report_notes_truncated_turns() -> None:
 async def test_no_note_when_nothing_truncated() -> None:
     r = await run()
     assert not any("被語音辨識切斷" in n for n in r.notices)
+
+
+# ---------------------------------------------------------------------------
+# 轉錄引擎:兩種失真方式相反,prompt 要跟著變
+# ---------------------------------------------------------------------------
+
+
+def test_caveat_differs_by_engine() -> None:
+    """裝置端會漏字、保留填充詞;雲端不漏字、填充詞被清掉。
+
+    用同一段說明會讓模型做錯事:告訴它「填充詞保留」而逐字稿一個都沒有,
+    它會推論使用者講話很流暢——那是把「模型清掉了」誤讀成「使用者沒講」。
+    """
+    from app.prompts.interview_report import stt_caveat
+
+    device, api = stt_caveat("device"), stt_caveat("api")
+    assert "保留" in device
+    assert "已經被移除" in api
+    assert "不要評論填充詞的多寡" in api
+    assert "標點是模型加的" in api, "雲端的標點是模型判斷的,不是使用者的節奏"
+
+
+def test_api_engine_forbids_fluency_comment() -> None:
+    """填充詞被清掉時,流暢度在這份資料上沒有證據。"""
+    from app.prompts.interview_report import compose_sub_score_prompt
+
+    assert "沒有證據" in compose_sub_score_prompt(engine="api")
+
+
+@pytest.mark.asyncio
+async def test_engine_reaches_the_prompt() -> None:
+    """欄位加了就要有人讀。"""
+    seen = {}
+
+    def spy(system: str, user: str) -> str:
+        if "細分分數" in system:
+            seen["system"] = system
+        return fake_llm()(system, user)
+
+    await run(spy, engine="api")
+    assert "已經被移除" in seen["system"]
+
+
+def test_whisper_style_stats_degrade_honestly() -> None:
+    """Whisper 的輸出:有標點、沒有填充詞、reliability=unknown。
+
+    流暢度要走預設值不是給高分——打字與雲端轉錄都沒有填充詞,
+    給高分等於獎勵一件跟使用者無關的事。
+    """
+    from app.pipeline.interview_report import format_stats, score_fluency
+
+    whisper = TextStats(
+        char_count=200, filler_count=0, filler_reliability="unknown",
+        segmentation="punctuation", avg_sentence_len=26.0, quantifier_count=3,
+    )
+    text, measurable = format_stats(whisper, "voice")
+    assert measurable is False
+    score, basis = score_fluency(whisper, measurable)
+    assert 68 <= score <= 76, "不給高分也不給低分"
+    assert "不可測" in basis
+    assert "有標點,精確值" in text, "雲端有標點,句長是精確的"

@@ -36,19 +36,48 @@ COMMON_RULES = """通用規則:
    這些一律不提。"""
 
 
-STT_CAVEAT = """關於逐字稿的品質:
+STT_CAVEAT_DEVICE = """關於逐字稿的品質(裝置端語音辨識):
 
-這份逐字稿來自 Android 裝置端語音辨識,有三個已知特性:
-
-    沒有標點符號。句子邊界是說話停頓造成的分段,不是文法句號。
-    英文技術詞常被轉錯。JavaScript 可能寫成「加巴screen」,Git 可能寫成「gats」。
-    非詞彙填充音(嗯、呃)會被引擎移除,詞彙型的(那個、就是、然後)保留。
+沒有標點。句子邊界是說話停頓造成的分段,不是文法句號。
+英文技術詞常被轉錯:JavaScript 可能寫成「加巴screen」,Git 可能寫成「gats」。
+非詞彙填充音(嗯、呃)會被引擎移除,詞彙型的(那個、就是、然後)保留。
 
 所以:
-
     不要因為用詞奇怪就評論「表達不清楚」——那可能是辨識錯誤。
     不要評論標點使用或句子長短。
     不要說「你講話不流暢」如果證據只是斷句破碎。"""
+
+
+STT_CAVEAT_API = """關於逐字稿的品質(雲端轉錄 API):
+
+整段音檔一次轉錄,**沒有重啟造成的漏字**,內容完整度高。
+會自動加標點,句子邊界是模型判斷的,不是使用者真的停頓的位置。
+
+**填充詞已經被移除。** 雲端轉錄會做 disfluency removal,
+逐字稿裡看不到「嗯」「呃」「那個」——那不代表使用者沒講,
+只代表模型把它們清掉了。
+
+所以:
+    不要評論填充詞的多寡。那件事在這份逐字稿裡量不到。
+    不要用標點推論停頓或思考時間。標點是模型加的,不是使用者的節奏。
+    不要說「你講話很流暢」——流暢度在這份資料上沒有證據。
+
+英文技術詞仍可能轉錯,但比裝置端少很多。看不懂的詞從上下文推測。"""
+
+
+def stt_caveat(engine: str) -> str:
+    """依轉錄引擎給出對應的說明。
+
+    【為什麼要分】
+    兩種引擎的失真方式相反:
+        裝置端  會漏字、沒標點、保留詞彙型填充詞
+        雲端 API 不漏字、有標點、填充詞被清掉
+
+    用同一段說明會讓模型做錯事——例如告訴它「填充詞保留」,
+    而 Whisper 的逐字稿一個填充詞都沒有,它就會推論使用者講話很流暢。
+    那是把「模型清掉了」誤讀成「使用者沒講」。
+    """
+    return STT_CAVEAT_API if engine == "api" else STT_CAVEAT_DEVICE
 
 
 # ---------------------------------------------------------------------------
@@ -257,14 +286,14 @@ STAR_OUTPUT = """輸出一個 JSON 陣列,四個元素,順序固定為 S、T、A
 # ---------------------------------------------------------------------------
 
 
-def compose_face_prompt() -> str:
+def compose_face_prompt(engine: str = "device") -> str:
     return "\n\n".join([
         "你的工作是替一場模擬面試寫三個面向的評語與建議。",
-        COMMON_RULES, STT_CAVEAT, FACE_RULES, FACE_OUTPUT,
+        COMMON_RULES, stt_caveat(engine), FACE_RULES, FACE_OUTPUT,
     ])
 
 
-def compose_sub_score_prompt() -> str:
+def compose_sub_score_prompt(engine: str = "device") -> str:
     """表達流暢度不在這裡產出,由 score_fluency() 依填充詞率計算。
 
     能用公式算的不要問 LLM。實測:填充詞每百字 3.0(正常區間)時
@@ -272,11 +301,11 @@ def compose_sub_score_prompt() -> str:
     """
     return "\n\n".join([
         "你的工作是替一場模擬面試打細分分數。",
-        COMMON_RULES, STT_CAVEAT, SUB_SCORE_RULES, SUB_SCORE_OUTPUT,
+        COMMON_RULES, stt_caveat(engine), SUB_SCORE_RULES, SUB_SCORE_OUTPUT,
     ])
 
 
-def compose_question_prompt() -> str:
+def compose_question_prompt(engine: str = "device") -> str:
     """better 不再分「有履歷」與「無履歷」兩種模式。
 
     有履歷模式是捏造的通道,而且它做的事跟漏講點區塊重複——
@@ -285,12 +314,12 @@ def compose_question_prompt() -> str:
     """
     return "\n\n".join([
         "你的工作是替一場模擬面試逐題寫點評與更好的講法。",
-        COMMON_RULES, STT_CAVEAT, QUESTION_RULES, QUESTION_OUTPUT,
+        COMMON_RULES, stt_caveat(engine), QUESTION_RULES, QUESTION_OUTPUT,
     ])
 
 
-def compose_star_prompt(*, has_truncated: bool = False) -> str:
-    parts = ["你的工作是把使用者講的經歷拆成 STAR 四段。", COMMON_RULES, STT_CAVEAT]
+def compose_star_prompt(*, has_truncated: bool = False, engine: str = "device") -> str:
+    parts = ["你的工作是把使用者講的經歷拆成 STAR 四段。", COMMON_RULES, stt_caveat(engine)]
     if has_truncated:
         parts.append(TRUNCATED_CAVEAT)
     parts += [STAR_RULES, STAR_OUTPUT]
