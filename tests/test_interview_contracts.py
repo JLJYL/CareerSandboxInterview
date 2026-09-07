@@ -624,3 +624,74 @@ def test_group_says_carries_speaker_and_content() -> None:
     req = ReportRequest.model_validate(_load("req_report_group"))
     assert all(u.content for u in req.group_says)
     assert any(u.is_user for u in req.group_says), "要分得出哪幾句是使用者講的"
+
+
+# ---------------------------------------------------------------------------
+# 十四、面試官與同儕要分得開
+# ---------------------------------------------------------------------------
+
+
+def _group_session() -> list[Utterance]:
+    """典型的群面開場:主考官出題 → 使用者回答 → 同儕質疑 → 使用者回應。"""
+    return [
+        Utterance("主考官", "今天的題目是會員制度", is_interviewer=True),
+        Utterance("你", "我覺得先做客群分析", is_user=True),
+        Utterance("AI-邏輯", "母數是多少", is_user=False),
+        Utterance("你", "樣本低於三十就不採用", is_user=True),
+    ]
+
+
+def test_opening_answer_counts_as_self_initiated() -> None:
+    """主考官出題不算「他人」,使用者第一個開口在行為上是起頭。
+
+    加這一欄之前:使用者第一則被標「接續他人之後」,因為主考官先講了。
+    """
+    rows = {r.name: r for r in FakeCollabObserver().observe(_group_session())}
+    assert "自己起頭" in rows["參與主動性"].excerpts[0]
+    assert "接續他人之後" in rows["參與主動性"].excerpts[1]
+
+
+def test_listening_pairs_only_with_peers() -> None:
+    """主考官宣布題目不是在提論點。
+
+    加這一欄之前:第一對會配成「主考官:今天的題目…」＋「你:我覺得…」,
+    拿 BARS 去評「有沒有在他人論點上做加法」,使用者的開場會被評成
+    level 1(完全沒有回應前一位)——那不是傾聽失敗,那是開場。
+    """
+    rows = {r.name: r for r in FakeCollabObserver().observe(_group_session())}
+    pairs = rows["傾聽與回應"].excerpts
+    assert len(pairs) == 1, "只有一次真正的同儕互動"
+    assert "AI-邏輯" in pairs[0]
+    assert "主考官" not in pairs[0]
+
+
+def test_no_peers_and_no_engagement_are_different_notes() -> None:
+    """「同儕沒講話」跟「同儕講了但使用者沒接」是兩件事。
+
+    前者是資訊不在場,後者本身就是一個發現(他忽略了同儕)。
+    寫成同一句 note 會讓 LLM 分不出來。
+    """
+    only_host = FakeCollabObserver().observe([
+        Utterance("主考官", "題目", is_interviewer=True),
+        Utterance("你", "我的想法是", is_user=True),
+    ])
+    assert "沒有同儕發言" in only_host[1].note
+
+    ignored = FakeCollabObserver().observe([
+        Utterance("你", "我先講", is_user=True),
+        Utterance("AI-邏輯", "母數是多少", is_user=False),
+    ])
+    assert "沒有接在後面" in ignored[1].note
+
+
+def test_unknown_speaker_defaults_to_peer() -> None:
+    """查不到的名稱視為同儕。
+
+    誤判成同儕只是回到加這一欄之前的行為;
+    誤判成面試官會讓真正的同儕發言從配對裡消失。
+    """
+    rows = FakeCollabObserver().observe([
+        Utterance("某個沒登記的角色", "我有個想法", is_user=False),
+        Utterance("你", "我接著講", is_user=True),
+    ])
+    assert rows[1].excerpts, "未知名稱該被當成同儕,配得出對"

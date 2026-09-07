@@ -106,20 +106,50 @@ def _to_dim(name: str, data: dict) -> tuple[CollabDimDTO | None, str | None]:
     )
 
 
+_MARKER = re.compile(r"^\s*(?:\[[^\]]*\]|[^:：]{1,12}[:：])\s*")
+"""切片加在發言前面的標記。
+
+    [接續他人之後]「我覺得先做客群分析」
+    你:「我覺得先做客群分析」
+    他人(主考官):「題目是會員制度」
+
+【為什麼要剝掉再比對】
+切片會加標記,但 routes.py 組給 verify_evidence 的逐字稿是純發言內容。
+prompt 已經寫明「只引「」裡面的內容」,而且切片用引號劃了邊界——
+但那是判斷型規則,會有殘留率。
+
+殘留的後果特別糟:連標記一起抄的引用**跟真的編造分不出來**,
+兩者都會被標成「依據不可信」。剝掉標記之後,
+被擋下來的就只剩真的編造。
+"""
+
+
+def strip_markers(evidence: str) -> str:
+    """剝掉切片標記與外層引號,取出真正被引用的話。"""
+    t = evidence.strip()
+    t = _MARKER.sub("", t)
+    return t.strip("「」\"' 　")
+
+
 def verify_evidence(dims: Sequence[CollabDimDTO], transcript: str) -> list[str]:
     """evidence 必須是逐字稿的子字串。回傳違規說明,空清單代表通過。
 
     跟 starParts.fromAnswer 同一條規則、同一種檢查。
     協作是零量化錨點的評分,沒有這道檢查就無法驗證等第不是編的。
 
-    不做自動修復——引用不存在的原文是嚴重錯誤,該讓它被看見。
+    比對前先剝掉切片標記——見 _MARKER。
+
+    不做自動修復,也不丟掉該維度:
+    evidence 不會顯示給使用者(前端的 CollabDim 沒有這一欄),
+    而且「引用錯」不必然代表「等第錯」——模型可能判斷正確但引述時記錯句子。
+    為了一個不可靠的推論丟掉整個維度,代價比留著加註記大。
     """
     src = transcript.replace(" ", "").replace("\n", "")
     out: list[str] = []
     for d in dims:
         if not d.evidence:
             continue
-        needle = d.evidence.strip("「」\"' ").replace(" ", "")
+        needle = strip_markers(d.evidence).replace(" ", "")
         if needle and needle not in src:
             out.append(f"{d.name} 的引用不存在於逐字稿:{needle[:30]}")
     return out
