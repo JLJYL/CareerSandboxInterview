@@ -24,6 +24,7 @@ from collections.abc import Callable, Sequence
 
 from app.contracts.interview_protocols import CollabSlice
 from app.pipeline.jd_normalize import normalize_locale
+from app.pipeline.text_fold import contains
 from app.pipeline.parallel import gather_blocks
 from app.prompts.collab_rubric import (
     LEVEL_TO_SCORE,
@@ -144,13 +145,15 @@ def verify_evidence(dims: Sequence[CollabDimDTO], transcript: str) -> list[str]:
     而且「引用錯」不必然代表「等第錯」——模型可能判斷正確但引述時記錯句子。
     為了一個不可靠的推論丟掉整個維度,代價比留著加註記大。
     """
-    src = transcript.replace(" ", "").replace("\n", "")
     out: list[str] = []
     for d in dims:
         if not d.evidence:
             continue
-        needle = strip_markers(d.evidence).replace(" ", "")
-        if needle and needle not in src:
+        needle = strip_markers(d.evidence)
+        # 用 contains 而不是 in:Whisper 的繁簡輸出不一致,
+        # 逐字稿是簡體而 prompt 是繁體時,LLM 會把引用順手轉成繁體。
+        # 直接比對會把正確的引用判成編造。
+        if needle and not contains(transcript, needle):
             out.append(f"{d.name} 的引用不存在於逐字稿:{needle[:30]}")
     return out
 

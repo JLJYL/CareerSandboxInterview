@@ -516,3 +516,51 @@ def test_lifespan_does_not_bind_deps_at_import() -> None:
     ]
     assert imports == [], f"lifespan 依賴不可在頂端匯入:{imports}"
     assert "deps.build_components()" in src
+
+
+def test_stance_weights_peer_conflict_higher() -> None:
+    """跟面試官的分歧情境不對等:平行競爭 vs 權力落差。
+
+    協作姿態測的是團隊協作,而團隊是同儕之間的事。
+    成員 A 保留面試官發言並標明身分是對的——排掉會漏掉觀察機會——
+    但 BARS 要說明怎麼權衡,否則 LLM 會把兩者當成等價。
+    """
+    from app.prompts.collab_rubric import BARS
+
+    stance = BARS["協作姿態"]
+    assert "同儕之間的分歧  → 主要依據" in stance
+    assert "情境不對等" in stance
+    assert "同儕協作的部分這次觀察不到" in stance, "只有跟面試官的分歧時要說明"
+
+
+def test_fold_fixes_verbatim_false_positives() -> None:
+    """Whisper 的繁簡輸出不一致,逐字稿是簡體時 LLM 會把引用轉成繁體。
+
+    直接比對會把**正確的引用判成編造**——
+    starParts 降成未命中、協作維度標成依據不可信。
+    """
+    from app.pipeline.collab_score import verify_evidence
+    from app.schemas.interview import CollabDimDTO, ReportResponse, StarPartDTO
+    from app.schemas.interview_repair import verify_star_verbatim
+
+    simp = "我觉得先做客群分析 样本低于三十就不采用"
+    trad = "我覺得先做客群分析"
+
+    assert verify_evidence([CollabDimDTO(name="x", score=76, evidence=trad)], simp) == []
+    r = ReportResponse(
+        mode="single",
+        star_parts=[StarPartDTO(key="S", name="情境", present=True, from_answer=trad)],
+    )
+    assert verify_star_verbatim(r, simp) == []
+    # 真的編造仍然要擋
+    assert verify_evidence(
+        [CollabDimDTO(name="x", score=76, evidence="我在台積電帶過十人團隊")], simp
+    )
+
+
+def test_fold_does_not_touch_ambiguous_chars() -> None:
+    """一對多的字不收——收了會把「頭髮」折成「頭發」,製造新的比對失敗。"""
+    from app.pipeline.text_fold import fold_variants
+
+    for c in "發髮乾幹餘余":
+        assert fold_variants(c) == c
