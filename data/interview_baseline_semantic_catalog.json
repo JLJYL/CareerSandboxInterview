@@ -1,5 +1,6 @@
 {
   "_mode": "semantic",
+  "_jd_source": "catalog",
   "_semantic": {
     "window": 16,
     "threshold": 0.45,
@@ -8,15 +9,15 @@
   "_stt_aliases": 11,
   "_cases": 10,
   "resume": {
-    "precision": 1.0,
+    "precision": 0.972972972972973,
     "recall": 1.0
   },
   "jd": {
-    "precision": 0.9649122807017544,
+    "precision": 0.9827586206896551,
     "recall": 1.0
   },
   "said": {
-    "precision": 0.7291666666666666,
+    "precision": 0.7142857142857143,
     "recall": 0.8536585365853658
   },
   "gap": {
