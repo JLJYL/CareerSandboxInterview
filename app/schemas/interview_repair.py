@@ -185,13 +185,20 @@ def verify_star_verbatim(report: ReportResponse, turns_text: str) -> list[str]:
 
     回傳違規訊息清單,空清單代表通過。這一項不做自動修復——
     引用不存在的原文是嚴重錯誤,應該讓測試紅燈而不是默默吞掉。
+
+    【比對前先折疊繁簡】
+    Whisper 對中文的繁簡輸出沒有一致保證(怡君實測:同一位講者、
+    同一支後端,五段 App 錄音繁體、一段電腦錄音簡體)。
+    逐字稿是簡體而 prompt 是繁體時,LLM 會把引用順手轉成繁體——
+    直接比對會把**正確的引用判成編造**,那一段就被降成未命中。
     """
+    from app.pipeline.text_fold import contains
+
     problems: list[str] = []
-    normalized = turns_text.replace(" ", "").replace("\n", "")
     for part in report.star_parts:
         if not part.present or not part.from_answer:
             continue
-        needle = part.from_answer.strip("「」\"' ").replace(" ", "")
-        if needle and needle not in normalized:
+        needle = part.from_answer.strip("「」\"' ")
+        if needle and not contains(turns_text, needle):
             problems.append(f"starParts[{part.key}].fromAnswer 不存在於逐字稿:{needle[:40]}")
     return problems
