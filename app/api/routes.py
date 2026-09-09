@@ -178,20 +178,30 @@ async def create_report(req: ReportRequest, session_id: str = SESSION_ID) -> Rep
     if not req.turns:
         raise HTTPException(status_code=422, detail="turns 不可為空,沒有逐字稿就沒有報告")
 
-    # 給 LLM 讀的逐字稿:純內容,不含段界換行(段界對 LLM 沒有意義,
-    # 而且會讓它以為那是句子邊界)。
+    # 【三份文字,用途不同】
+    #
+    # transcript     給 LLM 讀。純內容,不含段界換行——段界對 LLM 沒有意義,
+    #                而且會讓它以為那是句子邊界。
+    # user_text      給 TextStats 與 GapComputer。**使用者講的全部內容**,
+    #                段界用換行表示。
+    #
+    # 群面時使用者的發言在 groupSays 裡,turns 可能只有主問題的簡短回答。
+    # 這件事對 TextStats 與 gap 同樣成立,兩邊都要用 groupSays。
+    #
+    # 【為什麼 gap 也用帶換行的版本】
+    # 實測換行不影響 mentioned_skills:正常分段的偵測結果與同段完全一樣。
+    # 詞真的被切斷時抓不到(SQ\nL → 空),但那是 Whisper 分段切在詞中間造成的,
+    # 換成空白接一樣會斷。所以兩邊共用同一份,不需要兩個版本。
     transcript = "\n".join(t.answer for t in req.turns)
 
-    # 給 TextStats 的文字:段界用換行表示,analyzer 才判得出 stt_segment。
-    # 群面時使用者的發言在 groupSays 裡,turns 可能只有主問題。
-    stats_source = build_stats_text(req.turns)
+    user_text = build_stats_text(req.turns)
     if req.mode == "group" and req.group_says:
         group_text = build_group_text(req.group_says)
         if group_text.strip():
-            stats_source = group_text
+            user_text = group_text
 
     input_mode = _dominant_input_mode(req)
-    stats = get_analyzer().text_stats(stats_source)
+    stats = get_analyzer().text_stats(user_text)
 
     report = await generate_report(
         mode=req.mode,
@@ -210,11 +220,17 @@ async def create_report(req: ReportRequest, session_id: str = SESSION_ID) -> Rep
     jd, jd_notices = _resolve_jd(req.context.custom_jd, get_llm())
     if jd is None:
         jd = JDInput(description=req.context.custom_jd, source="extracted")
+    # gap = 履歷 ∩ JD − 提及。提及漏掉會讓 gap 變大,
+    # 系統對使用者說「你漏講了 SQL」而他在討論裡明明講了——
+    # 那是假指控,不是少給建議,而且靜默:報告照樣產出、測試照樣全綠。
+    #
+    # 早期版本用 transcript(只含 turns.answer),群面時使用者在討論裡
+    # 講的東西完全不在裡面。實測:提及集從 3 個技能變成空。
     candidates = get_gap().compute(
-        [e.model_dump() for e in req.experiences], jd, transcript
+        [e.model_dump() for e in req.experiences], jd, user_text
     )
     points, mp_notices = generate_missing_points(
-        candidates, transcript, req.context.custom_jd, get_llm()
+        candidates, user_text, req.context.custom_jd, get_llm()
     )
     report.missing_points = points
     report.notices = list(report.notices) + jd_notices + mp_notices

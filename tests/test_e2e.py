@@ -288,3 +288,92 @@ def test_panel_first_turn_without_mode(client) -> None:
         "answer": "x", "followUpIdx": 0, "spokenBy": ["HR 主管"], "context": FRONTEND_CTX,
     }).json()
     assert t2["speaker"], "第二輪起 spokenBy 有東西,反推得出 panel"
+
+
+# ---------------------------------------------------------------------------
+# gap 要看使用者在討論裡講的全部內容
+# ---------------------------------------------------------------------------
+
+
+class SpyGap:
+    """記下 compute() 實際收到的逐字稿。
+
+    gap 的正確性沒辦法用回傳值驗——它吃錯文字時照樣回得出候選,
+    只是候選變多(提及集變小)。要驗的是它看到了什麼。
+    """
+
+    def __init__(self) -> None:
+        self.seen: list[str] = []
+
+    def compute(self, resume, jd, transcript):
+        self.seen.append(transcript)
+        return []
+
+
+def test_gap_sees_group_discussion_not_just_turns(client, monkeypatch) -> None:
+    """群面時使用者的發言在 groupSays 裡,turns 可能只有主問題的簡短回答。
+
+    早期版本 gap 只拿 turns.answer,群面時使用者在討論裡講的東西
+    完全不在裡面。實測:提及集從 3 個技能變成空。
+
+    gap = 履歷 ∩ JD − 提及。提及漏掉 → gap 變大 →
+    系統對使用者說「你漏講了 SQL」而他明明講了。
+    那是假指控,不是少給建議,而且靜默——報告照樣產出、測試照樣全綠。
+    """
+    from app.api import deps
+
+    spy = SpyGap()
+    monkeypatch.setattr(
+        deps, "build_components",
+        lambda: (StubAnalyzer(), spy, FakeCollabObserver()),
+    )
+    import app.api.routes as routes
+    for name in ("get_llm", "get_llm_live", "get_llm_verbatim"):
+        monkeypatch.setattr(routes, name, lambda: fake_llm)
+
+    from app.main import app
+
+    with TestClient(app) as c:
+        c.post("/interviews/itv_x/report", json={
+            "mode": "group", "context": FRONTEND_CTX,
+            "turns": [{"question": "請自我介紹", "answer": "我是資管系的"}],
+            "groupSays": [
+                {"speaker": "主考官", "content": "題目是會員制度", "isUser": False},
+                {"speaker": "你", "content": "我用 SQL 重寫過週報查詢",
+                 "isUser": True, "segments": ["我用 SQL 重寫過週報查詢"]},
+                {"speaker": "AI-邏輯", "content": "母數是多少", "isUser": False},
+                {"speaker": "你", "content": "也用 Excel 做過報表", "isUser": True},
+            ],
+            "experiences": [{"id": "e1", "title": "實習", "tags": ["SQL"]}],
+        })
+
+    assert spy.seen, "gap 應該被呼叫"
+    seen = spy.seen[0]
+    assert "SQL" in seen, "使用者在討論裡講的 SQL 必須進 gap 的輸入"
+    assert "Excel" in seen
+    assert "母數是多少" not in seen, "AI 同儕的發言不該算成使用者講過"
+
+
+def test_gap_uses_turns_in_single_mode(client, monkeypatch) -> None:
+    """一對一的使用者發言本來就全在 turns.answer,只有群面中彈。"""
+    from app.api import deps
+
+    spy = SpyGap()
+    monkeypatch.setattr(
+        deps, "build_components",
+        lambda: (StubAnalyzer(), spy, FakeCollabObserver()),
+    )
+    import app.api.routes as routes
+    for name in ("get_llm", "get_llm_live", "get_llm_verbatim"):
+        monkeypatch.setattr(routes, name, lambda: fake_llm)
+
+    from app.main import app
+
+    with TestClient(app) as c:
+        c.post("/interviews/itv_x/report", json={
+            "mode": "single", "context": FRONTEND_CTX,
+            "turns": [{"question": "q", "answer": "我用 SQL 重寫過週報查詢"}],
+            "experiences": [{"id": "e1", "title": "實習", "tags": ["SQL"]}],
+        })
+
+    assert "SQL" in spy.seen[0]
