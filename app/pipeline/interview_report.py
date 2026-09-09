@@ -43,6 +43,7 @@ from collections.abc import Callable, Sequence
 
 from app.contracts.interview_protocols import TextStats
 from app.pipeline.jd_normalize import normalize_locale
+from app.pipeline.text_fold import fold_variants
 from app.pipeline.parallel import gather_blocks
 from app.prompts.interview_report import (
     MAX_IMPROVEMENTS,
@@ -244,12 +245,12 @@ def ungrounded_numbers(better: str, source: str) -> list[str]:
     兩者都不好,但目前的設計偏向少誤攔,因為誤攔是靜默的
     (使用者只看到少一段),漏抓至少還有人眼複查的機會。
     """
-    src = source.replace(" ", "").replace(",", "").replace(",", "")
+    src = fold_variants(source).replace(" ", "").replace(",", "").replace(",", "")
     bad: list[str] = []
     for m in _NUM_ARABIC.finditer(better):
         if m.group() not in src:
             bad.append(m.group())
-    for m in _NUM_CN.finditer(better):
+    for m in _NUM_CN.finditer(fold_variants(better)):
         token = m.group()          # 數字 + 量詞,例如「三位」
         if token not in src:
             bad.append(token)
