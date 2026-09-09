@@ -28,6 +28,8 @@ from __future__ import annotations
 
 import logging
 
+from collections.abc import Sequence
+
 from fastapi import APIRouter, HTTPException, Path
 
 from app.api.deps import (
@@ -49,6 +51,7 @@ from app.schemas.interview import (
     ReportResponse,
     StartInterviewRequest,
     StartInterviewResponse,
+    TurnDTO,
     TurnRequest,
     TurnResponse,
 )
@@ -175,9 +178,20 @@ async def create_report(req: ReportRequest, session_id: str = SESSION_ID) -> Rep
     if not req.turns:
         raise HTTPException(status_code=422, detail="turns 不可為空,沒有逐字稿就沒有報告")
 
+    # 給 LLM 讀的逐字稿:純內容,不含段界換行(段界對 LLM 沒有意義,
+    # 而且會讓它以為那是句子邊界)。
     transcript = "\n".join(t.answer for t in req.turns)
+
+    # 給 TextStats 的文字:段界用換行表示,analyzer 才判得出 stt_segment。
+    # 群面時使用者的發言在 groupSays 裡,turns 可能只有主問題。
+    stats_source = build_stats_text(req.turns)
+    if req.mode == "group" and req.group_says:
+        group_text = build_group_text(req.group_says)
+        if group_text.strip():
+            stats_source = group_text
+
     input_mode = _dominant_input_mode(req)
-    stats = get_analyzer().text_stats(transcript)
+    stats = get_analyzer().text_stats(stats_source)
 
     report = await generate_report(
         mode=req.mode,
@@ -243,6 +257,49 @@ async def create_report(req: ReportRequest, session_id: str = SESSION_ID) -> Rep
     from app.schemas.interview_repair import repair_report
 
     return repair_report(report)
+
+
+def build_stats_text(turns: Sequence[TurnDTO]) -> str:
+    """組給 TranscriptAnalyzer 的文字。段界用換行表示。
+
+    【為什麼不能只用 answer】
+    analyzer 的 _segment() 看的是換行:有換行就是 stt_segment(實測的段界),
+    沒有就退回 discourse_marker(以語氣詞估算)。
+
+    "\n".join(t.answer ...) 只在**題與題之間**加換行,段界完全沒進去,
+    所以 segmentation 一直是估算值。實測差別:
+        只用 answer     discourse_marker  平均段長 34.5
+        改讀 segments   stt_segment       平均段長 13.8
+
+    差的不只是數字。估算值不能講成量出來的,
+    prompt 裡的「平均每段 N 字」對 discourse_marker 是不成立的宣稱。
+
+    【退回那條要留著】
+    answer_segments 為空是常態,不是錯誤:
+        前端還沒接完之前一直是空的
+        之後也可能遇到真的沒有分段資料的來源(貼上的文字、匯入的逐字稿)
+    退回之後 segmentation 是 discourse_marker,那是誠實的降級。
+    """
+    parts: list[str] = []
+    for t in turns:
+        segs = [x for x in (t.answer_segments or []) if x.strip()]
+        parts.append("\n".join(segs) if segs else t.answer)
+    return "\n".join(parts)
+
+
+def build_group_text(says: Sequence) -> str:
+    """群面的逐字稿。同樣優先用 segments。
+
+    只取使用者的發言——TextStats 評的是使用者,
+    把 AI 同儕的話算進填充詞率與段長會讓數字失去意義。
+    """
+    parts: list[str] = []
+    for u in says:
+        if not u.is_user:
+            continue
+        segs = [x for x in (u.segments or []) if x.strip()]
+        parts.append("\n".join(segs) if segs else u.content)
+    return "\n".join(parts)
 
 
 def _dominant_input_mode(req: ReportRequest) -> str:

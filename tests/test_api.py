@@ -564,3 +564,85 @@ def test_fold_does_not_touch_ambiguous_chars() -> None:
 
     for c in "發髮乾幹餘余":
         assert fold_variants(c) == c
+
+
+# ---------------------------------------------------------------------------
+# 段界:analyzer 看的是換行,只用 answer 會讓 segmentation 永遠是估算值
+# ---------------------------------------------------------------------------
+
+
+_LONG = "我之前在系學會做過行銷然後也有去電商公司實習做一些資料的東西那時候主要是幫忙整理報表"
+
+
+def _seg(text: str):
+    """用真的 analyzer 判斷,不用 stub——這條路徑要驗的就是它怎麼斷句。"""
+    import json
+    import pathlib
+
+    from app.pipeline.transcript import TranscriptAnalyzer
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    raw = json.loads((root / "fixtures" / "vocab" / "skills_v1.json").read_text(encoding="utf-8"))
+    vocab = raw.get("skills", raw) if isinstance(raw, dict) else raw
+    return TranscriptAnalyzer(vocab, engine_filler_policy="partial").text_stats(text)
+
+
+def test_segments_produce_measured_segmentation() -> None:
+    """analyzer 的 _segment() 看的是換行:有換行是 stt_segment(實測),
+    沒有就退回 discourse_marker(以語氣詞估算)。
+
+    早期版本用 "\\n".join(t.answer ...) 只在題與題之間加換行,段界沒進去,
+    所以 segmentation 一直是估算值。實測差別:
+        只用 answer     discourse_marker  平均段長 34.5
+        改讀 segments   stt_segment       平均段長 13.8
+
+    差的不只是數字——估算值不能講成量出來的。
+    """
+    from app.api.routes import build_stats_text
+    from app.schemas.interview import TurnDTO
+
+    with_seg = [TurnDTO(question="q", answer=_LONG, answer_segments=[_LONG[:20], _LONG[20:]])]
+    assert _seg(build_stats_text(with_seg)).segmentation == "stt_segment"
+
+
+def test_missing_segments_degrade_honestly() -> None:
+    """answer_segments 為空是常態不是錯誤:前端還沒接完之前一直是空的,
+    之後也可能遇到真的沒有分段資料的來源。
+
+    退回 discourse_marker 是誠實的降級,不是壞掉。
+    """
+    from app.api.routes import build_stats_text
+    from app.schemas.interview import TurnDTO
+
+    without = [TurnDTO(question="q", answer=_LONG)]
+    assert _seg(build_stats_text(without)).segmentation == "discourse_marker"
+
+
+def test_group_stats_use_only_user_utterances() -> None:
+    """TextStats 評的是使用者。把 AI 同儕的話算進填充詞率與段長
+    會讓數字失去意義。"""
+    from app.api.routes import build_group_text
+    from app.schemas.interview import UtteranceDTO
+
+    text = build_group_text([
+        UtteranceDTO(speaker="你", content=_LONG, is_user=True,
+                     segments=[_LONG[:20], _LONG[20:]]),
+        UtteranceDTO(speaker="AI-邏輯", content="母數是多少 這個要問清楚", is_user=False),
+    ])
+    assert "母數是多少" not in text
+    assert _seg(text).segmentation == "stt_segment"
+
+
+def test_empty_segments_falls_back_to_content() -> None:
+    """空陣列跟「真的只有一段」在資料上一模一樣。
+
+    這次的 bug 就是因為分不出來:欄位看起來有、實際沒資料,
+    而兩邊都以為對方那邊接好了。
+    """
+    from app.api.routes import build_group_text
+    from app.schemas.interview import UtteranceDTO
+
+    text = build_group_text([
+        UtteranceDTO(speaker="你", content=_LONG, is_user=True, segments=[]),
+    ])
+    assert text == _LONG
