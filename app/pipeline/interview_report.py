@@ -250,9 +250,17 @@ def ungrounded_numbers(better: str, source: str) -> list[str]:
     for m in _NUM_ARABIC.finditer(better):
         if m.group() not in src:
             bad.append(m.group())
-    for m in _NUM_CN.finditer(fold_variants(better)):
-        token = m.group()          # 數字 + 量詞,例如「三位」
-        if token not in src:
+
+    # 【從原文抽 token,只用折過的版本做比對】
+    # 折疊的結果不可以拿去顯示:繁→簡的表把「三個」折成「三个」,
+    # 而這裡回傳的 token 會進 notices(「出現原回答沒有的數字(三個)」)。
+    # 從原文抽、折過之後比對,兩件事分開。
+    folded = fold_variants(better)
+    for m in _NUM_CN.finditer(better):
+        token = m.group()          # 原文的 token,例如「三位」
+        start, end = m.span()
+        # 折疊是逐字元替換,長度不變,所以位置對得上
+        if folded[start:end] not in src:
             bad.append(token)
     return bad
 
