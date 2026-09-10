@@ -558,12 +558,42 @@ def test_fold_fixes_verbatim_false_positives() -> None:
     )
 
 
-def test_fold_does_not_touch_ambiguous_chars() -> None:
-    """一對多的字不收——收了會把「頭髮」折成「頭發」,製造新的比對失敗。"""
-    from app.pipeline.text_fold import fold_variants
+def test_ambiguous_chars_fold_to_the_same_form() -> None:
+    """折向簡體時一對多的字要折到同一形,那正是比對要的。
 
-    for c in "發髮乾幹餘余":
-        assert fold_variants(c) == c
+    早期版本折向繁體,一對多(发→發/髮)只能整批不收,表只有 157 筆,
+    實測涵蓋不足:「報表製作 vs 报表制作」對不上,而那是黃金集裡的技能。
+
+    折向簡體是多對一、確定性:髮→发、發→发。
+    「頭髮」折成「头发」是正確的簡體,比對仍然正確。
+    """
+    from app.pipeline.text_fold import fold_variants, same_text
+
+    assert same_text("頭髮", "头发")
+    assert same_text("乾淨", "干净")
+    assert same_text("幹部", "干部")
+    assert fold_variants("髮") == fold_variants("发")
+
+
+def test_folded_text_is_never_displayed() -> None:
+    """乾/幹/干 全折成 干,折過的字串拿去顯示會變成錯字。
+
+    ungrounded_numbers 的回傳值會進 notices(「出現原回答沒有的數字(三個)」)。
+    早期版本從折過的字串抽 token,繁→簡之後會顯示成「三个」。
+    """
+    from app.pipeline.interview_report import ungrounded_numbers
+
+    bad = ungrounded_numbers("我訪談了三個消費者", "我做過訪談")
+    assert bad == ["三個"], f"token 要是原文不是折過的:{bad}"
+
+
+def test_fold_still_catches_real_fabrication() -> None:
+    """折疊會讓少數字共用同一形,但那不足以讓編造的引用矇混過關。"""
+    from app.pipeline.text_fold import contains
+
+    src = "我覺得先做客群分析 樣本低於三十就不採用"
+    assert contains(src, "我觉得先做客群分析")
+    assert not contains(src, "我在台積電帶過十人團隊")
 
 
 # ---------------------------------------------------------------------------
