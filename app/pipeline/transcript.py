@@ -369,110 +369,15 @@ def _entry_fields(entry: Any) -> tuple[str, str, list[str]]:
 # ---------------------------------------------------------------- 文字正規化
 
 
-#: 外觀相同但碼位不同的字元 → 正規形。
-#:
-#: 【為什麼要有這張表】
-#: 逐字稿端本來就折疊全形(U+FF01–FF5E 整段減 0xFEE0),但詞彙表端只做
-#: strip().lower()。兩端不對稱的後果是**含全形字元的詞彙表條目完全抓不到**,
-#: 而且不報錯——那個技能只是永遠偵測不到。目前詞彙表剛好是乾淨的(實測 0 筆),
-#: 但 build_vocab.py 是從 104 與政府開放資料重建的,而那些來源確實含這些字元。
-#:
-#: 【只收有唯一正確答案的】
-#: 跟 jd_normalize 的判準一致:確定性字串替換才進機械層,有歧義的不收。
-#:
-#:   U+2571 ╱  製表符對角線。外觀像斜線,實際是 BOX DRAWINGS。104 與政府
-#:             資料大量使用(實測黃金集 26 次、詞彙表 4 次),而詞彙表**內部
-#:             就不一致**——「專案成本╱品質╱風險管理」用它,
-#:             「專案時間/進度控管」用半形。同樣的意思因為一個看不見的字元
-#:             差異而得到不同比對結果。
-#:   U+FF0F ／  全形斜線。已在 FF01–FF5E 範圍內,列在這裡是為了詞彙表端也蓋到。
-#:   U+200B     零寬空格。完全看不見,落在技能名稱裡會造成無法解釋的比對失敗。
-#:             實測出現在 104 職缺的散文裝飾裡,不在技能名稱。
-#:             ★ 映射成半形空格而非移除——gap.py 用 scan() 回傳的位移去切
-#:               **原始** JD 文字當證據,折疊若改變字串長度,證據就會錯位。
-#:               嚴格等長是這張表的硬性約束,新增條目一律 1 字元對 1 字元。
-#: 繁體→簡體的字元層對照表路徑。
-#:
-#: 【為什麼需要】
-#: Whisper 對中文繁簡輸出**沒有一致保證**。怡君 2026-09-05 的實測報告:
-#: 同一位講者、同一支後端、同樣的呼叫方式,五段 App 錄音輸出繁體,
-#: 一段電腦錄音輸出簡體。原因未定(懷疑是收音鏈路差異),但不影響結論——
-#: 我們不能假設逐字稿一定是繁體。
-#:
-#: 【不修的後果:靜默的假指控】
-#: 詞彙表是繁體。逐字稿回簡體時,中文技能**全部**比對不到——實測 7 個測 7 個失敗。
-#: 而 gap = 履歷∩JD − 提及,提及變小,交集裡的技能就變成假指控。
-#: 拿黃金集實測(只把逐字稿轉簡體、其餘不動):假指控 7 → 10 筆。
-#: 不報錯,只是告訴使用者「你什麼都沒講到」。
-#:
-#: 【為什麼是繁→簡,不是簡→繁】
-#: 繁→簡是多對一,確定性的;簡→繁是一對多,要消歧義、會猜錯。
-#: 比對只需要兩邊落到同一個形,取確定性的那個方向。
-#: 產出給人看的文字一律用**原始**逐字稿(evidence 靠位移切原文),
-#: 所以這裡轉成簡體不會讓使用者看到簡體。
-T2S_CHARS_PATH = pathlib.Path(__file__).resolve().parents[2] / "data" / "t2s_chars.v1.json"
-
-
-def _load_t2s() -> dict[str, str]:
-    """讀繁簡字元對照。讀不到就回空 dict——降級但不擋啟動。
-
-    ★ 只收 1 字元對 1 字元的項目(建表時已過濾),因為 fold_chars 必須等長:
-      gap.py 用 scan() 的位移去切**原始**文字當證據,長度一變證據就錯位。
-    """
-    try:
-        raw = json.loads(T2S_CHARS_PATH.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
-    return {k: v for k, v in raw.get("chars", {}).items() if len(k) == 1 == len(v)}
-
-
-_T2S_CHARS: dict[str, str] = _load_t2s()
-
-_LOOKALIKE_MAP: dict[str, str] = {
-    "\u2571": "/",   # ╱ BOX DRAWINGS LIGHT DIAGONAL
-    "\uff0f": "/",   # ／ FULLWIDTH SOLIDUS
-    "\u200b": " ",   # 零寬空格 → 半形空格(等長)
-}
-
-
-def fold_chars(text: str) -> str:
-    """字元層折疊。**所有把字串當成比對鍵或掃描對象的地方都要用這一支**。
-
-    做四件事:
-
-        1. 外觀相同碼位不同的字元 → 正規形(見 _LOOKALIKE_MAP)
-        2. 全形 ASCII → 半形(U+FF01–FF5E 減 0xFEE0)
-        3. 全形空格 → 半形空格
-        4. 英文轉小寫
-
-    ★ 嚴格等長:輸出與輸入的字元數一定相同。gap.py 依賴這個性質——
-      它用 scan() 回傳的位移去切原始 JD 文字當證據,長度一變證據就錯位。
-
-    ★★ 哪裡漏用就會產生不對稱,而不對稱的症狀是**靜默失敗**:
-       比對不到,不報錯,那個技能只是永遠抓不到。目前的使用點:
-
-           SurfaceIndex.from_vocab      詞彙表表面形與詞頭
-           TranscriptAnalyzer.__init__  stt_aliases 的兩側
-           normalize_for_scan           逐字稿(規則同步,但自己跑迴圈以維護位移表)
-           gap.py 的三處 index.scan     JD 與履歷的散文
-           interview_eval.build_name_index  黃金集標記鍵
-    """
-    out: list[str] = []
-    for ch in text:
-        mapped = _LOOKALIKE_MAP.get(ch)
-        if mapped is not None:
-            out.append(mapped)
-            continue
-        o = ord(ch)
-        if 0xFF01 <= o <= 0xFF5E:
-            ch = chr(o - 0xFEE0)
-        elif o == 0x3000:
-            ch = " "
-        # 繁→簡。放在最後:全形轉半形之後才輪到中文字元。
-        # 已經是簡體的字不在表裡,原樣通過(冪等)。
-        out.append(_T2S_CHARS.get(ch, ch).lower())
-    return "".join(out)
-
+# ★ 折疊的唯一實作在 app/pipeline/text_fold.py(B 側 verbatim 比對也用那支)。
+#   兩份實作分岔會很難查——症狀是「這裡比對得到、那裡比對不到」,
+#   而兩邊的程式碼各自看起來都對。這裡 re-export 是為了不動既有 import。
+from app.pipeline.text_fold import (  # noqa: F401
+    _LOOKALIKE_MAP,
+    _T2S as _T2S_CHARS,
+    _T2S_PATH as T2S_CHARS_PATH,
+    fold_chars,
+)
 
 def normalize_for_scan(raw: str) -> tuple[str, list[int]]:
     """逐字稿 → (可掃描字串, 位移對照表)。
