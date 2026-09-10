@@ -1,0 +1,39 @@
+{
+  "case_id": "case-08",
+  "meta": {
+    "brief": "★ 場上有同儕，但使用者從不接在同儕之後——只跟面試官對話。",
+    "structure": "主考官 → 使用者 → 主考官追問 → 使用者 → 同儕×2（使用者不理）",
+    "source": "synthetic",
+    "rationale": "「傾聽與回應」空切片有兩種完全不同的成因，這格鎖住第二種。沒有同儕發言是**資訊不在場**，應未評分；有同儕發言但使用者從不回應是**可觀察到的行為**，應低分。兩種若寫同一句 note，LLM 分不出來，第二種會被當成資訊缺失而放過——但那正是這個維度要抓的。"
+  },
+  "utterances": [
+    {"speaker": "主考官", "text": "題目是新產品定價 大家討論一下", "is_user": false, "is_interviewer": true},
+    {"speaker": "你", "text": "我認為要先看成本結構", "is_user": true, "is_interviewer": false},
+    {"speaker": "主考官", "text": "可以再說得具體一點嗎", "is_user": false, "is_interviewer": true},
+    {"speaker": "你", "text": "把固定成本跟變動成本拆開算 才知道毛利的底線在哪", "is_user": true, "is_interviewer": false},
+    {"speaker": "AI-強勢", "text": "成本根本不是重點 要看市場願意付多少", "is_user": false, "is_interviewer": false},
+    {"speaker": "AI-邏輯", "text": "那要怎麼知道市場願意付多少", "is_user": false, "is_interviewer": false}
+  ],
+  "expected": {
+    "參與主動性": {
+      "count": 2,
+      "tags": ["自己起頭", "自己起頭"],
+      "note": "兩則都是起頭——中間那則主考官追問不算他人接續，往前也沒有任何同儕發言過。"
+    },
+    "傾聽與回應": {
+      "count": 0,
+      "note_required": true,
+      "note_must_not_say_unavailable": true,
+      "note": "★ 空切片，但成因是「使用者沒有回應同儕」不是「沒有同儕可回應」。note 必須講清楚這是行為不是資訊缺失，否則 LLM 會當成未評分放過。"
+    },
+    "論點建構": {
+      "count": 2,
+      "note": "不受影響——只看使用者自己的發言"
+    },
+    "協作姿態": {
+      "count": 6,
+      "note": "整段給出且標明身分。使用者對 AI-強勢 的反對意見完全沒有回應，這件事 LLM 要看得到。"
+    }
+  },
+  "bars_labels": null
+}

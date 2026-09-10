@@ -40,7 +40,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.contracts.interview_protocols import JDInput  # noqa: E402
 from app.pipeline.gap import GapComputer  # noqa: E402
-from app.pipeline.transcript import TranscriptAnalyzer  # noqa: E402
+from app.pipeline import transcript as T_MOD  # noqa: E402
+from app.pipeline.transcript import TranscriptAnalyzer, fold_chars  # noqa: E402
+
+#: 目前的執行模式，供報表與 baseline 命名使用。用 list 是為了讓
+#: print_report 這種模組層函式讀得到，不必到處傳參數。
+MODE = ["surface"]
+JD_SRC = ["catalog"]
 
 # ---------------------------------------------------------------- 驗收門檻
 # 【待校準】D5 之前這些是報表用的參考線,不當閘門。D5 凍結一份 baseline 之後,
@@ -163,6 +169,11 @@ def build_name_index(vocab: list[Any]) -> dict[str, str]:
       兩邊命名空間不同,不翻譯就永遠零命中。
       這正是 D1 異議第二條要定死回傳型別的原因——差集算錯不會報錯,
       只會安靜地回全 0。
+
+    ★★ 鍵一律過 fold_chars。標記鍵來自 104 與政府開放資料的原字串,
+      裡面混用 ╱(U+2571 製表符)與 /(U+002F)、全形與半形括號;
+      詞彙表**自己內部也不一致**。不折疊的話這些條目會被判成
+      「詞彙表沒有這個技能」而排除計分,指標就是在少算的資料上算出來的。
     """
     out: dict[str, str] = {}
     for entry in vocab:
@@ -172,24 +183,72 @@ def build_name_index(vocab: list[Any]) -> dict[str, str]:
             continue
         for form in [get("name_zh"), get("name_en")] + list(get("aliases") or []):
             if form:
-                out.setdefault(str(form), str(sid))
+                out.setdefault(fold_chars(str(form)), str(sid))
     return out
 
 
-def run_case(case: dict[str, Any], vocab: list[Any]) -> dict[str, Any]:
-    analyzer = TranscriptAnalyzer(vocab=vocab)
+def load_embedding():
+    """載入 bge-m3。載不起來就丟例外,**不得靜默退回表面掃描**。
+
+    ★ 這是最難查的一種錯:退回之後數字看起來完全合理(0.471 是個正常數字),
+      但它被貼上 semantic 的標籤寫進 baseline。之後每次回歸都在跟一個
+      標錯模式的基準線比,而且沒有任何跡象。寧可炸掉。
+    """
+    import os
+    if os.environ.get("INTERVIEW_EVAL_FAKE_EMBED"):
+        # 只給測試用:驗流程接不接得起來,分數沒有語意。
+        import numpy as np
+
+        class _Fake:
+            def embed(self, texts):
+                out = []
+                for t in texts:
+                    v = np.zeros(64, dtype="float32")
+                    for i, ch in enumerate(t):
+                        v[(ord(ch) * 7 + i) % 64] += 1.0
+                    n = np.linalg.norm(v)
+                    out.append((v / n if n else v).tolist())
+                return out
+
+        print("⚠ INTERVIEW_EVAL_FAKE_EMBED 已設,使用假向量——數字無意義,不得寫 baseline。")
+        return _Fake()
+    from app.providers.embeddings import BgeM3Embedding
+    return BgeM3Embedding()
+
+
+def run_case(case: dict[str, Any], vocab: list[Any],
+             embedding: Any = None,
+             stt_aliases: dict[str, str] | None = None,
+             jd_variant: dict[str, Any] | None = None) -> dict[str, Any]:
+    analyzer = TranscriptAnalyzer(
+        vocab=vocab, embedding=embedding, enable_semantic=embedding is not None,
+        stt_aliases=stt_aliases,
+    )
     name2id = build_name_index(vocab)
+    # emit_soft 跟語意段連動:語意段沒開時軟技能的漏講判定全部低信心,
+    # 不發出去。開了才發。見 gap.GapComputer 的說明。
     computer = GapComputer(analyzer)
 
     resume = case["resume"]
     raw_jd = case["jd"]
     # 黃金集存的是型錄原形;compute() 吃 JDInput。source 照實標,
     # 之後接 B 的抽取器輸出時會有 extracted 變體,兩者要分開統計。
-    jd = JDInput(
-        required_skills=list(raw_jd.get("requiredSkills") or []),
-        description=raw_jd.get("description") or "",
-        source="catalog",
-    )
+    # ★ 兩種變體共用同一份人工標記。
+    #   wants 是「這份 JD 到底要不要這個技能」——那是人對 JD 的判斷,
+    #   跟 required_skills 怎麼產生的無關。所以同一份標記可以當兩種輸入的答案,
+    #   兩邊跑完的差額就是**抽取損失的直接測量**,零額外標記成本。
+    if jd_variant:
+        jd = JDInput(
+            required_skills=list(jd_variant.get("required_skills") or []),
+            description=raw_jd.get("description") or "",
+            source="extracted",
+        )
+    else:
+        jd = JDInput(
+            required_skills=list(raw_jd.get("requiredSkills") or []),
+            description=raw_jd.get("description") or "",
+            source="catalog",
+        )
     # 多段 → 用換行接。換行本來就是 _PUNCT_RE 的斷句符號,所以 STT 的
     # 自動送出邊界會直接變成句界,sentence_count 從估算值變成實測值。
     segs = case.get("transcript_segments") or []
@@ -199,14 +258,52 @@ def run_case(case: dict[str, Any], vocab: list[Any]) -> dict[str, Any]:
     # 標記鍵翻成 skill_id;翻不到的丟進 unmapped 另外報,不要靜默吞掉
     raw_labels = case["labels"]["skills"]
     labels, unmapped = {}, []
+    # sid → 折疊到它身上的標記鍵清單。長度 > 1 代表詞彙表把人標成
+    # 不同技能的東西當成同一個,見 print_report 的合併警告。
+    conflated: dict[str, list[str]] = {}
     for name, lab in raw_labels.items():
-        sid = name2id.get(name)
+        sid = name2id.get(fold_chars(name))
         if not sid:
             unmapped.append(name)
-        elif sid in labels:
+            continue
+        conflated.setdefault(sid, []).append(name)
+        if sid in labels:
             # 兩個標記鍵指到同一個 skill_id（詞彙表把它們合併了）。
             # 直接覆寫會靜默丟掉一筆標記,所以取較保守的:has/wants 取小,
             # said 取大（寧可算他講了,少給建議勝過假指控）。
+            #
+            # ★ 保守合併會讓「人標 has=2 的那一筆」被另一筆 has=0 壓成 0,
+            #   機器正確抓到反而算成 FP。那不是模型錯,是資料模型跟標記模型
+            #   對不上。
+            #
+            #   ivw-006 是最清楚的例子,四個標記鍵折疊到同一個 sk:5384b25ce9:
+            #
+            #       專案管理              has=2 wants=0   履歷 tags
+            #       專案時間              has=2 wants=0   履歷 tags
+            #       專案時間╱進度控管      has=0 wants=2   JD
+            #       專案溝通╱整合管理      has=0 wants=2   JD
+            #
+            #   取小之後 has=0 且 wants=0——這個技能同時被判成「履歷沒有」
+            #   且「JD 不要求」,但實際上兩邊都有。那一格 precision 0.000。
+            #
+            #   ☆ 為什麼不改成取大:實測過,不是推測。--draft 下:
+            #
+            #                     取小(現況)        取大
+            #       履歷集 P       0.972 (FP 2)    1.000 (FP 0)
+            #       JD 集 P        0.982 (FP 2)    0.991 (FP 1)
+            #       漏講假指控        7 筆          8 筆   ← 這裡
+            #
+            #     取大修好了量測(那兩個 FP 本來就是合併造成的假象),
+            #     代價是 has/wants 都變大 → 更多技能進入 履歷∩JD →
+            #     gap 變大 → **多一筆假指控**。
+            #
+            #     失真的方向要選安全的那一側:取小讓數字偏悲觀但不傷使用者,
+            #     取大讓數字好看但真的多指控一次。寧可數字難看。
+            #
+            #   ★★ 沒有任何合併規則能修好互相矛盾的 ground truth。真正的
+            #     修法在兩側:黃金集改用詞彙表的粒度標記,或詞彙表把那幾個
+            #     UCAN 子職能拆開。兩者都要跟 B 對齊(他也看得到這個警告)。
+            #     在那之前,把衝突列出來讓讀數字的人知道,見 print_report。
             prev = labels[sid]
             labels[sid] = {
                 "has": min(prev.get("has", 0), lab.get("has", 0)),
@@ -215,6 +312,7 @@ def run_case(case: dict[str, Any], vocab: list[Any]) -> dict[str, Any]:
             }
         else:
             labels[sid] = lab
+    conflated = {sid: names for sid, names in conflated.items() if len(names) > 1}
 
     has_truth = {k: v.get("has", 0) for k, v in labels.items()}
     wants_truth = {k: v.get("wants", 0) for k, v in labels.items()}
@@ -236,7 +334,7 @@ def run_case(case: dict[str, Any], vocab: list[Any]) -> dict[str, Any]:
 
     machine_gap = set(machine["gap"])
     ranked = [c.skill_id for c in computer.compute(resume, jd, transcript)]
-    human_rank = [name2id.get(x, x) for x in case["labels"].get("gap_ranking", [])]
+    human_rank = [name2id.get(fold_chars(x), x) for x in case["labels"].get("gap_ranking", [])]
 
     return {
         "case_id": case["case_id"],
@@ -251,6 +349,7 @@ def run_case(case: dict[str, Any], vocab: list[Any]) -> dict[str, Any]:
         "human_rank": human_rank,
         "free_add_done": case["labels"].get("free_add_done", False),
         "unmapped": unmapped,
+        "conflated": conflated,
         "mapped": sorted(set(labels)),
     }
 
@@ -282,7 +381,14 @@ def aggregate(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 def print_report(results: list[dict[str, Any]], agg: dict[str, Any]) -> float:
     print(f"\n{'=' * 68}")
-    print(f"面試黃金測試集  {len(results)} 個 case")
+    print(f"面試黃金測試集  {len(results)} 個 case   "
+          f"模式：{MODE[0]}／JD 來源：{JD_SRC[0]}")
+    if MODE[0] == "surface":
+        print("  （表面掃描＋詞頭匹配。語意段未開，加 --semantic 才是完整管線）")
+    else:
+        print(f"  （語意段開啟：視窗 {T_MOD.SEMANTIC_WINDOW}／"
+              f"一般門檻 {T_MOD.MENTION_THRESHOLD}／"
+              f"履歷候選門檻 {T_MOD.CANDIDATE_THRESHOLD}）")
     print("=" * 68)
 
     print("\n【三個 collector 各自的準確率】")
@@ -328,6 +434,21 @@ def print_report(results: list[dict[str, Any]], agg: dict[str, Any]) -> float:
     if agg["rank_top1_in_top3"] is not None:
         print(f"\n【排序】人工首選落在機器前三名: "
               f"{agg['rank_top1_in_top3']:.3f}（{agg['rank_total']} 個 case 有排序標記）")
+
+    # 詞彙表把人標成不同技能的東西當成同一個。這不是模型錯,但會讓
+    # precision 看起來像模型錯——保守合併(has 取小)會把「人標有」壓成
+    # 「人標沒有」,機器正確抓到就變成 FP。列出來讓讀數字的人知道。
+    conflated: dict[str, set[str]] = {}
+    for r in results:
+        for sid, names in (r.get("conflated") or {}).items():
+            conflated.setdefault(sid, set()).update(names)
+    if conflated:
+        print("\n  ⚠ 詞彙表把以下標記鍵當成同一個技能（人標時是分開的）")
+        for sid, names in sorted(conflated.items()):
+            print(f"      {sid} ← {'、'.join(sorted(names))}")
+        print("      → 合併時 has/wants 取小,所以人標「有」的那筆會被人標「沒有」的壓掉,")
+        print("        機器正確抓到反而算成 FP。這幾筆造成的 precision 損失不是模型錯誤,")
+        print("        是詞彙表的別名結構跟標記的粒度對不上。")
 
     unmapped = sorted({n for r in results for n in r.get("unmapped", [])})
     mapped = sorted({n for r in results for n in r.get("mapped", [])})
@@ -456,6 +577,19 @@ def main() -> int:
     parser.add_argument("--baseline", type=Path, help="與凍結的 baseline 比對,只看退步")
     parser.add_argument("--gate", action="store_true", help="不合格時 exit 1（D5 同步點用）")
     parser.add_argument("--write-baseline", type=Path, help="把本次結果寫成 baseline")
+    parser.add_argument("--jd-source", choices=["catalog", "extracted"],
+                        default="catalog",
+                        help="JD 需求的來源。catalog=104 型錄的 requiredSkills；"
+                             "extracted=B 的抽取器跑同一份 description 的產出。"
+                             "★ 正式環境是 extracted，型錄資料只有黃金集有。")
+    parser.add_argument("--jd-variants", type=Path,
+                        default=Path("data/jd_variants_extracted.json"),
+                        help="抽取器輸出（--jd-source extracted 時使用）")
+    parser.add_argument("--stt-aliases", type=Path,
+                        help="STT 轉寫對照表（stt_confusions.v1.json）。"
+                             "safe_aliases 會併進表面掃描,是確定性的一道防線。")
+    parser.add_argument("--semantic", action="store_true",
+                        help="開語意段（載 bge-m3 約 2.3GB）。預設關閉,秒跑完。")
     parser.add_argument("--by-case", action="store_true",
                         help="逐格分解。「哪一格壞掉」比「整體平均」有用得多。")
     parser.add_argument("--draft", action="store_true",
@@ -470,6 +604,31 @@ def main() -> int:
         return 1
     vocab = load_vocab(args.vocab)
     build_id_names(vocab)
+
+    # ★ STT 對照表原本只是躺在 data/ 的一份文件——做好了但沒接上管線,
+    #   而且不會報錯。實測「C Sharp」(C# 的口語形)一直在漏抓清單裡,
+    #   就是因為 safe_aliases 從來沒被載進去。
+    jd_variants = None
+    if args.jd_source == "extracted":
+        if not args.jd_variants.exists():
+            print(f"✗ 找不到 {args.jd_variants}。extracted 模式需要抽取器輸出。")
+            return 1
+        jd_variants = json.loads(args.jd_variants.read_text(encoding="utf-8"))["variants"]
+        print(f"JD 來源：extracted（{len(jd_variants)} 格，來自 B 的抽取器）")
+
+    stt_aliases = None
+    if args.stt_aliases and args.stt_aliases.exists():
+        conf = json.loads(args.stt_aliases.read_text(encoding="utf-8"))
+        stt_aliases = conf.get("safe_aliases") or {}
+        print(f"載入 STT 安全別名 {len(stt_aliases)} 條"
+              f"（碰撞別名不載,那要靠履歷條件判定）")
+
+    embedding = None
+    if args.semantic:
+        print("載入 bge-m3（約 2.3GB），第一次會很久⋯")
+        embedding = load_embedding()   # 載不起來直接炸,不退回表面掃描
+    MODE[0] = "semantic" if args.semantic else "surface"
+    JD_SRC[0] = args.jd_source
 
     if args.draft:
         for c in cases:
@@ -488,7 +647,11 @@ def main() -> int:
               "→ 標 said → 三個旗標改 true")
         return 0 if not args.gate else 1
 
-    results = [run_case(c, vocab) for c in ready]
+    results = [
+        run_case(c, vocab, embedding, stt_aliases,
+                 jd_variants.get(c["case_id"]) if jd_variants else None)
+        for c in ready
+    ]
     agg = aggregate(results)
     coverage = print_report(results, agg)
 
@@ -517,6 +680,14 @@ def main() -> int:
               "不得用於調參數,也不得寫成 baseline。")
 
     baseline = json.loads(args.baseline.read_text(encoding="utf-8")) if args.baseline else None
+    if baseline and baseline.get("_jd_source", "catalog") != JD_SRC[0]:
+        print(f"\n  ✗ baseline 的 JD 來源是 {baseline.get('_jd_source')}，"
+              f"本次是 {JD_SRC[0]}。兩者量的是不同輸入，比對沒有意義。")
+        return 1
+    if baseline and baseline.get("_mode") and baseline["_mode"] != MODE[0]:
+        print(f"\n  ✗ baseline 是 {baseline['_mode']} 模式，本次是 {MODE[0]} 模式。"
+              "\n      兩者量的是不同管線，比對沒有意義。請用對應模式的 baseline。")
+        return 1
     failures = check_gates(agg, baseline)
 
     if args.write_baseline:
@@ -531,14 +702,35 @@ def main() -> int:
             print("\n  ✗ 拒絕寫入 baseline：本次含合成逐字稿。"
                   "拿合成資料當基準線,之後每次回歸都在跟一個假的過去比。")
             return 1
+        # ★ 兩種模式的數字不能互比。表面掃描 0.471 與語意段 0.727 量的是
+        #   不同的管線,混在同一份 baseline 裡會讓之後的回歸完全失去意義——
+        #   看到「退步」時分不出是程式壞了還是模式不同。所以檔名帶模式,
+        #   而且 baseline 內部也記模式,載入時對不上會擋。
+        out = args.write_baseline
+        import os
+        if os.environ.get("INTERVIEW_EVAL_FAKE_EMBED"):
+            print("\n  ✗ 拒絕寫入 baseline：本次使用假向量。")
+            return 1
+        tag = f"{MODE[0]}_{JD_SRC[0]}"
+        if tag not in out.stem:
+            out = out.with_name(f"{out.stem}_{tag}{out.suffix}")
         snapshot = {
-            key: {"precision": m.precision, "recall": m.recall}
-            for key, m in agg["totals"].items()
+            "_mode": MODE[0],
+            "_jd_source": JD_SRC[0],
+            # ★ 參數要跟數字一起凍。沒有這些欄位的話,回歸時看到差異
+            #   分不出是程式壞了還是參數被改過。
+            "_semantic": ({"window": T_MOD.SEMANTIC_WINDOW,
+                           "threshold": T_MOD.MENTION_THRESHOLD,
+                           "candidate_threshold": T_MOD.CANDIDATE_THRESHOLD}
+                          if MODE[0] == "semantic" else None),
+            "_stt_aliases": len(stt_aliases) if stt_aliases else 0,
+            "_cases": len(ready),
+            **{key: {"precision": m.precision, "recall": m.recall}
+               for key, m in agg["totals"].items()},
         }
-        args.write_baseline.write_text(
-            json.dumps(snapshot, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        print(f"\n  baseline 已寫入 {args.write_baseline}（{len(ready)} 格）")
+        out.write_text(json.dumps(snapshot, ensure_ascii=False, indent=2),
+                       encoding="utf-8")
+        print(f"\n  baseline 已寫入 {out}（{len(ready)} 格，模式 {MODE[0]}）")
 
     print()
     if failures:

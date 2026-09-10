@@ -1,0 +1,66 @@
+{
+  "case_id": "case-07",
+  "meta": {
+    "brief": "STT 走樣文字。技術詞轉錯、沒有標點、語意反轉。",
+    "structure": "他人 → 使用者 → 他人 → 使用者(含走樣)",
+    "source": "synthetic",
+    "rationale": "切片是純機械操作,不應該因為文字走樣就出錯——走樣的字原樣進切片,由 LLM 依 prompt 裡「不要因為用詞奇怪就扣分,那可能是辨識錯誤」自行處理。這格鎖住切片層不做任何清理或猜測:清理是 TranscriptAnalyzer 的責任,不是 CollabObserver 的。",
+    "stt_artifacts": [
+      "「gate」= Git(safe_aliases 已收)",
+      "「加巴screen」= JavaScript",
+      "沒有標點,只有空格斷句",
+      "「蠻有興趣」→「沒有興趣」語意反轉(STT_TERM_PROBE 實測到過)"
+    ]
+  },
+  "utterances": [
+    {
+      "speaker": "AI-邏輯",
+      "text": "版本控制你們都用什麼",
+      "is_user": false,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "你",
+      "text": "我們用gate 然後前端的部分是加巴screen寫的",
+      "is_user": true,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "AI-強勢",
+      "text": "那你對後端有沒有興趣",
+      "is_user": false,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "你",
+      "text": "後端我沒有興趣 之前有修過資料庫的課",
+      "is_user": true,
+      "is_interviewer": false
+    }
+  ],
+  "expected": {
+    "參與主動性": {
+      "count": 2,
+      "tags": [
+        "接續他人之後",
+        "接續他人之後"
+      ],
+      "note": "走樣文字原樣進切片,不做任何修正"
+    },
+    "傾聽與回應": {
+      "count": 2,
+      "paired_with": [
+        "AI-邏輯",
+        "AI-強勢"
+      ]
+    },
+    "論點建構": {
+      "count": 2
+    },
+    "協作姿態": {
+      "count": 4
+    },
+    "text_preserved_verbatim": true
+  },
+  "bars_labels": null
+}

@@ -1,0 +1,73 @@
+{
+  "case_id": "case-01",
+  "meta": {
+    "brief": "基準線。標準群面:AI 同儕交錯發言,使用者穿插回應。",
+    "structure": "他人 → 使用者 → 他人 → 使用者 → 他人 → 使用者",
+    "source": "synthetic",
+    "rationale": "最單純的交錯結構。這格若不對,是切片規則本身壞了,不是邊界問題。"
+  },
+  "utterances": [
+    {
+      "speaker": "AI-邏輯",
+      "text": "我覺得會員制度要先看留存率",
+      "is_user": false,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "你",
+      "text": "留存率之前要先確認客群是誰",
+      "is_user": true,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "AI-強勢",
+      "text": "客群不是很明顯嗎 就是年輕人",
+      "is_user": false,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "你",
+      "text": "年輕人範圍太廣 學生跟上班族的付費意願差很多",
+      "is_user": true,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "AI-親切",
+      "text": "那要怎麼分",
+      "is_user": false,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "你",
+      "text": "可以先用問卷篩一輪 再做深度訪談",
+      "is_user": true,
+      "is_interviewer": false
+    }
+  ],
+  "expected": {
+    "參與主動性": {
+      "count": 3,
+      "tags": [
+        "接續他人之後",
+        "接續他人之後",
+        "接續他人之後"
+      ]
+    },
+    "傾聽與回應": {
+      "count": 3,
+      "paired_with": [
+        "AI-邏輯",
+        "AI-強勢",
+        "AI-親切"
+      ]
+    },
+    "論點建構": {
+      "count": 3
+    },
+    "協作姿態": {
+      "count": 6,
+      "note": "整段不切,含他人發言"
+    }
+  },
+  "bars_labels": null
+}

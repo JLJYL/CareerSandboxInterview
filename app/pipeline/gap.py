@@ -192,7 +192,7 @@ def collect_resume_skills(resume: list[dict], normalizer, index: SurfaceIndex,
                 prev.experience_ids.append(eid)
         if scan_prose:
             desc = _as_text(exp.get("description"))
-            for start, end, surface, sid_hint in index.scan(desc.lower()):
+            for start, end, surface, sid_hint in index.scan(desc):
                 sid = _resolve(normalizer, index, surface) or sid_hint
                 if sid and sid not in out:
                     out[sid] = _Ev(sid, "prose", f"experiences[{eid}].description@{start}:{end}",
@@ -218,7 +218,7 @@ def collect_jd_skills(jd: JDInput, normalizer, index: SurfaceIndex) -> dict[str,
             out[sid] = _Ev(sid, "structured", f"required_skills[{i}]", text, w)
 
     desc = jd.description or ""
-    for start, end, surface, sid_hint in index.scan(desc.lower()):
+    for start, end, surface, sid_hint in index.scan(desc):
         sid = _resolve(normalizer, index, surface) or sid_hint
         if not sid or sid in out:
             continue
@@ -309,7 +309,9 @@ class GapComputer:
         resume_skills = collect_resume_skills(resume, self._normalizer, self._index,
                                               scan_prose=self._scan_resume_prose)
         jd_skills = collect_jd_skills(jd, self._normalizer, self._index)
-        mentioned = self._analyzer.mentions(transcript or "")
+        # ★ 履歷技能集當 candidates:對它們放寬偵測門檻。
+        #   合約 docstring 明訂「呼叫端(GapComputer.compute)以履歷技能集當 candidates」。
+        mentioned = self._analyzer.mentions(transcript or "", set(resume_skills))
         if self._confusions:
             extra = resolve_confusions(set(mentioned), set(resume_skills),
                                        self._confusions, self._name_to_id)
@@ -344,7 +346,7 @@ class GapComputer:
         r = collect_resume_skills(resume, self._normalizer, self._index,
                                   scan_prose=self._scan_resume_prose)
         j = collect_jd_skills(jd, self._normalizer, self._index)
-        m = self._analyzer.mentions(transcript or "")
+        m = self._analyzer.mentions(transcript or "", set(r))
         overlap = set(r) & set(j)
         gap = overlap - set(m)
         return {
@@ -382,7 +384,7 @@ def _resolve(normalizer: Any, index: SurfaceIndex, text: str) -> str | None:
     sid = resolve_skill_id(normalizer, text)
     if sid:
         return sid
-    hits = index.scan(text.lower())
+    hits = index.scan(text)
     return hits[0][3] if hits else None
 
 

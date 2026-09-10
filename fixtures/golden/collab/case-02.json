@@ -1,0 +1,76 @@
+{
+  "case_id": "case-02",
+  "meta": {
+    "brief": "使用者把一段話拆成連續三則。驗證浮動配對不因斷句改變判斷。",
+    "structure": "他人 → 使用者×3 → 他人 → 使用者",
+    "source": "synthetic",
+    "rationale": "STT 會因為停頓自動斷句,一段完整論述被切成多則是常態而非例外。若用嚴格相鄰判斷,第二三則會被誤標成「自己起頭」、且配不到任何他人發言——使用者講得愈完整、被扣愈多。這格鎖住那個不能發生。"
+  },
+  "utterances": [
+    {
+      "speaker": "AI-邏輯",
+      "text": "預算有限的話應該先做哪一塊",
+      "is_user": false,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "你",
+      "text": "我覺得先做客群調查",
+      "is_user": true,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "你",
+      "text": "因為不知道客群 後面的預算怎麼配都是猜的",
+      "is_user": true,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "你",
+      "text": "而且調查的成本其實不高 問卷發下去兩週就有資料",
+      "is_user": true,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "AI-強勢",
+      "text": "兩週太久了吧",
+      "is_user": false,
+      "is_interviewer": false
+    },
+    {
+      "speaker": "你",
+      "text": "那可以先發小樣本 三天先看趨勢",
+      "is_user": true,
+      "is_interviewer": false
+    }
+  ],
+  "expected": {
+    "參與主動性": {
+      "count": 4,
+      "tags": [
+        "接續他人之後",
+        "接續他人之後",
+        "接續他人之後",
+        "接續他人之後"
+      ],
+      "note": "連續三則全部維持「接續」,不因斷句被改判成起頭"
+    },
+    "傾聽與回應": {
+      "count": 4,
+      "paired_with": [
+        "AI-邏輯",
+        "AI-邏輯",
+        "AI-邏輯",
+        "AI-強勢"
+      ],
+      "note": "連續三則配對同一位他人,直到下一位他人出現才換"
+    },
+    "論點建構": {
+      "count": 4
+    },
+    "協作姿態": {
+      "count": 6
+    }
+  },
+  "bars_labels": null
+}

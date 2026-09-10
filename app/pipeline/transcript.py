@@ -39,6 +39,8 @@ W1/W2 的正規化器吃的是**離散技能字串**（JD 的 requiredSkills、�
 
 from __future__ import annotations
 
+import json
+import pathlib
 import re
 from collections import defaultdict
 from typing import Any, Iterable, Protocol, Sequence
@@ -49,6 +51,26 @@ from app.contracts.interview_protocols import TextStats
 # 扁平字串,所以證據的定位資訊在邊界被壓平。內部保留完整結構是為了校準
 # 與 debug 能回溯「這一條是哪一段抓到的」。
 from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class MentionResult:
+    """一次 mentions() 呼叫的完整輸出。
+
+    ★ 為什麼要有這個容器:合約明訂 TranscriptAnalyzer 必須是 app 啟動時載入的
+      singleton(bge-m3 約 2.3GB,不能每個 request new 一個)。而先前 near_misses
+      與 residuals 是寫在**實例**上的每次呼叫狀態,兩個後果:
+
+        near_misses  併發時互相污染。A 的請求可能讀到 B 的結果,
+                     而 B 側拿它寫 why——錯得很具體、很有說服力。
+        residuals    跨請求累積不清空,長時間執行的伺服器會持續長大。
+
+      單執行緒測試永遠看不出來。改成回傳值之後,實例上不再有可變狀態。
+    """
+
+    mentions: dict[str, list["MentionEvidence"]]
+    near_misses: dict[str, "MentionEvidence"]
+    residuals: list[dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -70,18 +92,70 @@ class MentionEvidence:
 # ---------------------------------------------------------------- 參數
 # 沿用 W2 的規矩：參數是準合約，改參數＝改測試，同一個 commit。
 
-#: 【待校準】語意段採納門檻。刻意低於正規化器的 0.62——理由見檔頭的不對稱。
-#: 校準素材：W1 的黃金測試集 10 份逐字稿，人工標「這句到底算不算講到 X」。
-#: 校準時機：W2 D3–D5，比照 calibrate_normalizer.py 那套做法出掃描表。
-MENTION_THRESHOLD = 0.55
+#: 語意段採納門檻。**W2 D3–D5 已校準**（先前是 0.55，憑常識填的）。
+#:
+#: 掃描 4 視窗 × 7 門檻 × 10 格，實測結果：
+#:
+#:     語意段關閉        提及 R 0.488   漏講 P 0.471   ← 假指控 9 筆
+#:     視窗16/門檻0.45   提及 R 0.805   漏講 P 0.727   ← 假指控 3 筆
+#:
+#: 漏講 recall 全程維持 1.000——真漏講一筆都沒被吃掉。
+#:
+#: ★ 為什麼選 0.45 而不是掃描器推薦的 0.40（recall 略高）：
+#:   視窗 16 在 0.40／0.45／0.50 三個門檻的四項指標完全相同,是一片**平原**;
+#:   0.40 在掃描範圍的邊緣,不知道再低會不會崩。參數落在平原中間比落在
+#:   邊緣穩健。同樣 recall 下 0.45 的提及 precision 也較好（0.717 vs 0.660）。
+#:
+#: ★ 提及 precision 從 0.952 掉到 0.717 是刻意接受的:語意段會把一些沒講到的
+#:   算成講到,方向上安全（少給建議 vs 假指控）。但這個保證建立在 6 段逐字稿上,
+#:   樣本一大可能不成立。
+MENTION_THRESHOLD = 0.45
 
 #: 【待校準】差一點的下界。落在 [NEAR_MISS_FLOOR, MENTION_THRESHOLD) 的視窗
 #: 不算「講到」，但會存進 near_misses——它是 B 寫 why 時最有用的一種料。
 NEAR_MISS_FLOOR = 0.42
 
+#: 【待校準】**履歷候選的放寬門檻**。合約 candidates 參數的實際用途。
+#:
+#: 為什麼可以放寬:漏講 = 履歷∩JD − 提及。一筆假指控只會發生在
+#: **履歷上有、JD 也要**的技能上。所以對「這個人履歷上的那幾個技能」
+#: 放寬偵測,正好對準傷害發生的地方,而範圍只有 8 個詞,誤傷面積很小。
+#:
+#: 為什麼安全:放寬只會讓 mentioned 變大,而 gap = 交集 − mentioned,
+#: 所以它**只能減少 gap,不可能新增假指控**。代價在另一邊——
+#: 放太寬會把真漏講也吃掉,gap recall(目前 1.000)會掉。那才是要量的。
+#:
+#: **W2 已校準 = 0.40。** 掃描 0.45→0.20 的實測結果：
+#:
+#:     0.45(不放寬)   提及 R 0.805   漏講 P 0.727 / R 1.000   假指控 3
+#:     0.40 以下      提及 R 0.829   漏講 P 0.727 / R 1.000   假指控 3
+#:
+#: 取 0.40:提及 recall +0.024,代價為零(漏講兩項都沒動)。再低沒有額外好處。
+#:
+#: ★ 但它**沒有解決目標問題**。剩下那 3 筆假指控(專案管理×1、軟體程式設計×2)
+#:   門檻降到 0.20 都抓不到——不是「差一點」,是根本不在附近。
+#:
+#:   原因:「專案管理」是 4 字抽象標籤,而使用者講的是
+#:   「我負責約訪談時間、有人拖延就傳訊息設 deadline」。
+#:   **具體行為的向量跟抽象標籤的向量,在 bge-m3 的空間裡本來就遠**——
+#:   這不是門檻問題,是兩者屬於不同的語意層級。
+#:
+#:   真要解決得把技能的**行為描述**放進詞彙表當別名
+#:   (「排時程、追進度、設期限」→ 專案管理),拿行為對行為比。
+#:   那是詞彙表工程,不是參數調整。
+CANDIDATE_THRESHOLD = 0.40
+
 #: 語意段的滑動視窗（字元）。無標點逐字稿沒有句子，只能用固定視窗。
-SEMANTIC_WINDOW = 28
-SEMANTIC_STRIDE = 14
+#:
+#: **W2 已校準。視窗比門檻更關鍵**——實測 recall：
+#:     視窗 12 → 0.805    視窗 20 → 0.707
+#:     視窗 16 → 0.805    視窗 28 → 0.561
+#:
+#: 原因:長視窗把一整段話拿去跟四個字的技能名比相似度,中間的「我那時候」
+#: 「然後」全是雜訊,餘弦分數被稀釋。28 字幾乎沒用。
+#: 12 與 16 的 recall 相同,取 16 因為提及 precision 較好。
+SEMANTIC_WINDOW = 16
+SEMANTIC_STRIDE = 8
 
 #: 引用切片的前後文長度，給 B 的 prompt 用。
 QUOTE_PAD = 18
@@ -168,6 +242,21 @@ FILLERS: tuple[str, ...] = LEXICAL_FILLERS
 #: 不足以構成證據。150 字約當 45–60 秒的口語。
 PARTIAL_SUPPRESSION_MIN_CHARS = 150
 
+#: 因果連接詞。B 要「邏輯清晰度」的錨（見 REQUEST_connector_rate.md）。
+#:
+#: ★ 只做因果一類。他原本列三類，實測六段逐字稿（2,477 字）之後兩類不成立：
+#:
+#:     轉折（但是/不過/然而/雖然）  出現 **0 次**。不是稀少，是完全沒有。
+#:     序列（首先/接著/最後）       扣掉「然後」只剩 10 次，而「然後」39 次
+#:                                 且已在 FILLERS 裡——同時算連接詞與填充詞的話，
+#:                                 講話越不流暢的人邏輯分數越高，兩個指標會打架。
+#:
+#:   因果類不含「然後」，所以那個打架不會發生，不必做上下文判斷。
+#:   做了永遠是 0 的欄位比沒有欄位更容易被誤用，所以另外兩類不做。
+CAUSAL_CONNECTORS: tuple[str, ...] = (
+    "因為", "所以", "因此", "由於", "導致", "造成", "使得", "才能", "為了",
+)
+
 #: 無標點時的語段分界詞。
 DISCOURSE_MARKERS: tuple[str, ...] = (
     "然後", "接下來", "後來", "所以", "再來", "另外", "最後",
@@ -231,6 +320,41 @@ def _unwrap_skill_id(result: Any) -> str | None:
     return None
 
 
+#: 詞彙表向量的全域快取。key = (embedding 物件 id, 表面形 tuple)。
+#:
+#: ★ 沒有這個的話調參會跑到天亮。實測：4 視窗 × 7 門檻 × 10 格 = 280 次
+#:   重算整份詞彙表的向量,共 14.6 萬次向量化,跑了 **2.7 小時**。
+#:   詞彙表在整輪掃描中完全沒變,那 279 次全是白算的。
+_VOCAB_VEC_CACHE: dict[tuple, Any] = {}
+
+
+def embed_vocab_cached(embedding: Any, surfaces: list[str]) -> Any:
+    """詞彙表向量,跨實例快取。逐字稿視窗不快取（每次都不一樣）。"""
+    key = (id(embedding), tuple(surfaces))
+    if key not in _VOCAB_VEC_CACHE:
+        _VOCAB_VEC_CACHE[key] = embed_texts(embedding, surfaces)
+    return _VOCAB_VEC_CACHE[key]
+
+
+def embed_texts(embedding: Any, texts: list[str]) -> Any:
+    """呼叫 embedding provider。
+
+    ★ 你們既有的介面是 `EmbeddingProvider.embed(texts) -> list[list[float]]`
+      （app/providers/embeddings.py）。我原本寫死 `.encode()`（sentence-transformers
+      的慣例），跟自家 Protocol 對不上,語意段一開就 AttributeError。
+      這裡兩個都吃,`embed` 優先——那才是這個專案的正式介面。
+    """
+    import numpy as np
+    for name in ("embed", "encode"):
+        fn = getattr(embedding, name, None)
+        if callable(fn):
+            return np.asarray(fn(list(texts)), dtype="float32")
+    raise AttributeError(
+        f"{type(embedding).__name__} 沒有 embed() 也沒有 encode()——"
+        "請對齊 app/providers/embeddings.py 的 EmbeddingProvider"
+    )
+
+
 def _entry_fields(entry: Any) -> tuple[str, str, list[str]]:
     """CanonicalSkill → (skill_id, name_zh, 全部表面形)。dict 與物件都吃。"""
     get = entry.get if isinstance(entry, dict) else lambda k, d=None: getattr(entry, k, d)
@@ -244,6 +368,16 @@ def _entry_fields(entry: Any) -> tuple[str, str, list[str]]:
 
 # ---------------------------------------------------------------- 文字正規化
 
+
+# ★ 折疊的唯一實作在 app/pipeline/text_fold.py(B 側 verbatim 比對也用那支)。
+#   兩份實作分岔會很難查——症狀是「這裡比對得到、那裡比對不到」,
+#   而兩邊的程式碼各自看起來都對。這裡 re-export 是為了不動既有 import。
+from app.pipeline.text_fold import (  # noqa: F401
+    _LOOKALIKE_MAP,
+    _T2S as _T2S_CHARS,
+    _T2S_PATH as T2S_CHARS_PATH,
+    fold_chars,
+)
 
 def normalize_for_scan(raw: str) -> tuple[str, list[int]]:
     """逐字稿 → (可掃描字串, 位移對照表)。
@@ -264,11 +398,50 @@ def normalize_for_scan(raw: str) -> tuple[str, list[int]]:
     chars: list[str] = []
     idx: list[int] = []
     for i, ch in enumerate(raw):
+        mapped = _LOOKALIKE_MAP.get(ch)
+        if mapped is not None:
+            chars.append(mapped)
+            idx.append(i)
+            continue
         o = ord(ch)
         if 0xFF01 <= o <= 0xFF5E:
             ch = chr(o - 0xFEE0)
         elif o == 0x3000:
             ch = " "
+        # ★ 這裡刻意**不做繁簡轉換**,那是 fold_chars / SurfaceIndex.scan 的事。
+        #
+        #   這支的輸出同時餵給兩條路。表面掃描走 scan(),它自己會折疊(含繁簡),
+        #   對得上折疊過的索引鍵。但**語意段拿的是這支的原始輸出**,而語意段的
+        #   詞彙表向量用的是未折疊的表面形——這裡若轉成簡體,逐字稿是繁體時
+        #   反而變成視窗簡體、詞彙表繁體,製造出原本沒有的不對稱。
+        #
+        # ☆ 已知殘留:逐字稿本身是簡體時,語意段仍有不對稱(視窗簡體、
+        #   詞彙表繁體)。實測過了,不是猜的——把黃金集逐字稿轉簡體、
+        #   其餘不動,--semantic 跑兩次:
+        #
+        #       提及集 recall / TP / FN   0.829 / 34 / 7   兩邊完全相同
+        #       提及集 precision          0.708 → 0.667    FP 14 → 17
+        #       漏講假指控                 3 筆 → 3 筆      沒有變化
+        #       漏講 recall               1.000 → 0.875    TP 8 → 7
+        #       排序                      1.000 → 0.800
+        #
+        #   方向跟直覺相反:不是少抓,是**多抓**。跨字形的相似度分布比較
+        #   不銳利,原本落在 0.45 以下的被推上來(新多抓的是「帳務處理」
+        #   「結帳作業與帳務處理」這類語意相近但不同的長詞)。
+        #
+        #   提及集變大 → gap 變小 → 有一個真實缺口沒被報出來,使用者少拿
+        #   一條建議。依 GapComputer 的不對稱分析那是安全側,最傷的假指控
+        #   沒有變化。
+        #
+        #   ★ 幅度不可信:評估工具自己警告 10 格只由 6 段逐字稿支撐,
+        #     8→7 這種變化在這個樣本量下接近雜訊。方向可信(一致的多抓),
+        #     數字不要拿去當校準依據。
+        #
+        #   **不現在修**:修法是語意段兩側都折疊,那會改變送進 bge-m3 的
+        #   文字、相似度分布跟著變,而 MENTION_THRESHOLD=0.45 是在現有
+        #   向量上校準的。STT 換引擎本來就要重新校準,那時把「折疊 vs
+        #   不折疊」當成一個掃描維度一起跑,才有數據可以判斷。
+        #   重現方式見 tools/make_simplified_golden.py。
         chars.append(ch.lower())
         idx.append(i)
 
@@ -335,6 +508,7 @@ class SurfaceIndex:
 
     def __init__(self, surface_to_skill: dict[str, str]) -> None:
         self._heads: set[str] = set()
+        self._stt_forms: set[str] = set()
         self._buckets: dict[str, list[tuple[str, str]]] = defaultdict(list)
         for surface, skill_id in surface_to_skill.items():
             if not surface:
@@ -344,7 +518,21 @@ class SurfaceIndex:
             bucket.sort(key=lambda pair: -len(pair[0]))
 
     @classmethod
-    def from_vocab(cls, vocab: Iterable[Any], *, with_heads: bool = True) -> "SurfaceIndex":
+    def from_vocab(cls, vocab: Iterable[Any], *, with_heads: bool = True,
+                   extra_aliases: dict[str, str] | None = None) -> "SurfaceIndex":
+        """建索引。三趟,順序就是優先序:
+
+            1. 完整表面形（name_zh / name_en / aliases）
+            2. STT 轉寫別名（extra_aliases，{轉寫形: 正式名}）
+            3. 詞頭（只補洞）
+
+        ★ 三趟必須全域分開,不能逐條目做完三件事。
+          先前把 STT 別名合併寫在外面、逐條目「完整形→詞頭」,結果第一條的
+          詞頭會贏過第二條的完整形——「報表彙整與管理」的詞頭「報表彙整」
+          蓋掉了「報表彙整」這個獨立條目,同一句話解析到不同技能,而且不報錯。
+          實測履歷集 recall 因此從 1.000 掉到 0.958。
+        """
+        vocab = list(vocab)
         mapping: dict[str, str] = {}
         heads: set[str] = set()
         for entry in vocab:
@@ -352,30 +540,63 @@ class SurfaceIndex:
             if not skill_id:
                 continue
             for surface in surfaces:
-                key = surface.strip().lower()
+                # ★ fold_chars 而不是只 strip().lower()——逐字稿端會折疊全形
+                #   與相似字元,詞彙表端不折疊的話兩邊永遠對不上,而且不報錯。
+                key = fold_chars(surface.strip())
                 if not key:
                     continue
                 # 單字元的中文表面形太吵（「圖」「數」），只留單字元的英文（R、C）
                 if len(key) == 1 and not _is_ascii_alpha(key):
                     continue
                 mapping.setdefault(key, skill_id)
+        stt_forms: set[str] = set()
+        if extra_aliases:
+            # 第二趟：STT 轉寫別名。正式名要先能對到 skill_id 才登記。
+            name_to_id: dict[str, str] = {}
+            for entry in vocab:
+                sid, _zh, forms = _entry_fields(entry)
+                for f in forms:
+                    name_to_id.setdefault(fold_chars(f.strip()), sid)
+            for stt_form, canonical in extra_aliases.items():
+                sid = name_to_id.get(fold_chars(str(canonical).strip()))
+                key = fold_chars(str(stt_form).strip())
+                if sid and key and key not in mapping:
+                    mapping[key] = sid
+                    stt_forms.add(key)
+
         if with_heads:
-            # 詞頭後登記,setdefault 保證完整表面形優先——詞頭只補洞,不搶。
+            # 第三趟：詞頭只補洞,不搶。setdefault 保證前兩趟優先。
             for entry in vocab:
                 skill_id, _name, surfaces = _entry_fields(entry)
                 if not skill_id:
                     continue
                 for surface in surfaces:
                     head = extract_head(surface.strip())
-                    if head and head.lower() not in mapping:
-                        mapping[head.lower()] = skill_id
-                        heads.add(head.lower())
+                    folded_head = fold_chars(head) if head else ""
+                    if folded_head and folded_head not in mapping:
+                        mapping[folded_head] = skill_id
+                        heads.add(folded_head)
         index = cls(mapping)
         index._heads = heads
+        index._stt_forms = stt_forms
         return index
 
     def scan(self, text: str) -> list[tuple[int, int, str, str]]:
-        """→ [(start, end, surface, skill_id), ...]，位移是 text 上的。"""
+        """→ [(start, end, surface, skill_id), ...]，位移是 text 上的。
+
+        ★ 折疊在這裡做,不在呼叫端。索引鍵是折疊過的(全形→半形、
+          相似字元正規化、繁→簡),掃描文字若沒折疊就永遠對不上,
+          而且不報錯——只是什麼都掃不到。
+
+          之前把折疊放在呼叫端,結果 tests/test_interview_w1.py 直接
+          呼叫 scan() 時漏掉,整個索引靜默失效。責任放在這裡,
+          呼叫端就不可能忘。
+
+        ★★ fold_chars 嚴格等長,所以回傳的位移在**原始** text 上也成立,
+          呼叫端可以直接拿去切原文當證據。等長是這個設計的前提,
+          _LOOKALIKE_MAP 與繁簡表新增條目時一律 1 字元對 1 字元。
+        """
+        text = fold_chars(text)
         hits: list[tuple[int, int, str, str]] = []
         i, n = 0, len(text)
         while i < n:
@@ -430,6 +651,7 @@ class TranscriptAnalyzer:
         enable_semantic: bool = False,
         threshold: float = MENTION_THRESHOLD,
         near_miss_floor: float = NEAR_MISS_FLOOR,
+        candidate_threshold: float = CANDIDATE_THRESHOLD,
         engine_filler_policy: str = "unknown",
         stt_aliases: dict[str, str] | None = None,
     ) -> None:
@@ -444,46 +666,20 @@ class TranscriptAnalyzer:
         #   一次設定,不做逐次推論。探測回來之前維持 "unknown"。
         self._engine_filler_policy = engine_filler_policy
         self._vocab = list(vocab)
-        self._index = SurfaceIndex.from_vocab(self._vocab)
+        self._index = SurfaceIndex.from_vocab(
+            self._vocab, extra_aliases=self._stt_aliases or None
+        )
         self._normalizer = normalizer
         self._embedding = embedding
         self._enable_semantic = bool(enable_semantic and embedding is not None)
         self._threshold = threshold
         self._near_miss_floor = near_miss_floor
+        self._candidate_threshold = candidate_threshold
         self._display: dict[str, str] = {}
         for entry in self._vocab:
             skill_id, name_zh, _ = _entry_fields(entry)
             if skill_id:
                 self._display[skill_id] = f"{name_zh}({skill_id})" if name_zh else skill_id
-        if self._stt_aliases:
-            name_to_id = {}
-            for entry in self._vocab:
-                sid, zh, forms = _entry_fields(entry)
-                for f in forms:
-                    name_to_id.setdefault(f.lower(), sid)
-            extra = {}
-            for stt_form, canonical in self._stt_aliases.items():
-                sid = name_to_id.get(canonical.lower())
-                if sid:
-                    extra[stt_form.lower()] = sid
-            if extra:
-                merged = dict(self._index._buckets_flat()) if hasattr(
-                    self._index, "_buckets_flat") else {}
-                for surface, sid in extra.items():
-                    merged[surface] = sid
-                for entry in self._vocab:
-                    sid, zh, forms = _entry_fields(entry)
-                    for f in forms:
-                        merged.setdefault(f.strip().lower(), sid)
-                        h = extract_head(f.strip())
-                        if h:
-                            merged.setdefault(h.lower(), sid)
-                heads = set(self._index._heads)
-                self._index = SurfaceIndex(merged)
-                self._index._heads = heads
-                self._stt_forms = set(extra)
-        self._residuals: list[dict[str, Any]] = []
-        self._near_misses: dict[str, MentionEvidence] = {}
         self._vec_cache: Any = None
 
     # -------------------------------------------------- 契約方法
@@ -496,13 +692,11 @@ class TranscriptAnalyzer:
 
         candidates=None 時掃全詞彙表（W1 行為）。給定時只回落在該集合內的。
 
-        ★ 目前只做「事後過濾」,還沒做合約講的履歷條件式模糊匹配。
-          差別很大:過濾只是把掃出來的結果篩掉一部分,不會讓「加巴screen」
-          變成 JavaScript;真正的價值在於**範圍限縮之後可以放寬匹配**。
-          那是 W2 的實作，這裡先讓簽章對齊，行為維持保守。
+        ★ candidates 不是事後過濾,是**放寬門檻**。落在 candidates 裡的技能
+          用 CANDIDATE_THRESHOLD(較低),其餘用 MENTION_THRESHOLD。
+          範圍限縮之後才敢放寬,這才是這個參數的價值所在。
         """
-        found = set(self.mentions(transcript).keys())
-        return found if candidates is None else (found & candidates)
+        return set(self.mentions(transcript, candidates).keys())
 
     def text_stats(self, transcript: str) -> TextStats:
         """填充詞、量化詞、語段長度。全部確定性，不經模型。"""
@@ -528,6 +722,13 @@ class TranscriptAnalyzer:
                 breakdown[filler] = count
         filler_count = sum(breakdown.values())
 
+        causal = {}
+        for w in CAUSAL_CONNECTORS:
+            n = lowered.count(w)
+            if n:
+                causal[w] = n
+        causal_n = sum(causal.values())
+
         quant_spans: set[tuple[int, int]] = set()
         for pattern in (_ARABIC_QUANT_RE, _CHINESE_QUANT_RE, _PURE_PERCENT_RE):
             for m in pattern.finditer(text):
@@ -547,6 +748,8 @@ class TranscriptAnalyzer:
             avg_sentence_len=round(avg_len, 1),
             segmentation=mode,
             filler_reliability=self._filler_reliability(breakdown, char_count),
+            connector_rate=round(causal_n / char_count * 100, 2) if char_count else 0.0,
+            connector_detail={"causal": causal_n} if causal_n else {},
         )
 
     def _filler_reliability(self, breakdown: dict[str, int], char_count: int) -> str:
@@ -585,13 +788,20 @@ class TranscriptAnalyzer:
 
     # -------------------------------------------------- 擴充方法（A 側自用）
 
-    def mentions(self, transcript: str) -> dict[str, list[MentionEvidence]]:
+    def mentions(self, transcript: str,
+                 candidates: set[str] | None = None) -> dict[str, list[MentionEvidence]]:
+        """→ {skill_id: 證據}。要 near_misses / residuals 請用 analyse()。"""
+        return self.analyse(transcript, candidates).mentions
+
+    def analyse(self, transcript: str,
+                candidates: set[str] | None = None) -> MentionResult:
         """帶證據的提及集。GapComputer 用這個，不用 mentioned_skills()。
 
         契約規定 mentioned_skills 回 set[str]，但 gap 要求「附證據」，
         set 裡沒有證據可帶。所以內部走這條，對外仍守契約。
         """
-        self._near_misses = {}
+        near_misses: dict[str, MentionEvidence] = {}
+        residuals: list[dict[str, Any]] = []
         text, offsets = normalize_for_scan(transcript or "")
         found: dict[str, list[MentionEvidence]] = defaultdict(list)
 
@@ -606,35 +816,48 @@ class TranscriptAnalyzer:
                     start=src_start,
                     end=src_end,
                     quote=_quote(transcript or "", src_start, src_end),
-                    stage=("stt_alias" if surface in getattr(self, "_stt_forms", ()) else
+                    stage=("stt_alias" if surface in getattr(self._index, "_stt_forms", ()) else
                            "head" if surface in getattr(self._index, "_heads", ()) else "surface"),
-                    score=(0.85 if surface in getattr(self, "_stt_forms", ()) else
+                    score=(0.85 if surface in getattr(self._index, "_stt_forms", ()) else
                            0.9 if surface in getattr(self._index, "_heads", ()) else 1.0),
                 )
             )
 
         if self._enable_semantic:
-            for ev in self._semantic_pass(text, offsets, transcript or ""):
-                if ev.score >= self._threshold:
+            cands = candidates or set()
+            for ev in self._semantic_pass(text, offsets, transcript or "", residuals):
+                # 履歷上有的技能用放寬門檻——傷害只發生在這些技能上
+                bar = (self._candidate_threshold if ev.skill_id in cands
+                       else self._threshold)
+                if ev.score >= bar:
                     found[ev.skill_id].append(ev)
                 elif ev.score >= self._near_miss_floor:
-                    prev = self._near_misses.get(ev.skill_id)
+                    prev = near_misses.get(ev.skill_id)
                     if prev is None or ev.score > prev.score:
-                        self._near_misses[ev.skill_id] = ev
+                        near_misses[ev.skill_id] = ev
 
-        return dict(found)
+        return MentionResult(dict(found), near_misses, residuals)
 
     def near_misses(self) -> dict[str, MentionEvidence]:
-        """上一次 mentions() 留下的「差一點算講到」。GapComputer 拿去餵 B。"""
-        return dict(self._near_misses)
+        """★ 已移除。用 analyse(transcript).near_misses。
+
+        這是 singleton 下的併發陷阱:先前它讀實例狀態,兩個請求同時進來時
+        後者會覆蓋前者,而呼叫端讀到的是別人的結果。
+        """
+        raise AttributeError(
+            "near_misses() 已移除（singleton 併發不安全）。"
+            "改用 analyse(transcript).near_misses"
+        )
 
     def residuals(self) -> list[dict[str, Any]]:
         """殘留區——語意段也搆不到門檻、但看起來像技能的片段。
 
-        用法跟 normalizer.residuals() 一樣：B 拉批次給 LLM 覆核，確認的對應
-        回填詞彙表 aliases（改 build_vocab 常數重跑），殘留逐版收斂。
+        ★ 已移除，理由同 near_misses()——它會跨請求累積不清空。
+        改用 analyse(transcript).residuals。
         """
-        return list(self._residuals)
+        raise AttributeError(
+            "residuals() 已移除（會跨請求累積）。改用 analyse(transcript).residuals"
+        )
 
     def display(self, skill_id: str) -> str:
         """skill_id → 「name_zh(skill_id)」。沿用 W1 決議的 log 可讀性折衷。"""
@@ -672,7 +895,8 @@ class TranscriptAnalyzer:
         return parts, "discourse_marker"
 
     def _semantic_pass(
-        self, text: str, offsets: list[int], raw: str
+        self, text: str, offsets: list[int], raw: str,
+        residuals: list[dict[str, Any]],
     ) -> list[MentionEvidence]:
         """滑動視窗 × 餘弦最近鄰。無標點逐字稿沒有句子，只能用固定視窗。"""
         import numpy as np
@@ -693,26 +917,29 @@ class TranscriptAnalyzer:
                 for form in forms:
                     surfaces.append(form)
                     owners.append(skill_id)
-            self._vec_cache = (
-                np.asarray(self._embedding.encode(surfaces), dtype="float32"),
-                owners,
-            )
+            self._vec_cache = (embed_vocab_cached(self._embedding, surfaces), owners)
         vocab_vecs, owners = self._vec_cache
 
-        win_vecs = np.asarray(
-            self._embedding.encode([w[2] for w in windows]), dtype="float32"
-        )
+        win_vecs = embed_texts(self._embedding, [w[2] for w in windows])
         sims = win_vecs @ vocab_vecs.T
 
+        # ★ 這裡**不做門檻判斷**,回傳全部候選讓 mentions() 決定。
+        #   兩個理由:一是候選技能要用不同門檻(見 CANDIDATE_THRESHOLD);
+        #   二是校準掃描門檻時不必重算向量——實測全域快取加上這個改動,
+        #   一輪掃描從 2.7 小時降到幾分鐘。
+        FLOOR = min(self._near_miss_floor, self._candidate_threshold) * 0.85
         out: list[MentionEvidence] = []
         for wi, (start, end, chunk) in enumerate(windows):
             best = int(sims[wi].argmax())
             score = float(sims[wi][best])
-            if score < self._near_miss_floor:
-                if score >= self._near_miss_floor * 0.85:
-                    self._residuals.append(
-                        {"window": chunk, "best": owners[best], "sim": round(score, 4)}
-                    )
+            if score < FLOOR:
+                # ★ residual 的下界必須跟著 FLOOR 走,不能寫死用 near_miss_floor。
+                #   先前寫成「低於 near_miss_floor*0.85 就丟進 residuals 並 continue」,
+                #   於是候選門檻放寬到 0.05 時,低分的候選在比門檻之前就被攔掉——
+                #   放寬完全失效,而且看起來像「語意段沒抓到」,查不出原因。
+                residuals.append(
+                    {"window": chunk, "best": owners[best], "sim": round(score, 4)}
+                )
                 continue
             src_start = offsets[start] if start < len(offsets) else start
             src_end = offsets[min(end, len(offsets)) - 1] + 1 if offsets else end

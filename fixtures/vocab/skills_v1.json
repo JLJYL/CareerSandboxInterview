@@ -898,6 +898,14 @@
   "onet_code": ""
  },
  {
+  "skill_id": "skm:227e17af63",
+  "name_zh": "中文打字",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
   "skill_id": "skm:23524be9db",
   "name_zh": "Java",
   "name_en": "Java",
@@ -1033,6 +1041,14 @@
  {
   "skill_id": "skm:3ff2425e48",
   "name_zh": "電腦繪圖軟體操作",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:40b09c23a7",
+  "name_zh": "櫃檯門市接待與需求服務",
   "name_en": "",
   "aliases": [],
   "ucan_code": "",
@@ -1894,6 +1910,14 @@
  {
   "skill_id": "skm:e0a2cf9a0a",
   "name_zh": "網路設備設定安裝",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:e1efce4339",
+  "name_zh": "電話接聽與人員接待事項",
   "name_en": "",
   "aliases": [],
   "ucan_code": "",

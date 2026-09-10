@@ -1,0 +1,23 @@
+{
+  "_mode": "surface",
+  "_jd_source": "catalog",
+  "_semantic": null,
+  "_stt_aliases": 11,
+  "_cases": 10,
+  "resume": {
+    "precision": 0.972972972972973,
+    "recall": 1.0
+  },
+  "jd": {
+    "precision": 0.9827586206896551,
+    "recall": 1.0
+  },
+  "said": {
+    "precision": 0.9565217391304348,
+    "recall": 0.5365853658536586
+  },
+  "gap": {
+    "precision": 0.5333333333333333,
+    "recall": 1.0
+  }
+}

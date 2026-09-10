@@ -59,3 +59,5 @@ app/prompts/extraction.py
 app/prompts/recommend.py
 fixtures/vocab/skills_v1.pre_expand.json
 data/golden_skill_keys.json
+fixtures/golden/interview_simplified/
+_OVERLAY_README.md
