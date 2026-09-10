@@ -306,8 +306,6 @@
   "name_zh": "專案管理",
   "name_en": "Project Management",
   "aliases": [
-   "專案溝通/整合管理",
-   "專案時間/進度控管",
    "專案管理能力",
    "專案管理概念",
    "專案管理概論",
@@ -805,6 +803,14 @@
   "skill_id": "skm:0d5591d63e",
   "name_zh": "Outlook",
   "name_en": "Outlook",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:1052f8922b",
+  "name_zh": "專案溝通╱整合管理",
+  "name_en": "",
   "aliases": [],
   "ucan_code": "",
   "onet_code": ""
@@ -1436,6 +1442,14 @@
  {
   "skill_id": "skm:7b99f61012",
   "name_zh": "插畫表現技巧",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:7ce89f6bce",
+  "name_zh": "專案時間╱進度控管",
   "name_en": "",
   "aliases": [],
   "ucan_code": "",

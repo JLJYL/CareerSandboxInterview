@@ -87,8 +87,7 @@
  "sk:5384b25ce9": {
   "layers": [
    "L0_curated",
-   "L2_ucan",
-   "L3_market"
+   "L2_ucan"
   ],
   "zhang_matched": true,
   "zhang_sources": [
@@ -1212,6 +1211,20 @@
   },
   "tech_industry_freq": 3
  },
+ "skm:1052f8922b": {
+  "layers": [
+   "L3_market"
+  ],
+  "zhang_matched": false,
+  "zhang_sources": [],
+  "market_score": 169,
+  "occ_pcts": {
+   "產品管理師": 57,
+   "資訊助理": 50,
+   "產品經理": 40
+  },
+  "tech_industry_freq": 11
+ },
  "skm:ce7d0b4886": {
   "layers": [
    "L3_market"
@@ -1303,6 +1316,19 @@
    "UX設計師": 40
   },
   "tech_industry_freq": 4
+ },
+ "skm:7ce89f6bce": {
+  "layers": [
+   "L3_market"
+  ],
+  "zhang_matched": false,
+  "zhang_sources": [],
+  "market_score": 137,
+  "occ_pcts": {
+   "產品管理師": 57,
+   "營運管理師／系統整合／ERP專案師": 60
+  },
+  "tech_industry_freq": 10
  },
  "skm:4685afd896": {
   "layers": [
