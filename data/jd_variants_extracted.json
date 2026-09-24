@@ -9,14 +9,16 @@
   "ivw-001": {
    "required_skills": [
     "C#",
+    "系統維護",
     "問題排除",
+    "需求分析",
     "系統效能分析",
     "ETL",
     "專案管理"
    ],
    "source": "extracted",
    "_catalog_count": 11,
-   "_extracted_count": 5,
+   "_extracted_count": 7,
    "_literal_overlap": 1,
    "_notices": [
     "機械正規化:C#程式開發→C#、ETL開發→ETL"
@@ -107,6 +109,8 @@
     "商品定位",
     "定價建議",
     "上市流程統籌",
+    "素材整合",
+    "銷售表現追蹤",
     "跨部門協調",
     "外包管理",
     "需求定義",
@@ -115,11 +119,12 @@
     "活動成效檢討",
     "產品資料管理",
     "品牌把關",
-    "B2B業務支持"
+    "業務訓練",
+    "產品規格書撰寫"
    ],
    "source": "extracted",
    "_catalog_count": 31,
-   "_extracted_count": 16,
+   "_extracted_count": 19,
    "_literal_overlap": 0,
    "_notices": []
   },
@@ -143,12 +148,12 @@
    "required_skills": [
     "應付帳款",
     "應收款項",
+    "會計帳務",
     "原始憑證",
     "傳票",
     "發票憑證",
     "網銀匯款",
     "營業稅",
-    "內帳帳目分錄",
     "鼎新Smart系統",
     "Google雲端試算表"
    ],

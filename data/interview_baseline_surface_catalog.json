@@ -5,11 +5,11 @@
   "_stt_aliases": 11,
   "_cases": 10,
   "resume": {
-    "precision": 0.972972972972973,
+    "precision": 1.0,
     "recall": 1.0
   },
   "jd": {
-    "precision": 0.9827586206896551,
+    "precision": 0.9916666666666667,
     "recall": 1.0
   },
   "said": {
@@ -17,7 +17,7 @@
     "recall": 0.5365853658536586
   },
   "gap": {
-    "precision": 0.5333333333333333,
+    "precision": 0.5714285714285714,
     "recall": 1.0
   }
 }

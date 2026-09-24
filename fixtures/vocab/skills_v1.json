@@ -306,8 +306,6 @@
   "name_zh": "專案管理",
   "name_en": "Project Management",
   "aliases": [
-   "專案溝通/整合管理",
-   "專案時間/進度控管",
    "專案管理能力",
    "專案管理概念",
    "專案管理概論",
@@ -810,6 +808,14 @@
   "onet_code": ""
  },
  {
+  "skill_id": "skm:1052f8922b",
+  "name_zh": "專案溝通╱整合管理",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
   "skill_id": "skm:1074b488b3",
   "name_zh": "勞工保險相關法規",
   "name_en": "",
@@ -962,6 +968,14 @@
   "onet_code": ""
  },
  {
+  "skill_id": "skm:2a6de776b4",
+  "name_zh": "Vuex",
+  "name_en": "Vuex",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
   "skill_id": "skm:2d5878bc8b",
   "name_zh": "稅務業務處理",
   "name_en": "",
@@ -1015,6 +1029,14 @@
   "skill_id": "skm:39a15b5c7d",
   "name_zh": "廣告設計概念",
   "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:3c71cc99d2",
+  "name_zh": "Bootstrap",
+  "name_en": "Bootstrap",
   "aliases": [],
   "ucan_code": "",
   "onet_code": ""
@@ -1247,6 +1269,18 @@
   "onet_code": ""
  },
  {
+  "skill_id": "skm:5dbbba8496",
+  "name_zh": "RESTful API",
+  "name_en": "RESTful API",
+  "aliases": [
+   "REST API",
+   "RESTful",
+   "REST"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
   "skill_id": "skm:6170ca2b02",
   "name_zh": "SEO",
   "name_en": "SEO",
@@ -1386,6 +1420,17 @@
   "onet_code": ""
  },
  {
+  "skill_id": "skm:756c75aac6",
+  "name_zh": "Google Sheets",
+  "name_en": "Google Sheets",
+  "aliases": [
+   "Google 試算表",
+   "GoogleSheets"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
   "skill_id": "skm:75bf98b9ba",
   "name_zh": "行銷策略擬定",
   "name_en": "",
@@ -1442,6 +1487,14 @@
   "onet_code": ""
  },
  {
+  "skill_id": "skm:7ce89f6bce",
+  "name_zh": "專案時間╱進度控管",
+  "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
   "skill_id": "skm:7f18f56853",
   "name_zh": "全端開發",
   "name_en": "Full Stack Development",
@@ -1457,6 +1510,14 @@
   "skill_id": "skm:7f64f1cbdf",
   "name_zh": "生成式AI",
   "name_en": "",
+  "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:80c932ecf5",
+  "name_zh": "Redux",
+  "name_en": "Redux",
   "aliases": [],
   "ucan_code": "",
   "onet_code": ""
@@ -1770,6 +1831,17 @@
   "onet_code": ""
  },
  {
+  "skill_id": "skm:cd22d001e3",
+  "name_zh": "ETL",
+  "name_en": "ETL",
+  "aliases": [
+   "ETL開發",
+   "資料管線"
+  ],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
   "skill_id": "skm:ce7d0b4886",
   "name_zh": "行銷宣傳預算編製與控管",
   "name_en": "",
@@ -2029,6 +2101,16 @@
   "name_zh": "After Effects",
   "name_en": "After Effects",
   "aliases": [],
+  "ucan_code": "",
+  "onet_code": ""
+ },
+ {
+  "skill_id": "skm:fb9da861bd",
+  "name_zh": "TypeScript",
+  "name_en": "TypeScript",
+  "aliases": [
+   "TS"
+  ],
   "ucan_code": "",
   "onet_code": ""
  },
