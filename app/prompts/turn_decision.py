@@ -65,6 +65,26 @@ DECISION_OUTPUT = """【輸出格式】
             NEXT 與 CLARIFY 填空字串。"""
 
 
+ACTION_INSTRUCTION: dict[str, str] = {
+    "NEXT": "換一個新的主問題。不要接著他剛剛那段追問。",
+    "FOLLOW_UP": "接著他剛剛那段追問,不要換題。",
+    "CLARIFY": (
+        "你沒聽清楚他說的某個地方,請他把那裡再講一次。"
+        "不要換題,也不要追問別的。不要為系統的問題道歉。"
+    ),
+}
+"""決定做完之後,告訴生成端這一輪要做什麼。
+
+【為什麼只加一行,不改 system prompt】
+生成端那支 prompt 是六輪實測調出來的,動它的風險遠大於收益。
+決定是「這一輪做什麼」,屬於這一輪的輸入,所以放在 user 訊息裡。
+
+【為什麼一定要講】
+不講的話,決定說 NEXT 而模型生出追問,`is_follow_up` 就會跟實際內容不符,
+然後重複偵測會對一句追問做比對——那正是這個欄位最初被誤判時出的事。
+"""
+
+
 def render_accept_rule(rule: AcceptRule) -> str:
     """把放行條件寫成 prompt 文字。唯一的來源是 dataclass,不另外手寫一份。"""
     lines = [

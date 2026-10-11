@@ -30,6 +30,7 @@ import json
 import re
 import uuid
 from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING
 
 from app.contracts.interview_protocols import JDInput
 from app.pipeline.jd_normalize import normalize_locale
@@ -39,6 +40,7 @@ from app.prompts.interview_live import (
     compose_opening_prompt,
     compose_turn_prompt,
 )
+from app.prompts.turn_decision import ACTION_INSTRUCTION
 from app.prompts.interview_personas import (
     INTERRUPT_CAP,
     personas_for,
@@ -51,6 +53,9 @@ from app.schemas.interview import (
     StartInterviewResponse,
     TurnResponse,
 )
+
+if TYPE_CHECKING:  # 執行期不匯入:turn_decision 匯入本檔,直匯會變成循環。
+    from app.pipeline.turn_decision import TurnDecision
 
 LLMCall = Callable[[str, str], str]
 
@@ -437,14 +442,30 @@ async def next_turn(
     fallback: Sequence[str],
     llm: LLMCall,
     context: InterviewContext | None = None,
+    decision: "TurnDecision | None" = None,
 ) -> TurnResponse:
     """一輪接話。
 
     follow_up_idx 達到上限時強制推進,不問模型——
     「這是第幾次追問」是確定性事實,交給模型判斷會讓它有時多追一次。
+
+    【decision】
+    這一輪要做什麼(NEXT / FOLLOW_UP / CLARIFY),由 `turn_decision` 先決定好再傳進來。
+    決定在 `routes.py` 那層算,不在這裡呼叫——這支函式只收資料不自己發起決策,
+    跟 LLM 注入是同一個原則。
+
+    傳 None 時維持舊行為:`is_follow_up` 取模型回的值,一對一沒回就預設 True。
+    那是猜的,留著只是為了讓既有測試仍然測得到生成那一段。
     """
     cap = turn_cap_for(mode)
     must_advance = cap is not None and follow_up_idx >= cap
+    if decision is not None and must_advance:
+        # 輪次上限是確定性事實,比決定大。到上限時這一句就是最後一個主問題,
+        # 所以語意上必然是 NEXT,也該過重複偵測。
+        decision = None
+        forced_next = True
+    else:
+        forced_next = False
 
     # 回答排在前面,而且明說要回應它。
     #
@@ -479,6 +500,18 @@ async def next_turn(
         # 派發失敗:退回發言次數最少的一位,不要讓生成端自己猜。
         focus = min(names, key=lambda n: counts.get(n, 0))
         dispatch_note = "本輪:派發失敗,已改由發言最少的人開口"
+    # 決定已經做完了,告訴生成端。不講的話決定說 NEXT 而模型生出追問,
+    # is_follow_up 就會跟實際內容不符,重複偵測會對一句追問做比對。
+    decision_note = ""
+    if decision is not None:
+        what = ACTION_INSTRUCTION.get(decision.action, "")
+        if what:
+            line = f"【這一輪要做什麼】{what}"
+            if decision.gap:
+                line += f"\n缺的是:{decision.gap}"
+            user_parts.append(line)
+            decision_note = f"本輪:決定 {decision.action}({decision.source})"
+
     if must_advance:
         user_parts.append(
             f"【注意】整場已經問到第 {follow_up_idx + 1} 題,達到上限 "
@@ -519,7 +552,7 @@ async def next_turn(
             r.notices = [f"本輪:模型未產出問題,已使用備援追問。原始輸出:{snippet}"]
             return r
 
-    notices: list[str] = [x for x in (salvage_note, dispatch_note) if x]
+    notices: list[str] = [x for x in (salvage_note, dispatch_note, decision_note) if x]
     # 說話者由派發那一步決定,不採用生成端回的值——
     # 生成端的 prompt 已經寫死「speaker 一律填 X」,回別的就是它沒照做。
     speaker, problem = repair_speaker(focus or str(data.get("speaker", "")), mode, gi, gs)
@@ -545,7 +578,14 @@ async def next_turn(
     # 一對一沒有「新主問題」的概念:每一輪都是接著上一句問,
     # 直到整場輪次用完進入反問環節。所以預設為 True,
     # 只有明確換到不相干主題(topic 跟前一輪與上一題都無關)時才是 False。
-    if "isFollowUp" in data:
+    #
+    # 【有 decision 的時候不用猜】
+    # 決定本身就是答案,而且它是在生成之前做的,所以生成端也收到了同一個指示。
+    if forced_next:
+        is_follow_up = False
+    elif decision is not None:
+        is_follow_up = decision.is_follow_up
+    elif "isFollowUp" in data:
         is_follow_up = bool(data["isFollowUp"])
     else:
         is_follow_up = True

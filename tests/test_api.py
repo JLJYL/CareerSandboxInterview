@@ -53,7 +53,14 @@ TURN = {"speaker": "", "nextQuestion": "那個數字的母數是多少?",
 GOOD_WHY = "這份職缺把資料查詢列為日常工作,沒有這項能力就無法承擔核心職責。"
 
 
+#: 決策步驟的回覆。沒有這一條的話每一輪都會走降級(source=fallback),
+#: 測試照樣全綠但量到的是降級路徑,不是真正的決定——那種綠是假的。
+DECISION = {"why": "缺結果段。", "action": "FOLLOW_UP", "gap": "結果段"}
+
+
 def fake_llm(system: str, user: str) -> str:
+    if "決定面試官這一輪要做什麼" in system:
+        return json.dumps(DECISION, ensure_ascii=False)
     if "開場問題" in system:
         return json.dumps(OPENING, ensure_ascii=False)
     if "接話" in system:

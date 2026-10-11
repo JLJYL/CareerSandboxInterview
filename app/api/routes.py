@@ -43,6 +43,8 @@ from app.api.deps import (
 from app.contracts.interview_protocols import JDInput, Utterance
 from app.pipeline.interview_live import next_turn, start_interview
 from app.pipeline.interview_report import generate_report
+from app.pipeline.interviewer_spec import derive_specs
+from app.pipeline.turn_decision import decide_turn
 from app.pipeline.jd_extract import extract_jd
 from app.pipeline.collab_score import score_collab
 from app.pipeline.missing_points import generate_missing_points
@@ -103,8 +105,10 @@ async def submit_turn(req: TurnRequest, session_id: str = SESSION_ID) -> TurnRes
     資料庫組的 Interview_Turns 接上之後,這些欄位可以改成後端自己查,
     合約不用改,前端也不用改。
     """
+    mode = _mode_from_request(req)
     return await next_turn(
-        mode=_mode_from_request(req),
+        mode=mode,
+        decision=await _decide(req, mode),
         answer=req.answer,
         follow_up_idx=req.follow_up_idx,
         asked_questions=req.asked_topics,
@@ -115,6 +119,46 @@ async def submit_turn(req: TurnRequest, session_id: str = SESSION_ID) -> TurnRes
         fallback=req.fallback,
         llm=get_llm_live(),
         context=req.context,
+    )
+
+
+async def _decide(req: TurnRequest, mode: str):
+    """這一輪要做什麼。決定在這一層算,不在 next_turn 裡發起。
+
+    【為什麼 jd 是 None】
+    結構化 JD 目前只在開場抽一次(`_resolve_jd`),每輪的請求只帶散文
+    `context.customJd`。每輪重抽一次要多一次呼叫,而 JD 整場不會變。
+
+    所以這一版的決定只依 STAR 與放行條件判斷,不看職缺需求——
+    `InterviewerSpec.has_jd()` 為 False 時 prompt 會明說「沒有職缺需求可用,
+    不要自行想像這個職位需要什麼」,不會讓模型腦補。
+
+    之後兩條路都能補上:履歷組給結構化職缺需求,或開場把抽好的 JD 回傳、
+    前端每輪帶回來(跟 fallback 同一個模式)。
+
+    【為什麼 depth 是 0】
+    「同一個缺口追過幾次」需要跨輪的狀態,而這支服務無狀態。
+    `max_depth` 的判斷已經寫好也測過,等 Mid 層或請求欄位把次數帶進來就會生效。
+    在那之前它恆不觸發——寧可讓一條規則明顯地沒作用,
+    也不要拿 followUpIdx(整場第幾題)去頂替,那是不同的東西。
+    """
+    specs = derive_specs(
+        mode,
+        jd=None,
+        difficulty=req.context.difficulty,
+        group_interviewers=req.context.group_interviewers,
+        group_size=req.context.group_size,
+    )
+    if not specs:
+        return None
+    return await decide_turn(
+        spec=specs[0],
+        answer=req.answer,
+        llm=get_llm_live(),
+        question=req.question,
+        depth=0,
+        ended_by=req.ended_by,
+        transcription_engine=req.context.transcription_engine,
     )
 
 
