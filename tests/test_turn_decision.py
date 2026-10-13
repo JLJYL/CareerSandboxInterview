@@ -17,14 +17,19 @@ from app.contracts.interview_protocols import JDInput
 from app.pipeline.interviewer_spec import derive_specs
 from app.pipeline.turn_decision import (
     CLARIFY,
+    DECISION_SOURCES,
     FOLLOW_UP,
+    MAX_SUPERSEDED_CHARS,
     NEXT,
     TurnDecision,
     decide_turn,
+    fallback_decision,
     forced_decision,
     normalize_action,
+    normalize_gap,
     parse_decision,
 )
+from app.prompts.turn_decision import GAP_VALUES
 from app.prompts.turn_decision import compose_decision_prompt, render_accept_rule
 
 JD = JDInput(required_skills=["Python", "資料分析"], description="…")
@@ -82,11 +87,11 @@ async def test_forced_decision_does_not_call_the_model():
 
 
 async def test_normal_answer_does_call_the_model():
-    llm = Recorder(json.dumps({"why": "缺結果", "action": "FOLLOW_UP", "gap": "結果段"}))
+    llm = Recorder(json.dumps({"why": "沒有數字", "action": "FOLLOW_UP", "gap": "結果沒量化"}))
     d = await decide_turn(spec=spec_of(), answer=GOOD_ANSWER, llm=llm)
     assert len(llm.calls) == 1
     assert d.action == FOLLOW_UP
-    assert d.gap == "結果段"
+    assert d.gap == "結果沒量化"
     assert d.source == "llm"
 
 
@@ -138,8 +143,41 @@ def test_parse_salvages_bare_action():
     assert d is not None and d.action == FOLLOW_UP and d.source == "llm"
 
 
+@pytest.mark.parametrize(
+    "why",
+    [
+        "他講了結果但沒有可查證的數字,無法判斷成果規模。",
+        "缺少量化,無法確認改善幅度。",
+        "沒有交代取捨,無法看出判斷依據。",
+        "很遺憾他完全沒提到結果段。",
+    ],
+)
+def test_reasoning_may_contain_refusal_words(why):
+    """「無法」是中文常用詞,不是拒絕。
+
+    1d 第一次實測:拒絕詞原本掃解析前的整段原文,中等難度 60 次決策有 13 次
+    因此降級,追問率從期望的 0.500 掉到 0.283,比新手還低。
+
+    而且方向是偏的——會寫「無法」的句子剛好都是在說少了哪一項,
+    所以被破壞的一律是 FOLLOW_UP。
+    """
+    raw = json.dumps({"why": why, "action": "FOLLOW_UP", "gap": "量化"}, ensure_ascii=False)
+    d = parse_decision(raw)
+    assert d is not None
+    assert d.action == FOLLOW_UP
+    assert d.source == "llm"
+    assert d.why == why
+
+
 def test_parse_rejects_apology():
+    """整段是道歉、沒有可用動作時才擋。"""
     assert parse_decision("抱歉,我無法判斷這個回答。") is None
+    assert parse_decision("作為一個語言模型,我不便評論這段回答。") is None
+
+
+def test_apology_is_not_salvaged_into_an_action():
+    """純文字救援不能把夾在道歉裡的動作名撿回來。"""
+    assert parse_decision("抱歉,FOLLOW_UP") is None
 
 
 def test_parse_rejects_unknown_action():
@@ -167,6 +205,120 @@ async def test_llm_exception_degrades_to_next():
     assert d.action == NEXT
     assert d.source == "fallback"
     assert "RuntimeError" in d.why
+
+
+# ---------------------------------------------------------------------------
+# gap 是封閉集合
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("value", GAP_VALUES)
+def test_every_closed_value_survives_parsing(value):
+    raw = json.dumps({"why": "x", "action": "FOLLOW_UP", "gap": value}, ensure_ascii=False)
+    d = parse_decision(raw)
+    assert d is not None and d.gap == value
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("結果段", "缺結果"),
+        ("成果", "缺結果"),
+        ("量化", "結果沒量化"),
+        ("量化數據", "結果沒量化"),
+        ("取捨", "沒有取捨"),
+        ("放棄了什麼", "沒有取捨"),
+        ("情境段", "缺情境"),
+        ("「缺任務」", "缺任務"),
+    ],
+)
+def test_normalize_gap_maps_what_the_model_actually_writes(raw, expected):
+    assert normalize_gap(raw) == expected
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "缺少結果段和量化數據",
+        "結果段、量化、取捨",
+        "任務段和結果段",
+        "他的角色不清楚",
+        "",
+        "   ",
+    ],
+)
+def test_ambiguous_or_unreadable_gap_becomes_empty(raw):
+    """指向兩個以上互斥的事實就放棄,不要猜一個。
+
+    「缺少結果段和量化數據」同時指 `缺結果` 與 `結果沒量化`,而結果到底在不在
+    這句話答不出來。猜一個會把不確定變成確定,而 1d 實測就是這個欄位指錯
+    20/20 次。留空讓報表看得出模型沒照封閉集合填。
+    """
+    assert normalize_gap(raw) == ""
+
+
+def test_missing_result_and_unquantified_result_are_different_values():
+    """這兩個混在一起,下一句就會去問他已經講過的東西。"""
+    assert normalize_gap("缺結果") != normalize_gap("結果沒量化")
+    assert "缺結果" in GAP_VALUES and "結果沒量化" in GAP_VALUES
+
+
+def test_prompt_lists_exactly_the_closed_set():
+    """選項文字從 GAP_VALUES 生出來,改了清單 prompt 跟著動。"""
+    p = compose_decision_prompt(spec_of())
+    for v in GAP_VALUES:
+        assert v in p
+    assert "不要列兩個以上" in p
+
+
+# ---------------------------------------------------------------------------
+# 被取代的輸出要留著
+# ---------------------------------------------------------------------------
+
+
+async def test_fallback_keeps_what_it_replaced():
+    """光看 source=fallback 只知道失敗了,不知道失敗長什麼樣。"""
+    broken = "我覺得這個回答還可以再補充一點細節。"
+    d = await decide_turn(spec=spec_of(), answer=GOOD_ANSWER, llm=Recorder(broken))
+    assert d.source == "fallback"
+    assert d.superseded == broken
+
+
+async def test_superseded_is_truncated():
+    d = await decide_turn(spec=spec_of(), answer=GOOD_ANSWER, llm=Recorder("壞" * 900))
+    assert d.source == "fallback"
+    assert 0 < len(d.superseded) <= MAX_SUPERSEDED_CHARS
+
+
+def test_every_gap_a_decision_can_carry_is_declared():
+    """gap 的值域只有一個來源。集合外的值跑出去,下游沒辦法照清單處理。
+
+    `forced_decision` 的 timeout 那條原本填「未講完的部分」,不在集合裡。
+    """
+    allowed = set(GAP_VALUES) | {""}
+    seen = {
+        forced_decision(spec=spec_of(), answer="").gap,
+        forced_decision(spec=spec_of(), answer=GOOD_ANSWER, ended_by="timeout").gap,
+        forced_decision(spec=spec_of("新手"), answer=GOOD_ANSWER, depth=1).gap,
+        forced_decision(spec=spec_of(), answer="這個我沒想過耶").gap,
+        fallback_decision("x").gap,
+    }
+    assert seen <= allowed, sorted(seen - allowed)
+
+
+def test_every_source_is_declared():
+    seen = {
+        TurnDecision(NEXT).source,
+        forced_decision(spec=spec_of(), answer="").source,
+        fallback_decision("x").source,
+    }
+    assert seen <= set(DECISION_SOURCES)
+
+
+def test_a_clean_decision_supersedes_nothing():
+    raw = json.dumps({"why": "x", "action": "NEXT", "gap": ""}, ensure_ascii=False)
+    d = parse_decision(raw)
+    assert d is not None and d.superseded == ""
 
 
 # ---------------------------------------------------------------------------
