@@ -106,11 +106,23 @@ async def test_follow_up_skips_the_duplicate_check():
 
 async def test_decision_reaches_the_generator():
     """不講的話決定說 NEXT 而模型生出追問,欄位就跟實際內容不符。"""
-    await turn(TurnDecision(FOLLOW_UP, gap="結果段"))
+    await turn(TurnDecision(FOLLOW_UP, gap="缺結果"))
     sent = gen_llm.seen[-1]  # type: ignore[attr-defined]
     assert "【這一輪要做什麼】" in sent
     assert "不要換題" in sent
-    assert "結果段" in sent
+
+
+async def test_the_gap_does_not_reach_the_generator():
+    """只傳動作,不傳 gap。
+
+    1d 實測:A3 那筆答案講了結果只是沒有數字,20/20 次 gap 都寫「結果段」。
+    照著生成的追問會去問他剛剛講過的東西。生成端看得到完整的回答,
+    不需要一個會指錯的標籤。
+    """
+    await turn(TurnDecision(FOLLOW_UP, gap="缺結果"))
+    sent = gen_llm.seen[-1]  # type: ignore[attr-defined]
+    assert "缺結果" not in sent
+    assert "缺的是" not in sent
 
 
 async def test_clarify_tells_the_generator_not_to_apologise():

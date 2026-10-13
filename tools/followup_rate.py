@@ -560,6 +560,16 @@ def main() -> int:
 
     if args.runs < 1:
         raise SystemExit("✗ --runs 至少要 1。")
+
+    # 輸出路徑在**打任何 API 之前**就驗。寫檔原本排在表格前面,資料夾不存在時
+    # 180 次呼叫跑完才炸,表格一行都沒印,整輪白跑。
+    if args.dump:
+        try:
+            args.dump.parent.mkdir(parents=True, exist_ok=True)
+            args.dump.touch()
+        except OSError as exc:
+            raise SystemExit(f"✗ 寫不到 {args.dump}:{exc}") from exc
+
     answers = load_answers(args.answers, args.engine)
     specs = {d: derive_specs("single", jd=None, difficulty=d)[0] for d in DIFFICULTIES}
 
@@ -631,8 +641,12 @@ def main() -> int:
         if dropped:
             lines += ["", f"# 被取代的原文 {len(dropped)} 筆"]
             lines += [f"{r['難度']}\t{r['答案']}\t{r['superseded']}" for r in dropped]
-        args.dump.write_text("\n".join(lines) + "\n", encoding="utf-8")
-        print(f"\n{len(log)} 筆決定、{len(dropped)} 筆有被取代的原文 → {args.dump}")
+        # 寫檔失敗不能吃掉整輪。API 錢已經花了,表格一定要印出來。
+        try:
+            args.dump.write_text("\n".join(lines) + "\n", encoding="utf-8")
+            print(f"\n{len(log)} 筆決定、{len(dropped)} 筆有被取代的原文 → {args.dump}")
+        except OSError as exc:
+            print(f"\n⚠ 寫不到 {args.dump}({exc}),記錄沒存下來,下面的表格仍然有效。")
 
     if wired:
         print_wired(wired, answers)

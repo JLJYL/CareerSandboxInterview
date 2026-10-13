@@ -502,14 +502,17 @@ async def next_turn(
         dispatch_note = "本輪:派發失敗,已改由發言最少的人開口"
     # 決定已經做完了,告訴生成端。不講的話決定說 NEXT 而模型生出追問,
     # is_follow_up 就會跟實際內容不符,重複偵測會對一句追問做比對。
+    #
+    # 【只傳動作,不傳 gap】
+    # 原本會附上「缺的是:{gap}」。1d 實測發現 gap 常常指錯:A3 那筆答案講了結果
+    # 只是沒有數字,20/20 次 gap 都寫「結果段」。照著生成出來的追問會去問一個
+    # 他剛剛講過的東西,正好是「換個說法問同一件事」那個老問題的一個來源。
+    # 生成端看得到完整的上一輪回答,不需要一個會指錯的標籤。
     decision_note = ""
     if decision is not None:
         what = ACTION_INSTRUCTION.get(decision.action, "")
         if what:
-            line = f"【這一輪要做什麼】{what}"
-            if decision.gap:
-                line += f"\n缺的是:{decision.gap}"
-            user_parts.append(line)
+            user_parts.append(f"【這一輪要做什麼】{what}")
             decision_note = f"本輪:決定 {decision.action}({decision.source})"
 
     if must_advance:

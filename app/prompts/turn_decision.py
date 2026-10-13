@@ -24,6 +24,35 @@ from app.pipeline.interviewer_spec import AcceptRule, InterviewerSpec
 
 DECISION_ACTIONS: tuple[str, ...] = ("NEXT", "FOLLOW_UP", "CLARIFY")
 
+GAP_VALUES: tuple[str, ...] = (
+    "缺情境",
+    "缺任務",
+    "缺行動",
+    "缺結果",
+    "結果沒量化",
+    "沒有取捨",
+)
+"""gap 只能是這六個值其中一個。
+
+跟 `DECISION_ACTIONS` 一樣放在 prompts 這邊:選項文字與解析必須共用同一份
+清單,而 `pipeline` 匯入 `prompts`,反向會變成循環(prompts → pipeline →
+interview_live → prompts)。
+
+【為什麼改成封閉集合】
+原本是自由填寫「缺的是哪一項」。1d 實測出兩個問題:
+
+    指錯   A3 那筆講了結果只是沒數字,20/20 次 gap 都寫「結果段」。
+           那組詞彙沒辦法表達「這一段在但不夠具體」,模型只能從
+           「結果段」跟「量化」裡挑,於是挑了會被讀成「沒有結果」的那個。
+    長度隨 prompt 變   同一筆答案 A1,新手只點 1–2 段,困難點 3–4 段。
+           列幾項取決於放行條件寫了幾條,不取決於答案。
+
+所以改成:封閉集合、只填一個、挑最重要的那一個。
+`缺結果` 與 `結果沒量化` 分開就是為了修第一個問題。
+
+模型的窄判斷是準的(量化 60/60),把它問窄一點比問開放更可靠。
+"""
+
 
 DECISION_TASK = """你的工作只有一件:決定面試官這一輪要做什麼。
 
@@ -53,16 +82,49 @@ CLARIFY 只用在單一詞彙明顯不合情境的時候——
 }
 
 
-DECISION_OUTPUT = """【輸出格式】
+GAP_MEANING: dict[str, str] = {
+    "缺情境": "他沒交代當時的背景或處境",
+    "缺任務": "他沒交代自己要達成什麼",
+    "缺行動": "他沒交代自己實際做了什麼",
+    "缺結果": "他完全沒講最後怎麼樣",
+    "結果沒量化": "結果有講,但沒有可查證的數字",
+    "沒有取捨": "他沒講放棄了什麼、判斷依據是什麼",
+}
+"""封閉集合每個值的意思。鍵必須與 GAP_VALUES 一致,下面有檢查。"""
+
+_missing = set(GAP_VALUES) ^ set(GAP_MEANING)
+if _missing:
+    raise RuntimeError(
+        f"GAP_VALUES 與 GAP_MEANING 對不上:{sorted(_missing)}。"
+        "選項與它的說明是同一件事,只能有一份來源。"
+    )
+
+
+def render_gap_options() -> str:
+    """把封閉集合寫成 prompt 文字。選項從 GAP_VALUES 生出來,不另外手寫一份。"""
+    lines = [f"    {v}{'　' * max(1, 6 - len(v))}{GAP_MEANING[v]}" for v in GAP_VALUES]
+    return "\n".join(lines)
+
+
+DECISION_OUTPUT = f"""【輸出格式】
 
 只回這個 JSON,不要加任何說明文字:
 
-{"why": "兩三句話說明你的判斷", "action": "NEXT", "gap": ""}
+{{"why": "兩三句話說明你的判斷", "action": "NEXT", "gap": ""}}
 
     why     先寫理由再下判斷。對照上面的放行條件逐項看。
     action  NEXT / FOLLOW_UP / CLARIFY 三者之一,一字不差。
-    gap     FOLLOW_UP 時填缺的是哪一項(例如「結果段」「量化」「取捨」);
-            NEXT 與 CLARIFY 填空字串。"""
+    gap     FOLLOW_UP 時從下面挑**一個**填進去,一字不差。
+            NEXT 與 CLARIFY 填空字串。
+
+【gap 只能填這六個其中一個】
+
+{render_gap_options()}
+
+挑最重要的那一個,不要列兩個以上,也不要自己造詞。
+
+**「缺結果」與「結果沒量化」不一樣。** 他講了結果只是沒有數字,
+那是「結果沒量化」;寫成「缺結果」會害下一句去問他已經講過的東西。"""
 
 
 ACTION_INSTRUCTION: dict[str, str] = {
