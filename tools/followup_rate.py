@@ -74,6 +74,7 @@ import json
 import os
 import statistics
 import sys
+import time
 import unicodedata
 from pathlib import Path
 
@@ -316,7 +317,7 @@ async def decide(
 
 async def run_wired(
     spec, answers, llm, engine, runs, sem, difficulty="", log=None,
-    structure: str = STRUCTURE_FACTS,
+    structure: str = STRUCTURE_FACTS, secs: list[float] | None = None,
 ) -> dict[str, list[TurnDecision]]:
     """depth 固定 0。上線實際的行為。
 
@@ -327,7 +328,11 @@ async def run_wired(
 
     async def one(answer, _run):
         async with sem:
-            return answer["id"], await decide(spec, answer, llm, engine, 0, structure)
+            t0 = time.perf_counter()
+            d = await decide(spec, answer, llm, engine, 0, structure)
+            if secs is not None:
+                secs.append(time.perf_counter() - t0)
+            return answer["id"], d
 
     jobs = [one(a, r) for r in range(runs) for a in answers]
     got: dict[str, list[TurnDecision]] = {a["id"]: [] for a in answers}
@@ -510,10 +515,39 @@ def print_tracked(tracked: dict[str, dict[str, list[int]]], answers) -> dict[str
     return totals
 
 
+def report_latency(secs: list[float], structure: str, concurrency: int) -> None:
+    """一次決定要等多久。2d 順手量,因為它不多花一毛 API 錢。
+
+    **這不是單獨一次請求的延遲。** 計時從拿到並行額度那一刻開始算,
+    但同時有 `--concurrency` 個請求在飛,所以這個數字含伺服器端的排隊。
+    上線一次只服務一個人,實際會比這裡好;當成上界看。
+
+    facts 路徑一次決定要三次呼叫、並行發出,所以理想情況下
+    它應該接近 prompt 路徑的單次延遲,而不是三倍。
+    那是這一欄要回答的事:並行有沒有真的買到東西。
+    """
+    if not secs:
+        return
+    ordered = sorted(secs)
+    p50 = statistics.median(ordered)
+    p90 = ordered[min(len(ordered) - 1, int(len(ordered) * 0.9))]
+    calls = 3 if structure == STRUCTURE_FACTS else 1
+    print(
+        f"\n一次決定的耗時(structure={structure},每次 {calls} 次呼叫,"
+        f"concurrency={concurrency}):"
+    )
+    print(f"  中位數 {p50:.2f}s  p90 {p90:.2f}s  最慢 {ordered[-1]:.2f}s  n={len(ordered)}")
+    if calls > 1:
+        print("  三次呼叫是並行的,所以這個數字該接近單次呼叫而不是三倍。")
+        print("  明顯接近三倍表示並行沒生效(檢查 --concurrency 與速率限制)。")
+
+
 def conclude(
     stats: dict[str, dict],
     tracked_totals: dict[str, float] | None,
     structure: str = STRUCTURE_FACTS,
+    secs: list[float] | None = None,
+    concurrency: int = 0,
 ) -> int:
     print("\n" + "=" * 74)
 
@@ -573,6 +607,8 @@ def conclude(
             print("\n★ 這就是結論:prompt 那段文字分不出難度,深度上限分得出來,")
             print("  而深度上限在線上沒有接(routes.py 的 _decide 傳 depth=0)。")
             print("  下一項是把 depth 接起來,不是繼續調措辭。")
+
+    report_latency(secs or [], structure, concurrency)
     return 0
 
 
@@ -637,10 +673,31 @@ def main() -> int:
             return 1
 
     runs = 1 if args.fake else args.runs
-    n_calls = len(DIFFICULTIES) * runs * len(answers)
     per = 3 if args.structure == STRUCTURE_FACTS else 1
-    print(f"難度 {len(DIFFICULTIES)} × 回合 {runs} × 答案 {len(answers)} "
-          f"= {n_calls} 次決策 × 每次 {per} 次呼叫 = {n_calls * per} 次呼叫")
+    n_wired = len(DIFFICULTIES) * runs * len(answers)
+
+    # tracked 會對同一筆答案重複決定到換題或撞上限,所以它的成本不是
+    # 「答案數」而是「每一筆會耗掉幾輪」。
+    #
+    # 2d 跑完才發現原本的估計只算了 wired:印 630,實際花了 1710。
+    # 量測工具低報成本比高報糟——人會照著印出來的數字決定 --runs。
+    n_tracked = 0
+    if args.regime in ("tracked", "both"):
+        for diff in DIFFICULTIES:
+            rule = specs[diff].accept
+            for a in answers:
+                # 追到上限那一輪由 forced_decision 接手,不呼叫模型,所以不算。
+                passes = accepts(rule, a["label"])
+                n_tracked += (1 if passes else rule.max_depth) * runs
+
+    total = (n_wired + n_tracked) * per
+    print(f"難度 {len(DIFFICULTIES)} × 回合 {runs} × 答案 {len(answers)}")
+    print(f"  wired   {n_wired:>5} 次決策"
+          + (f" × {per} = {n_wired * per} 次呼叫" if per > 1 else " 次呼叫"))
+    if n_tracked:
+        print(f"  tracked {n_tracked:>5} 次決策"
+              + (f" × {per} = {n_tracked * per} 次呼叫" if per > 1 else " 次呼叫"))
+    print(f"  合計    {total:>5} 次呼叫")
     print(f"  structure={args.structure} regime={args.regime} "
           f"engine={args.engine} temp={args.temp}")
 
@@ -648,6 +705,7 @@ def main() -> int:
     wired: dict[str, dict] = {}
     tracked: dict[str, dict] = {}
     log: list[dict] | None = [] if args.dump else None
+    secs: list[float] = []
 
     async def go():
         for diff in DIFFICULTIES:
@@ -659,7 +717,8 @@ def main() -> int:
             )
             if args.regime in ("wired", "both"):
                 wired[diff] = await run_wired(
-                    spec, answers, llm, args.engine, runs, sem, diff, log, args.structure
+                    spec, answers, llm, args.engine, runs, sem, diff, log,
+                    args.structure, secs,
                 )
             if args.regime in ("tracked", "both"):
                 tracked[diff] = await run_tracked(
@@ -702,7 +761,7 @@ def main() -> int:
     if not stats:
         print("\n(只跑 tracked,沒有 wired 的追問率可以下結論。)")
         return 0
-    return conclude(stats, totals, args.structure)
+    return conclude(stats, totals, args.structure, secs, args.concurrency)
 
 
 if __name__ == "__main__":
