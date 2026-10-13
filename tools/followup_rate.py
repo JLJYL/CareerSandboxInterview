@@ -19,15 +19,15 @@
 我們對應的是 困難 / 新手。另外他們的受訪者是打字、我們是語音,
 所以 CLARIFY 單獨數,不併進追問率跟他們比。
 
-## 兩條結構判斷,因為 2c 換了預設
+## 決定是算的
 
-    --structure facts    判讀出六項事實,交給 accepts() 算。2c 之後的預設。
-    --structure prompt    放行條件寫進 prompt 問模型。1d 量到 0.500/0.500/0.500 的那條。
+一次決策問三次「這段話裡有什麼」(句子分派 + 量化 + 取捨),
+再用 `AcceptRule.accepts()` 算要不要追問。所以同樣的 --runs 比 1d 貴三倍。
 
-留著 prompt 是為了這支能對照——換掉決定方式而沒有對照組,就只能說
-「現在的數字是這樣」,說不出「換了之後好了多少」。量完就刪(見 STRUCTURE_SOURCES)。
+2d 之前還有一條對照組(放行條件寫進 prompt 問模型挑動作),量完就刪了:
 
-facts 一次決策要三次呼叫,所以同樣的 --runs 會花三倍的 API 預算。
+    1d  條件寫進 prompt   0.500 / 0.500 / 0.500,19/180 次降級
+    2d  程式用事實算      0.143 / 0.429 / 0.857,一致率 1.00,0/630 次降級
 
 ## 兩種深度,因為上線的那種跟設計的那種不一樣
 
@@ -61,7 +61,6 @@ facts 一次決策要三次呼叫,所以同樣的 --runs 會花三倍的 API 預
     python tools/followup_rate.py --fake              # 不打 API,驗工具本身
     python tools/followup_rate.py --dry-run           # 只印一份 prompt
     python tools/followup_rate.py --runs 10           # 正式量測(facts:10 × 3 × 7 × 3 呼叫)
-    python tools/followup_rate.py --structure prompt  # 1d 那條舊路,拿來對照
     python tools/followup_rate.py --runs 10 --temp 0  # 看噪音有多少是溫度來的
     python tools/followup_rate.py --engine device     # 看 device 判準會不會催出假 CLARIFY
 """
@@ -94,16 +93,25 @@ from app.pipeline.turn_decision import (  # noqa: E402
     FALLBACK,
     FOLLOW_UP,
     NEXT,
-    STRUCTURE_FACTS,
-    STRUCTURE_PROMPT,
-    STRUCTURE_SOURCES,
     TurnDecision,
     decide_turn,
 )
-from app.prompts.star_read import FACT_QUESTION, FACTS  # noqa: E402
-from app.prompts.turn_decision import compose_decision_prompt  # noqa: E402
+from app.prompts.star_read import (  # noqa: E402
+    ASSIGN_SYSTEM,
+    FACT_QUESTION,
+    FACTS,
+    assign_user_message,
+    compose_fact_prompt,
+)
 
 ANSWERS = Path("fixtures/golden/decision/answers_v1.json")
+
+CALLS_PER_DECISION = 3
+"""一次決策要幾次模型呼叫:句子分派 + 量化 + 取捨,並行。
+
+跟 `star_read.read_facts()` 綁在一起,那邊改成兩次或四次的話這裡要跟著改——
+這個數字只用在估成本與印延遲,算錯不會讓量測失真,但會讓人照錯的數字決定 --runs。
+"""
 
 DIFFICULTIES = ("新手", "中等", "困難")
 
@@ -215,21 +223,9 @@ def make_llm(model: str, temp: float):
     return call
 
 
-def fake_gap(rule: AcceptRule, label: dict) -> str:
-    """假模型要填的 gap。直接用算出來的那一個。
-
-    這支原本自己排了一套順序(結果 > 行動 > 任務 > 情境),
-    那是這個專案裡第四份 gap 推導。2b 把推導放進 `AcceptRule.first_gap()`,
-    這裡改成轉呼叫——假模型的職責是當完美的 oracle,
-    而 oracle 現在就是那支函式。
-    """
-    return AnswerFacts.from_label(label).gap_for(rule)
-
-
 def fake_facts_reply(label: dict, answer: str, system: str) -> str | None:
     """事實判讀那三次呼叫的完美回答。不是判讀 prompt 就回 None。
 
-    2c 之後預設路徑問的是「這段話裡有什麼」,不是「要不要追問」。
     假模型少了這幾個分支的話每一輪的事實都會讀成什麼都沒有,
     於是每一輪都追問——而表格照樣印得出來。1c 出過一次一樣的事。
     """
@@ -245,7 +241,11 @@ def fake_facts_reply(label: dict, answer: str, system: str) -> str | None:
         )
     for fact in FACTS:
         if FACT_QUESTION[fact] in system:
-            has = fact in label["star_parts"] if fact in ("S", "T", "A", "R") else bool(label[fact])
+            has = (
+                fact in label["star_parts"]
+                if fact in ("S", "T", "A", "R")
+                else bool(label[fact])
+            )
             return json.dumps(
                 {"present": has, "quote": answer[:12] if has else ""}, ensure_ascii=False
             )
@@ -281,14 +281,9 @@ def make_fake_llm(rule: AcceptRule, answers: list[dict]):
                 facts = fake_facts_reply(a["label"], a["text"], system)
                 if facts is not None:
                     return facts
-                action = expected_action(rule, a["label"])
-                return json.dumps(
-                    {
-                        "why": f"(假模型){a['id']}",
-                        "action": action,
-                        "gap": fake_gap(rule, a["label"]) if action == FOLLOW_UP else "",
-                    },
-                    ensure_ascii=False,
+                raise AssertionError(
+                    f"假模型認不得這個 prompt:{system[:40]}。"
+                    "2d 之後決策只問事實判讀那三種,多出來的呼叫是接錯了。"
                 )
         raise AssertionError("假模型在 prompt 裡找不到任何一筆答案——答案沒被帶進去。")
 
@@ -301,7 +296,7 @@ def make_fake_llm(rule: AcceptRule, answers: list[dict]):
 
 
 async def decide(
-    spec, answer: dict, llm, engine: str, depth: int, structure: str = STRUCTURE_FACTS
+    spec, answer: dict, llm, engine: str, depth: int
 ) -> TurnDecision:
     return await decide_turn(
         spec=spec,
@@ -311,13 +306,12 @@ async def decide(
         depth=depth,
         ended_by="manual",
         transcription_engine=engine,
-        structure_from=structure,
     )
 
 
 async def run_wired(
     spec, answers, llm, engine, runs, sem, difficulty="", log=None,
-    structure: str = STRUCTURE_FACTS, secs: list[float] | None = None,
+    secs: list[float] | None = None,
 ) -> dict[str, list[TurnDecision]]:
     """depth 固定 0。上線實際的行為。
 
@@ -329,7 +323,7 @@ async def run_wired(
     async def one(answer, _run):
         async with sem:
             t0 = time.perf_counter()
-            d = await decide(spec, answer, llm, engine, 0, structure)
+            d = await decide(spec, answer, llm, engine, 0)
             if secs is not None:
                 secs.append(time.perf_counter() - t0)
             return answer["id"], d
@@ -345,7 +339,6 @@ async def run_wired(
                     "答案": aid,
                     "action": d.action,
                     "source": d.source,
-                    "structure": structure,
                     "gap": d.gap,
                     "why": d.why,
                     "superseded": d.superseded,
@@ -355,7 +348,7 @@ async def run_wired(
 
 
 async def run_tracked(
-    spec, answers, llm, engine, runs, sem, structure: str = STRUCTURE_FACTS
+    spec, answers, llm, engine, runs, sem
 ) -> dict[str, list[int]]:
     """工具自己數 depth,追到決定換題或撞上限才停。
 
@@ -371,7 +364,7 @@ async def run_tracked(
         depth = 0
         while depth < hard_cap:
             async with sem:
-                d = await decide(spec, answer, llm, engine, depth, structure)
+                d = await decide(spec, answer, llm, engine, depth)
             if not d.is_follow_up:
                 return answer["id"], depth
             depth += 1
@@ -465,8 +458,9 @@ def print_summary(by_difficulty, answers) -> dict[str, dict]:
         src = sources(flat)
         clar = sum(1 for d in flat if d.action == CLARIFY)
         obs = rate(flat)
-        # 追問裡有幾個 gap 落在封閉集合上。空的表示模型沒照填,或者寫了
-        # 指向兩個互斥事實的句子而被 normalize_gap 放棄。
+        # 追問裡有幾個 gap 填得出來。2d 之後 gap 是 first_gap() 算的,
+        # 所以這一欄理應永遠滿格——不滿格表示有決定走了降級那條路
+        # (降級回 NEXT,不會進這個分母),或者 accepts() 與 first_gap() 不一致。
         fus = [d for d in flat if d.action == FOLLOW_UP]
         ok_gap = f"{sum(1 for d in fus if d.gap)}/{len(fus)}" if fus else "—"
         print(
@@ -515,7 +509,7 @@ def print_tracked(tracked: dict[str, dict[str, list[int]]], answers) -> dict[str
     return totals
 
 
-def report_latency(secs: list[float], structure: str, concurrency: int) -> None:
+def report_latency(secs: list[float], concurrency: int) -> None:
     """一次決定要等多久。2d 順手量,因為它不多花一毛 API 錢。
 
     **這不是單獨一次請求的延遲。** 計時從拿到並行額度那一刻開始算,
@@ -531,21 +525,15 @@ def report_latency(secs: list[float], structure: str, concurrency: int) -> None:
     ordered = sorted(secs)
     p50 = statistics.median(ordered)
     p90 = ordered[min(len(ordered) - 1, int(len(ordered) * 0.9))]
-    calls = 3 if structure == STRUCTURE_FACTS else 1
-    print(
-        f"\n一次決定的耗時(structure={structure},每次 {calls} 次呼叫,"
-        f"concurrency={concurrency}):"
-    )
+    print(f"\n一次決定的耗時(每次 {CALLS_PER_DECISION} 次呼叫,concurrency={concurrency}):")
     print(f"  中位數 {p50:.2f}s  p90 {p90:.2f}s  最慢 {ordered[-1]:.2f}s  n={len(ordered)}")
-    if calls > 1:
-        print("  三次呼叫是並行的,所以這個數字該接近單次呼叫而不是三倍。")
-        print("  明顯接近三倍表示並行沒生效(檢查 --concurrency 與速率限制)。")
+    print("  三次呼叫是並行的,所以這個數字該接近單次呼叫而不是三倍。")
+    print("  明顯接近三倍表示並行沒生效(檢查 --concurrency 與速率限制)。")
 
 
 def conclude(
     stats: dict[str, dict],
     tracked_totals: dict[str, float] | None,
-    structure: str = STRUCTURE_FACTS,
     secs: list[float] | None = None,
     concurrency: int = 0,
 ) -> int:
@@ -567,11 +555,7 @@ def conclude(
 
     mono = obs[0] < obs[1] < obs[2]
     print(f"\n{'★' if mono else '✗'} 單調性 新手 < 中等 < 困難:{'成立' if mono else '不成立'}")
-    if not mono and structure == STRUCTURE_PROMPT:
-        print("  放行條件寫進了 prompt,但模型沒照它改變行為。這是 1d 的結論重現。")
-        print("  下一步不是再改措辭——「規則寫兩次沒生效,就不要寫第三次」。")
-        print("  拿掉 --structure prompt 就是走程式判定那條。")
-    elif not mono:
+    if not mono:
         print("  判斷在程式裡,照理不可能不單調——放行條件本身是單調的。")
         print("  所以不單調表示事實判讀壞了,不是判斷壞了。先跑 tools/star_read_eval.py,")
         print("  再看上面的 source 欄有多少 fallback。")
@@ -608,7 +592,7 @@ def conclude(
             print("  而深度上限在線上沒有接(routes.py 的 _decide 傳 depth=0)。")
             print("  下一項是把 depth 接起來,不是繼續調措辭。")
 
-    report_latency(secs or [], structure, concurrency)
+    report_latency(secs or [], concurrency)
     return 0
 
 
@@ -624,9 +608,6 @@ def main() -> int:
                     help="預設 0.4,跟 get_llm_live() 一樣——量的是上線的設定。")
     ap.add_argument("--engine", choices=("api", "device"), default="api")
     ap.add_argument("--regime", choices=("wired", "tracked", "both"), default="both")
-    ap.add_argument("--structure", choices=STRUCTURE_SOURCES, default=STRUCTURE_FACTS,
-                    help="facts:判讀事實再用 accepts() 算(預設)。"
-                         "prompt:1d 那條舊路,條件寫進 prompt 問模型。")
     ap.add_argument("--concurrency", type=int, default=6)
     ap.add_argument("--fake", action="store_true", help="不打 API,用完全照條件判斷的假模型驗工具")
     ap.add_argument("--dry-run", action="store_true", help="只印一份 prompt")
@@ -650,9 +631,13 @@ def main() -> int:
     specs = {d: derive_specs("single", jd=None, difficulty=d)[0] for d in DIFFICULTIES}
 
     if args.dry_run:
-        print(compose_decision_prompt(specs["中等"], transcription_engine=args.engine))
+        # 決策不再有自己的 prompt:它問的是 star_read 那三個。
+        print(ASSIGN_SYSTEM)
         print("\n" + "-" * 74)
-        print(f"【他剛剛說的】\n{answers[3]['text']}")
+        sentences, _ = segment_text(answers[3]["text"], level="sentence")
+        print(assign_user_message(sentences))
+        print("\n" + "=" * 74)
+        print(compose_fact_prompt("quantified"))
         return 0
 
     if args.fake:
@@ -673,7 +658,7 @@ def main() -> int:
             return 1
 
     runs = 1 if args.fake else args.runs
-    per = 3 if args.structure == STRUCTURE_FACTS else 1
+    per = CALLS_PER_DECISION
     n_wired = len(DIFFICULTIES) * runs * len(answers)
 
     # tracked 會對同一筆答案重複決定到換題或撞上限,所以它的成本不是
@@ -698,8 +683,7 @@ def main() -> int:
         print(f"  tracked {n_tracked:>5} 次決策"
               + (f" × {per} = {n_tracked * per} 次呼叫" if per > 1 else " 次呼叫"))
     print(f"  合計    {total:>5} 次呼叫")
-    print(f"  structure={args.structure} regime={args.regime} "
-          f"engine={args.engine} temp={args.temp}")
+    print(f"  regime={args.regime} engine={args.engine} temp={args.temp}")
 
     sem = asyncio.Semaphore(args.concurrency)
     wired: dict[str, dict] = {}
@@ -718,17 +702,17 @@ def main() -> int:
             if args.regime in ("wired", "both"):
                 wired[diff] = await run_wired(
                     spec, answers, llm, args.engine, runs, sem, diff, log,
-                    args.structure, secs,
+                    secs,
                 )
             if args.regime in ("tracked", "both"):
                 tracked[diff] = await run_tracked(
-                    spec, answers, llm, args.engine, runs, sem, args.structure
+                    spec, answers, llm, args.engine, runs, sem
                 )
 
     asyncio.run(go())
 
     if log is not None:
-        cols = ("難度", "答案", "structure", "action", "source", "gap", "why", "superseded")
+        cols = ("難度", "答案", "action", "source", "gap", "why", "superseded")
         lines = ["\t".join(cols)]
         lines += ["\t".join(str(r[c]).replace("\t", " ") for c in cols) for r in log]
 
@@ -761,7 +745,7 @@ def main() -> int:
     if not stats:
         print("\n(只跑 tracked,沒有 wired 的追問率可以下結論。)")
         return 0
-    return conclude(stats, totals, args.structure, secs, args.concurrency)
+    return conclude(stats, totals, secs, args.concurrency)
 
 
 if __name__ == "__main__":

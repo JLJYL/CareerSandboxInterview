@@ -126,12 +126,12 @@ async def _decide(req: TurnRequest, mode: str):
     """這一輪要做什麼。決定在這一層算,不在 next_turn 裡發起。
 
     【決定怎麼來的】
-    2c 之後走 `structure_from="facts"`(`decide_turn` 的預設):問模型這段話裡
-    有什麼(三次並行),再用 `AcceptRule.accepts()` 算要不要追問。
-    一輪因此是三次呼叫而不是一次,延遲還沒量。
+    問模型這段話裡有什麼(三次並行),再用 `AcceptRule.accepts()` 算要不要追問。
+    一輪三次呼叫,2d 實測中位數 1.54s、p90 2.04s(concurrency=6,含排隊)。
 
-    換回舊路的方法是傳 `structure_from="prompt"`,但那條是 1d 量到
-    0.500/0.500/0.500 的那條——它不照難度改變行為,所以不要在這裡用。
+    舊路是把放行條件寫進 prompt 問模型挑動作。1d 量到三種難度的追問率都是
+    0.500,2d 量到換成程式算之後是 0.143/0.429/0.857、0/630 次降級,
+    所以舊路在 2d 之後刪掉了。
 
     【為什麼 jd 是 None】
     結構化 JD 目前只在開場抽一次(`_resolve_jd`),每輪的請求只帶散文
