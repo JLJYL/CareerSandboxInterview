@@ -622,6 +622,86 @@ class SurfaceIndex:
         if end < len(text) and _is_ascii_alnum(text[end]):
             return False
         return True
+    
+# ---------------------------------------------------------------- 斷句
+
+
+SEGMENTATION_SOURCES: tuple[str, ...] = (
+    "punctuation",
+    "stt_segment",
+    "discourse_marker",
+    "unavailable",
+)
+"""`segment_text()` 第二個回傳值的值域,對齊合約的 segmentation 欄位。
+
+宣告出來是因為下游會照這個值決定要不要相信邊界:
+`star_read` 的句子分派需要真句子,拿 `discourse_marker` 估出來的邊界去分派
+是沒量過的用法,而兩者在資料上長得一樣——不宣告就看不出差別。
+"""
+
+
+SEGMENT_LEVELS: tuple[str, ...] = ("clause", "sentence")
+"""`segment_text(level=...)` 的值域。
+
+    clause    逗號、頓號也算界。給句長統計與語意視窗用——
+              那邊要的是短切片,一個子句就是一個可比對的單位。
+    sentence  只有句末標點算界。給 `star_read` 的句子分派用——
+              那邊要的是完整的一句話,子句分派不出標籤
+              (「原本都是人工整理」單獨看掛不上 S 以外的任何東西)。
+
+【為什麼要分兩級而不是共用一個】
+「子句在哪結束」跟「句子在哪結束」是兩個不同的事實,不是同一個事實的兩份。
+共用一份的話,改動其中一邊的需求就會動到另一邊——而這兩邊的消費端
+(句長統計、句子分派)對切得多細的要求剛好相反。
+
+分兩級但共用同一份標點表與同一套 provenance,所以只有「切多細」這一個
+參數不同,不會變成兩套規則。
+"""
+
+_SENT_END_RE = re.compile(r"[。！？\.!\?\n]+")
+#: 句末標點。不含逗號與頓號——那些是子句界,不是句界。
+
+
+def segment_text(text: str, *, level: str = "clause") -> tuple[list[str], str]:
+    """把一段逐字稿切成語段,並回報邊界是怎麼來的。
+
+      punctuation       有真標點,精確值
+      stt_segment       無標點,但邊界來自 STT 自動送出點,是實測值
+      discourse_marker  無標點,以語氣詞估算——是估算值
+      unavailable       都沒有,切不出東西
+
+    ★ punctuation 與 stt_segment 一定要分開,這是我原本寫錯的地方。
+      _PUNCT_RE 含 \\n,所以多段用換行接起來之後會命中「有標點」——
+      但實測逐字稿裡一個真標點都沒有,回 punctuation 等於宣稱那 76 字
+      是精確句長,實際上它是「她停頓前講了多長」。
+      過度宣稱比不宣稱糟:B 的 prompt 會照著把它講成句子長度。
+
+    注意 `level="sentence"` 可能回 `(["整段"], "punctuation")`——
+    有逗號但沒有句末標點的時候。provenance 說的是「邊界是怎麼來的」,
+    不是「切出了幾段」,兩者要分開看。
+
+    【為什麼是 module-level 不是 TranscriptAnalyzer 的方法】
+    `star_read` 的句子分派也要斷句,而它拿不到 analyzer——那個類別要
+    詞彙表與 embedding。原本只在這裡的時候是方法,現在有第二個呼叫端,
+    所以搬出來共用。各自寫一個 splitter 就會變成標點表有兩份。
+    """
+    if level not in SEGMENT_LEVELS:
+        raise ValueError(f"level 只能是 {SEGMENT_LEVELS},拿到 {level!r}")
+    if not text.strip():
+        return [], "unavailable"
+    splitter = _PUNCT_RE if level == "clause" else _SENT_END_RE
+    real_punct = _REAL_PUNCT_RE.search(text)
+    if real_punct:
+        return [x for x in splitter.split(text) if x.strip()], "punctuation"
+    if "\n" in text:
+        # 段界＝STT 自動送出點。量的不是句長,是語流連續性。
+        return [x for x in text.split("\n") if x.strip()], "stt_segment"
+    pattern = "|".join(re.escape(m) for m in DISCOURSE_MARKERS)
+    parts = [p for p in re.split(f"(?={pattern})", text) if p.strip()] if pattern else []
+    if len(parts) <= 1:
+        # 切不出東西就誠實說切不出來,不要拿整段長度冒充平均句長
+        return [], "unavailable"
+    return parts, "discourse_marker"
 
 
 # ---------------------------------------------------------------- 主類別
@@ -866,33 +946,8 @@ class TranscriptAnalyzer:
     # -------------------------------------------------- 內部
 
     def _segment(self, text: str) -> tuple[list[str], str]:
-        """四態,對齊合約的 segmentation 欄位。
-
-          punctuation       有真標點,精確值
-          stt_segment       無標點,但邊界來自 STT 自動送出點,是實測值
-          discourse_marker  無標點,以語氣詞估算——是估算值
-          unavailable       都沒有,兩個欄位回 0
-
-        ★ punctuation 與 stt_segment 一定要分開,這是我原本寫錯的地方。
-          _PUNCT_RE 含 \n,所以多段用換行接起來之後會命中「有標點」——
-          但實測逐字稿裡一個真標點都沒有,回 punctuation 等於宣稱那 76 字
-          是精確句長,實際上它是「她停頓前講了多長」。
-          過度宣稱比不宣稱糟:B 的 prompt 會照著把它講成句子長度。
-        """
-        if not text.strip():
-            return [], "unavailable"
-        real_punct = _REAL_PUNCT_RE.search(text)
-        if real_punct:
-            return [x for x in _PUNCT_RE.split(text) if x.strip()], "punctuation"
-        if "\n" in text:
-            # 段界＝STT 自動送出點。量的不是句長,是語流連續性。
-            return [x for x in text.split("\n") if x.strip()], "stt_segment"
-        pattern = "|".join(re.escape(m) for m in DISCOURSE_MARKERS)
-        parts = [p for p in re.split(f"(?={pattern})", text) if p.strip()] if pattern else []
-        if len(parts) <= 1:
-            # 切不出東西就誠實說切不出來,不要拿整段長度冒充平均句長
-            return [], "unavailable"
-        return parts, "discourse_marker"
+        """斷句。實作在 module-level 的 `segment_text()`,`star_read` 共用同一份。"""
+        return segment_text(text)
 
     def _semantic_pass(
         self, text: str, offsets: list[int], raw: str,
