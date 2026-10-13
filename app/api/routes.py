@@ -125,13 +125,22 @@ async def submit_turn(req: TurnRequest, session_id: str = SESSION_ID) -> TurnRes
 async def _decide(req: TurnRequest, mode: str):
     """這一輪要做什麼。決定在這一層算,不在 next_turn 裡發起。
 
+    【決定怎麼來的】
+    2c 之後走 `structure_from="facts"`(`decide_turn` 的預設):問模型這段話裡
+    有什麼(三次並行),再用 `AcceptRule.accepts()` 算要不要追問。
+    一輪因此是三次呼叫而不是一次,延遲還沒量。
+
+    換回舊路的方法是傳 `structure_from="prompt"`,但那條是 1d 量到
+    0.500/0.500/0.500 的那條——它不照難度改變行為,所以不要在這裡用。
+
     【為什麼 jd 是 None】
     結構化 JD 目前只在開場抽一次(`_resolve_jd`),每輪的請求只帶散文
     `context.customJd`。每輪重抽一次要多一次呼叫,而 JD 整場不會變。
 
-    所以這一版的決定只依 STAR 與放行條件判斷,不看職缺需求——
-    `InterviewerSpec.has_jd()` 為 False 時 prompt 會明說「沒有職缺需求可用,
-    不要自行想像這個職位需要什麼」,不會讓模型腦補。
+    所以這一版的決定只依 STAR 與放行條件判斷,不看職缺需求。
+    facts 路徑本來就不把職缺需求帶進判讀——判讀問的是「這段話裡有什麼」,
+    跟職缺要什麼無關,所以 `has_jd()` 為 False 在這條路上不會讓模型腦補。
+    職缺需求之後是用在「這個缺口值不值得追」那一層,還沒做。
 
     之後兩條路都能補上:履歷組給結構化職缺需求,或開場把抽好的 JD 回傳、
     前端每輪帶回來(跟 fallback 同一個模式)。

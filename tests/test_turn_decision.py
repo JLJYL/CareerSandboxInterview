@@ -10,14 +10,19 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
 from app.contracts.interview_protocols import JDInput
-from app.pipeline.interviewer_spec import derive_specs
+from app.pipeline.interviewer_spec import ACCEPT_RULES, derive_specs
+from app.pipeline.star_read import AnswerFacts
+from app.pipeline.transcript import segment_text
+from app.prompts.star_read import FACT_QUESTION
 from app.pipeline.turn_decision import (
     CLARIFY,
     DECISION_SOURCES,
+    decide_from_facts,
     FOLLOW_UP,
     MAX_SUPERSEDED_CHARS,
     NEXT,
@@ -34,6 +39,16 @@ from app.prompts.turn_decision import compose_decision_prompt, render_accept_rul
 
 JD = JDInput(required_skills=["Python", "資料分析"], description="…")
 GOOD_ANSWER = "那個專案我負責報表自動化,把每週三小時的人工整理縮到二十分鐘。"
+
+_LADDER_RAW = json.loads(
+    Path("fixtures/golden/decision/answers_v1.json").read_text(encoding="utf-8")
+)["answers"]
+
+LADDER: tuple[dict, ...] = tuple(a["label"] for a in _LADDER_RAW)
+"""階梯七筆的標註。拿真的那組當事實,不要在測試裡自己編一組。"""
+
+RICH_ANSWER: str = next(a["text"] for a in _LADDER_RAW if a["answer_id"] == "A5")
+"""四段齊全的那一筆。多句,所以句子分派表達得出四個標籤。"""
 
 
 def spec_of(difficulty: str = "中等", jd: JDInput | None = JD):
@@ -87,8 +102,11 @@ async def test_forced_decision_does_not_call_the_model():
 
 
 async def test_normal_answer_does_call_the_model():
+    """prompt 路徑:一次呼叫,動作由模型挑。這是 1d 量到的那條路。"""
     llm = Recorder(json.dumps({"why": "沒有數字", "action": "FOLLOW_UP", "gap": "結果沒量化"}))
-    d = await decide_turn(spec=spec_of(), answer=GOOD_ANSWER, llm=llm)
+    d = await decide_turn(
+        spec=spec_of(), answer=GOOD_ANSWER, llm=llm, structure_from="prompt"
+    )
     assert len(llm.calls) == 1
     assert d.action == FOLLOW_UP
     assert d.gap == "結果沒量化"
@@ -191,7 +209,9 @@ def test_gap_only_kept_for_follow_up():
 
 
 async def test_unparseable_output_degrades_to_next():
-    d = await decide_turn(spec=spec_of(), answer=GOOD_ANSWER, llm=Recorder("??? ###"))
+    d = await decide_turn(
+        spec=spec_of(), answer=GOOD_ANSWER, llm=Recorder("??? ###"), structure_from="prompt"
+    )
     assert d.action == NEXT
     assert d.source == "fallback"
     assert d.why
@@ -201,7 +221,9 @@ async def test_llm_exception_degrades_to_next():
     def boom(system: str, user: str) -> str:
         raise RuntimeError("boom")
 
-    d = await decide_turn(spec=spec_of(), answer=GOOD_ANSWER, llm=boom)
+    d = await decide_turn(
+        spec=spec_of(), answer=GOOD_ANSWER, llm=boom, structure_from="prompt"
+    )
     assert d.action == NEXT
     assert d.source == "fallback"
     assert "RuntimeError" in d.why
@@ -279,13 +301,17 @@ def test_prompt_lists_exactly_the_closed_set():
 async def test_fallback_keeps_what_it_replaced():
     """光看 source=fallback 只知道失敗了,不知道失敗長什麼樣。"""
     broken = "我覺得這個回答還可以再補充一點細節。"
-    d = await decide_turn(spec=spec_of(), answer=GOOD_ANSWER, llm=Recorder(broken))
+    d = await decide_turn(
+        spec=spec_of(), answer=GOOD_ANSWER, llm=Recorder(broken), structure_from="prompt"
+    )
     assert d.source == "fallback"
     assert d.superseded == broken
 
 
 async def test_superseded_is_truncated():
-    d = await decide_turn(spec=spec_of(), answer=GOOD_ANSWER, llm=Recorder("壞" * 900))
+    d = await decide_turn(
+        spec=spec_of(), answer=GOOD_ANSWER, llm=Recorder("壞" * 900), structure_from="prompt"
+    )
     assert d.source == "fallback"
     assert 0 < len(d.superseded) <= MAX_SUPERSEDED_CHARS
 
@@ -303,6 +329,11 @@ def test_every_gap_a_decision_can_carry_is_declared():
         forced_decision(spec=spec_of(), answer="這個我沒想過耶").gap,
         fallback_decision("x").gap,
     }
+    seen |= {
+        decide_from_facts(ACCEPT_RULES[d], AnswerFacts.from_label(lab)).gap
+        for d in ACCEPT_RULES
+        for lab in LADDER
+    }
     assert seen <= allowed, sorted(seen - allowed)
 
 
@@ -311,14 +342,162 @@ def test_every_source_is_declared():
         TurnDecision(NEXT).source,
         forced_decision(spec=spec_of(), answer="").source,
         fallback_decision("x").source,
+        decide_from_facts(ACCEPT_RULES["困難"], AnswerFacts.from_label(LADDER[0])).source,
+        decide_from_facts(ACCEPT_RULES["新手"], AnswerFacts()).source,
     }
     assert seen <= set(DECISION_SOURCES)
+    assert len(seen) >= 4, "四種來源應該都走得到,少一種表示有一條路不會發生"
 
 
 def test_a_clean_decision_supersedes_nothing():
     raw = json.dumps({"why": "x", "action": "NEXT", "gap": ""}, ensure_ascii=False)
     d = parse_decision(raw)
     assert d is not None and d.superseded == ""
+
+
+# ---------------------------------------------------------------------------
+# 結構判斷交給程式
+# ---------------------------------------------------------------------------
+
+
+def facts_llm(label: dict, answer: str = RICH_ANSWER):
+    """照標註回答事實判讀的三次呼叫。分派與單題都要認得。
+
+    答案一定要是多句的:分派一句只掛一個標籤,所以單句的答案最多只讀出一段。
+    `GOOD_ANSWER` 只有一句,拿它當這裡的輸入會量到「S 以外都沒有」
+    然後誤以為是程式錯了——我第一次就是這樣寫的。
+    """
+
+    def call(system: str, user: str) -> str:
+        if "把每一句分派到一個標籤" in system:
+            sentences, _ = segment_text(answer, level="sentence")
+            order = [f for f in ("S", "T", "A", "R") if f in label["star_parts"]]
+            assert len(sentences) >= len(order), "句數不夠,分派表達不出這組標註"
+            return json.dumps(
+                {
+                    str(i + 1): (order[i] if i < len(order) else "其他")
+                    for i in range(len(sentences))
+                },
+                ensure_ascii=False,
+            )
+        for fact in ("quantified", "tradeoff"):
+            if FACT_QUESTION[fact] in system:
+                has = bool(label[fact])
+                return json.dumps(
+                    {"present": has, "quote": answer[:12] if has else ""},
+                    ensure_ascii=False,
+                )
+        raise AssertionError(f"假模型認不得這個 prompt:{system[:40]}")
+
+    return call
+
+
+async def test_facts_path_asks_only_about_facts():
+    """三次呼叫,全部是在問「這段話裡有什麼」,沒有一次在問「要不要追問」。
+
+    這是 2c 的重點:放行條件不再進 prompt。1d 實測它進了也沒生效。
+    """
+    llm = Recorder()
+    llm_calls: list[str] = []
+
+    def spy(system: str, user: str) -> str:
+        llm_calls.append(system)
+        return facts_llm(LADDER[4])(system, user)
+
+    d = await decide_turn(spec=spec_of(), answer=RICH_ANSWER, llm=spy)
+    assert len(llm_calls) == 3
+    assert not any("什麼時候算講完了" in s for s in llm_calls)
+    assert not any(a in s for s in llm_calls for a in ("NEXT", "FOLLOW_UP"))
+    assert d.source == "facts"
+    assert llm.calls == []
+
+
+async def test_facts_path_lets_difficulty_decide():
+    """同一段回答,三種難度要給出不同的決定。
+
+    1d 量到的失敗就是這一條不成立:三種難度的追問率都是 0.500。
+    A4 是中等 / 困難的分界——三段加結果加數字,中等全滿足,困難還要四段跟取捨。
+    """
+    a4 = {"star_parts": ["S", "A", "R"], "quantified": True, "tradeoff": False}
+    got = {}
+    for diff in ("新手", "中等", "困難"):
+        d = await decide_turn(spec=spec_of(diff), answer=RICH_ANSWER, llm=facts_llm(a4))
+        got[diff] = d.action
+    assert got["新手"] == NEXT
+    assert got["中等"] == NEXT
+    assert got["困難"] == FOLLOW_UP
+
+
+async def test_the_gap_is_computed_not_asked():
+    """A3:講了結果只是沒數字。模型在 1d 裡 20/20 次寫「缺結果」。
+
+    算出來的是「結果沒量化」,而且這一輪模型根本沒被問到缺口是什麼。
+    """
+    a3 = {"star_parts": ["S", "A", "R"], "quantified": False, "tradeoff": False}
+    d = await decide_turn(spec=spec_of("中等"), answer=RICH_ANSWER, llm=facts_llm(a3))
+    assert d.action == FOLLOW_UP
+    assert d.gap == "結果沒量化"
+    assert d.source == "facts"
+
+
+async def test_an_incomplete_read_degrades_and_keeps_what_it_read():
+    """判讀沒讀完 → 不拿不完整的事實下判斷。
+
+    「四段都沒讀到」與「讀出來四段都沒有」在 accepts() 眼裡一模一樣,
+    所以這條路徑一定要標成 fallback,而且把讀到的部分留在 superseded。
+    """
+
+    def half(system: str, user: str) -> str:
+        if "把每一句分派到一個標籤" in system:
+            raise RuntimeError("timeout")
+        return json.dumps({"present": True, "quote": RICH_ANSWER[:12]}, ensure_ascii=False)
+
+    d = await decide_turn(spec=spec_of("困難"), answer=RICH_ANSWER, llm=half)
+    assert d.action == NEXT
+    assert d.source == "fallback"
+    assert d.superseded
+
+
+def test_decide_from_facts_is_pure():
+    """同樣的事實加同樣的條件,永遠同一個決定。不碰模型。"""
+    facts = AnswerFacts.from_label(LADDER[3])
+    rule = ACCEPT_RULES["困難"]
+    first = decide_from_facts(rule, facts)
+    assert decide_from_facts(rule, facts) == first
+
+
+def test_why_says_what_it_read_and_what_is_missing():
+    """決定變成程式算之後,why 是事實摘要加缺口,不是模型的說法。
+
+    報告逐題講評與人工標注看的都是這一句,空的或含糊的話那兩件事就做不了。
+    """
+    d = decide_from_facts(ACCEPT_RULES["困難"], AnswerFacts.from_label(LADDER[5]))
+    assert d.action == FOLLOW_UP
+    assert "取捨" in d.why
+    assert d.gap in d.why
+
+
+def test_the_facts_path_never_says_clarify():
+    """facts 路徑沒有 CLARIFY——那需要問模型,而那次呼叫還沒做。
+
+    這是刻意留的缺口(見 STRUCTURE_SOURCES)。釘住它是為了之後補上來的時候
+    有一條測試會紅,而不是靠人記得。
+    """
+    seen = {
+        decide_from_facts(ACCEPT_RULES[d], AnswerFacts.from_label(lab)).action
+        for d in ACCEPT_RULES
+        for lab in LADDER
+    }
+    assert CLARIFY not in seen
+    assert seen <= {NEXT, FOLLOW_UP}
+
+
+async def test_an_unknown_structure_source_is_refused():
+    """認不得的值要炸,不要默默走其中一條——那會讓量測以為量的是另一條。"""
+    with pytest.raises(ValueError):
+        await decide_turn(
+            spec=spec_of(), answer=GOOD_ANSWER, llm=Recorder(), structure_from="code"
+        )
 
 
 # ---------------------------------------------------------------------------

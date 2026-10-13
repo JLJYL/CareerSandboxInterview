@@ -29,7 +29,9 @@ import asyncio
 from dataclasses import dataclass
 
 from app.pipeline.interview_live import LLMCall, parse_obj
-from app.pipeline.interviewer_spec import InterviewerSpec
+from app.pipeline.interviewer_spec import AcceptRule, InterviewerSpec
+from app.pipeline.star_read import AnswerFacts, read_facts
+from app.prompts.star_read import FACT_NAME
 from app.prompts.turn_decision import (
     DECISION_ACTIONS,
     GAP_VALUES,
@@ -71,12 +73,49 @@ MIN_ANSWER_CHARS = 2
 MAX_SUPERSEDED_CHARS = 300
 """記錄被取代的輸出時最多留幾個字。只為了事後查得出來,不需要全文。"""
 
-DECISION_SOURCES: tuple[str, ...] = ("code", "llm", "fallback")
-CODE, LLM, FALLBACK = DECISION_SOURCES
+DECISION_SOURCES: tuple[str, ...] = ("code", "llm", "facts", "fallback")
+CODE, LLM, FACTS, FALLBACK = DECISION_SOURCES
 """`TurnDecision.source` 的值域。
+
+    code      程式直接決定,完全沒問模型(forced_decision 那四種)
+    llm       模型自己挑了動作(prompt 路徑,2d 的對照組)
+    facts     程式用模型判讀出來的事實算的(accepts(),預設路徑)
+    fallback  降級
 
 宣告出來是為了報表:工具自己列一份的話,這裡多一個值而它沒跟著加,
 那一整類會被漏掉而且報表照樣印得出來。
+
+【為什麼 facts 要跟 code 分開】
+兩者的判斷邏輯都是程式,但輸入不同:`code` 那幾種不碰模型,
+`facts` 的事實是模型讀出來的。混成一欄的話,
+「模型判讀錯導致決定錯」會被記成「程式決定的」,然後評不出來是誰的問題。
+"""
+
+STRUCTURE_SOURCES: tuple[str, ...] = ("facts", "prompt")
+STRUCTURE_FACTS, STRUCTURE_PROMPT = STRUCTURE_SOURCES
+"""結構判斷(要不要追問)從哪裡來。
+
+    facts   判讀出六項事實,交給 `AcceptRule.accepts()` 算。預設。
+    prompt  把放行條件寫進 prompt,問模型要哪個動作。1d 量到的那條路。
+
+【為什麼兩條都留著】
+1d 實測 prompt 那條路的追問率是 0.500 / 0.500 / 0.500——它不照難度改變行為。
+所以預設換成 facts。但 facts 那條路還沒打真 API 量過(那是 2d),
+現在刪掉 prompt 那條就沒有對照組,也沒有退路。
+
+所以這個參數的壽命是明確的:**2d 量完就刪掉 prompt 那條**,
+連同 `compose_decision_prompt`、`parse_decision`、`normalize_action`、
+`normalize_gap`、`_GAP_ALIASES`、`_REFUSAL_MARKS` 一起——
+2c 之後那些只有對照組在用。
+
+【facts 路徑現在沒有 CLARIFY】
+CLARIFY 需要「這個詞像是辨識轉錯」這種判斷,程式算不出來,只能問模型,
+而那一次呼叫還沒做。所以 facts 路徑只會回 NEXT 或 FOLLOW_UP。
+
+這是刻意的缺口不是忘記:乾淨逐字稿上實測 CLARIFY 出現 0 次,
+而裝置端逐字稿上它該不該出現還沒量。補的做法是照 star_read 的格式
+加一次窄問法(「有沒有哪個詞明顯不合情境」加抄原文),
+抄不出原文就不採用。
 """
 
 
@@ -267,6 +306,47 @@ def fallback_decision(reason: str, raw: str = "") -> TurnDecision:
     )
 
 
+def describe_facts(facts: AnswerFacts) -> str:
+    """把判讀結果寫成一句人看得懂的話,給 `why` 用。
+
+    決定變成程式算之後,`why` 不再是模型的說法而是事實的摘要。
+    報告要逐題講評、人工要標注對錯,看的都是這一句。
+    """
+    named = "、".join(FACT_NAME[p] for p in facts.star_parts)
+    segs = f"交代了{named}" if named else "四段都沒交代"
+    return (
+        f"{segs};"
+        f"{'有' if facts.quantified else '沒有'}可查證的數字;"
+        f"{'有' if facts.tradeoff else '沒有'}取捨"
+    )
+
+
+def decide_from_facts(rule: AcceptRule, facts: AnswerFacts) -> TurnDecision:
+    """純函式:事實加放行條件 → 決定。不碰模型,不拋例外。
+
+    判讀沒讀完的時候降級成 NEXT,理由跟 `fallback_decision` 一樣——
+    一個不可信的判斷不該把人釘在同一個點上,而 `max_depth` 的保護
+    本來就建立在決定可信之上。
+
+    這裡的降級要看得見,所以 `superseded` 記下讀到的部分:
+    「四段都沒讀到」與「讀出來四段都沒有」在 `accepts()` 眼裡一模一樣,
+    只看結果分不出來,而前者該退讓、後者該追問。
+    """
+    if not facts.complete:
+        missing = "、".join(FACT_NAME[f] for f in facts.failed) or "(沒有判讀)"
+        return TurnDecision(
+            NEXT,
+            f"事實判讀沒完成({missing}),不拿不完整的事實下判斷,改為推進。",
+            source=FALLBACK,
+            superseded=describe_facts(facts)[:MAX_SUPERSEDED_CHARS],
+        )
+    desc = describe_facts(facts)
+    if facts.accepted_by(rule):
+        return TurnDecision(NEXT, f"{desc}。放行條件全部滿足。", source=FACTS)
+    gap = facts.gap_for(rule)
+    return TurnDecision(FOLLOW_UP, f"{desc}。缺的是{gap}。", gap, FACTS)
+
+
 async def decide_turn(
     *,
     spec: InterviewerSpec,
@@ -276,12 +356,54 @@ async def decide_turn(
     depth: int = 0,
     ended_by: str = "unknown",
     transcription_engine: str = "api",
+    structure_from: str = STRUCTURE_FACTS,
 ) -> TurnDecision:
-    """這一輪要做什麼。永遠回一個決定,不拋例外。"""
+    """這一輪要做什麼。永遠回一個決定,不拋例外。
+
+    三層,前面的優先:
+
+        forced_decision   程式直接決定的四種,不呼叫模型
+        read_facts        問模型這段話裡有什麼(三次並行)
+        accepts()         程式算這些事實夠不夠放行
+
+    `structure_from="prompt"` 走 1d 那條舊路:把條件寫進 prompt 問模型要哪個動作。
+    留著只為了 2d 能對照,量完就刪(見 STRUCTURE_SOURCES)。
+    """
     forced = forced_decision(spec=spec, answer=answer, depth=depth, ended_by=ended_by)
     if forced is not None:
         return forced
 
+    if structure_from == STRUCTURE_PROMPT:
+        return await _decide_by_prompt(
+            spec=spec,
+            answer=answer,
+            llm=llm,
+            question=question,
+            depth=depth,
+            transcription_engine=transcription_engine,
+        )
+    if structure_from != STRUCTURE_FACTS:
+        raise ValueError(
+            f"structure_from 只能是 {STRUCTURE_SOURCES},拿到 {structure_from!r}"
+        )
+
+    facts = await read_facts(answer=answer, llm=llm)
+    return decide_from_facts(spec.accept, facts)
+
+
+async def _decide_by_prompt(
+    *,
+    spec: InterviewerSpec,
+    answer: str,
+    llm: LLMCall,
+    question: str,
+    depth: int,
+    transcription_engine: str,
+) -> TurnDecision:
+    """1d 量到的那條路:條件寫進 prompt,模型挑動作。
+
+    保留原樣,一個字都沒改——它是對照組,改了就對不起 1d 量到的數字。
+    """
     user = "\n".join(
         [
             f"【他剛剛說的】\n{answer.strip()}",
