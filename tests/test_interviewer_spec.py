@@ -188,13 +188,65 @@ def test_missing_result_outranks_a_short_count():
 def test_a_context_only_answer_is_asked_what_he_did():
     """只講情境的時候要問行動,不要問任務。
 
-    PROBE_ORDER 的第一順位是行動:行為面試裡沒有行動就沒有東西可評。
-    新手不要求結果,所以這一筆會落在段數不足那條。
+    `GAP_PRIORITY` 的第一順位是行動:沒有行動就沒有東西可評,其他都免談。
     """
-    gap = ACCEPT_RULES["新手"].first_gap(
-        star_parts=("S",), quantified=False, tradeoff=False
+    for diff in ACCEPT_RULES:
+        gap = ACCEPT_RULES[diff].first_gap(
+            star_parts=("S",), quantified=False, tradeoff=False
+        )
+        assert gap == STAR_PART_GAP["A"], diff
+
+
+def test_an_unquantified_result_outranks_a_makeweight_segment():
+    """困難的 A3:交代了情境、行動、結果但沒有數字。
+
+    2b 原本在這一格算出「缺任務」——那是把 accepts() 的條件順序當成了
+    追問的價值順序。對一個已經講完情境行動結果的人問「你的任務是什麼」
+    價值很低,而「快了多少」決定整段話能不能被查證。
+    2d 看 dump 的時候才發現,所以這一條釘住它。
+    """
+    gap = ACCEPT_RULES["困難"].first_gap(
+        star_parts=("S", "A", "R"), quantified=False, tradeoff=False
     )
-    assert gap == STAR_PART_GAP["A"]
+    assert gap == GAP_QUANTIFICATION
+
+
+def test_a_named_condition_outranks_a_makeweight_segment():
+    """取捨是這個難度指名要求、而他確實沒做到的一項;任務只是段數湊數。
+
+    段數不足的意思是「這四段裡隨便再補一段就過」,指名一個湊數的段落,
+    問出來的價值低於指名那條真正沒做到的條件。
+    """
+    gap = ACCEPT_RULES["困難"].first_gap(
+        star_parts=("S", "A", "R"), quantified=True, tradeoff=False
+    )
+    assert gap == GAP_TRADEOFF
+
+
+def test_only_the_task_is_missing_so_the_task_is_named():
+    """A7:結果、量化、取捨全滿足,只差任務那一段。
+
+    這是湊數段落唯一該被指名的情況——沒有別的條件沒做到。
+    A7 這一筆存在的理由就是把「任務在不在」單獨隔離出來。
+    """
+    gap = ACCEPT_RULES["困難"].first_gap(
+        star_parts=("S", "A", "R"), quantified=True, tradeoff=True
+    )
+    assert gap == STAR_PART_GAP["T"]
+
+
+def test_a_difficulty_never_names_what_it_does_not_require():
+    """新手不要求取捨,所以新手永遠不該指出「沒有取捨」。
+
+    少了這一層,`沒有取捨` 會在每一個沒講取捨的回答上成立——
+    包括那些已經被新手放行的。
+    """
+    for parts, q, t in all_facts():
+        gap = ACCEPT_RULES["新手"].first_gap(
+            star_parts=parts, quantified=q, tradeoff=t
+        )
+        assert gap != GAP_TRADEOFF
+        assert gap != GAP_QUANTIFICATION
 
 
 def test_undeclared_parts_do_not_count():

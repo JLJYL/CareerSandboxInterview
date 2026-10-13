@@ -1,122 +1,71 @@
-# 面試模組(A1–A5)
+# 決策放行條件的量測用答案階梯
 
-CareerSandbox 面試模擬功能的模型端開發區。
+`answers_v1.json`。給 `tools/followup_rate.py` 用。
 
-## 與 CareerSandboxModule 的關係
+## 這不是一般的 golden set
 
-本 repo 為**獨立服務**,與 CareerSandboxModule(B1/B2/C1)分開部署。
+`fixtures/golden/interview/` 是技能漏講的標註集,一筆一個案例,彼此獨立。
+這裡是**一個量尺**:同一個專案的六種講法,完整度由低到高排,
+每一階剛好跨過 `AcceptRule` 的一條門檻。
 
-| 項目 | 處理方式 |
-|---|---|
-| 履歷資料 | 由前端在 request body 帶入(`ReportRequest.experiences`),本服務不連 MongoDB |
-| 正規化元件 | `VocabNormalizer` 等複製自 CareerSandboxModule,**三週內不同步**,檔頭需標明是複本 |
-| 認證 | 目前不驗 Bearer token,為已知缺口,見 `CONTRACTS_interview.md` 第五節 |
-| 前端接法 | 需另建一組 Retrofit 實例指向本服務,現有 `ApiClient` 是單一 BASE_URL |
+拆開單獨看任何一筆都沒有意義,要整組一起跑。
 
-複製正規化元件時注意:面試的正規化問題與履歷不同。履歷是書面語、有標點;
-逐字稿是口語、中文 STT 不輸出標點,且會出現「我會寫 SQL」這類說法。
-直接搬過來很可能命中率不足,需預留調整時間,並以怡君提供的真實逐字稿樣本校準。
+## 標註是什麼
 
-## 快速開始
+| 欄位 | 意思 | 對應的放行條件 |
+| --- | --- | --- |
+| `star_parts` | 這段話交代了 STAR 哪幾段 | `min_star_parts`、`require_result` |
+| `quantified` | 成果有沒有可查證的數字 | `require_quantification` |
+| `tradeoff` | 有沒有交代放棄了什麼、依據是什麼 | `require_tradeoff` |
 
-```bash
-pip install -r requirements.txt
-cp .env.example .env        # 填入金鑰,.env 不進版控
-pytest -q                   # 應為 47 passed
-```
+**標註只記這段話裡有什麼,不記期望的動作。** 期望動作由
+`tools/followup_rate.py` 從 `AcceptRule` 算出來。
 
-`pytest` 不打真 LLM、不連網,全部是形狀與值域檢查,任何人 clone 下來都應該全綠。
-如果紅燈,先確認是不是自己改了共用凍結區。
+這件事很重要:放行條件已經有兩種表現形式——
+`render_accept_rule()` 把它變成 prompt 文字,`accepts()` 把它變成判斷。
+如果這份檔案再手寫一份「A3 在中等應該被追問」,那就是第三份,
+改了 dataclass 之後三份一定會漂,而漂掉的那一刻量測結果會變成錯的但還是綠的。
 
-## 檔案歸屬
+## 階梯是怎麼排的
 
-改動別人的區域之前先講一聲,共用凍結區則需雙方同意。
+| | 段數 | 結果 | 數字 | 取捨 | 新手 | 中等 | 困難 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| A1 | 1 | ✗ | ✗ | ✗ | 追問 | 追問 | 追問 |
+| A2 | 2 | ✗ | ✗ | ✗ | 放行 | 追問 | 追問 |
+| A3 | 3 | ✓ | ✗ | ✗ | 放行 | 追問 | 追問 |
+| A4 | 3 | ✓ | ✓ | ✗ | 放行 | 放行 | 追問 |
+| A5 | 4 | ✓ | ✓ | ✓ | 放行 | 放行 | 放行 |
+| A6 | 4 | ✓ | ✓ | ✗ | 放行 | 放行 | 追問 |
 
-### 共用凍結區(改動需雙方同意)
+右邊三欄是算出來的,不是標的,列在這裡只為了讓人看出階梯有沒有排對。
 
-| 檔案 | 內容 |
-|---|---|
-| `app/schemas/interview.py` | 五個接點的 HTTP 合約 |
-| `app/schemas/interview_repair.py` | 固定值域的機械修復 |
-| `app/contracts/interview_protocols.py` | 兩人之間的介面 |
-| `fixtures/interview/golden/` | 回歸基準,由 `scripts/make_interview_golden.py` 生成 |
-| `CONTRACTS_interview.md` | 合約說明 |
-| `tests/test_interview_contracts.py` | 合約測試 |
+每一條門檻都至少有一筆跨過它:
 
-這些檔案任何一方單方面修改,另一方的測試會紅燈。要改先在群組提出。
+    A1 / A2  段數下限(新手的 2 段)
+    A2 / A3  結果段(中等開始要求)
+    A3 / A4  量化(中等開始要求)
+    A5 / A6  取捨(困難才要求)
 
-### 成員 B(LLM 與端點)
+A4 在困難同時少了段數跟取捨,所以 A6 必須存在——
+不然困難追問 A4 時分不出是哪一條在作用。
 
-```
-app/prompts/            所有 prompt
-app/pipeline/missing_points.py     A5
-app/pipeline/interview_report.py   A4
-app/pipeline/interview_live.py     A1/A2/A3
-app/pipeline/parallel.py           並行工具(共用,但由 B 維護)
-app/api/                端點(尚未落地)
-scripts/                測試集生成與評測
-tests/test_missing_points.py 等
-```
+## 刻意避開的東西
 
-### 共用元件複本(唯讀)
+`forced_decision()` 會在四種情況直接決定、不呼叫模型:
+空回答、`ended_by="timeout"`、追到深度上限、明確說答不出來。
 
-```
-app/vendor/             從 CareerSandboxModule 複製,禁止修改
-app/vendor/README.md    來源與 commit hash 紀錄
-app/vendor/MANIFEST.json 指紋,由 scripts/vendor_pin.py 產生
-```
+這六筆每一筆都不能命中前三種,而且不含
+`_ADMITS_UNKNOWN`(不知道 / 不確定 / 沒想過 / 沒有經驗 / 答不出 / 不太清楚)
+任何一個字串,否則量到的是程式的決定而不是模型的判斷。
+工具啟動時會檢查這件事。
 
-面試側需要調整時,在 `app/pipeline/` 寫擴充層包住複本,不要改複本本身。
-`tests/test_vendor_integrity.py` 會檢查,改到會紅燈。
+## 為什麼有標點
 
-### 成員 A(正規化、檢索、確定性計分)
+`meta.engine` 是 `api`。雲端轉錄不漏字、有標點,`CLARIFY_BY_ENGINE["api"]`
+的判準也是照這個寫的。要量 `device` 引擎時由工具去掉標點,
+不另外存一份——同一組答案存兩份就會變成要同步兩份。
 
-```
-app/pipeline/transcript_analyzer.py   TranscriptAnalyzer
-app/pipeline/gap_computer.py          GapComputer
-app/pipeline/collab_scorer.py         CollabScorer
-tests/test_gap_computer.py 等
-```
+## 加答案的時候
 
-A 只需要讀 `app/contracts/interview_protocols.py`,不需要讀 schema 層。
-Protocol 刻意用 `list[dict]` 而非 Pydantic 型別,就是為了讓 A 不必依賴 B 的 schema。
-
-## 分支
-
-```
-feat/b-a5  → feat/a-gap  → feat/b-a4  → feat/b-live
-```
-
-依序 squash merge。每個分支合併前 `pytest` 必須全綠。
-
-## 交接點
-
-| 時間 | 誰交給誰 | 內容 |
-|---|---|---|
-| W1 D3 | B → A | `fixtures/interview/transcripts_v1.jsonl`(黃金測試集) |
-| W1 D5 | A → B | `GapComputer` 與 `TranscriptAnalyzer.mentioned_skills` 真實作 |
-| W2 D3 | A → B | `text_stats` 與 `CollabScorer` |
-
-W1 D3 那一筆是唯一會卡住 A 的東西。沒有測試集,A 從 D3 到 D5 只能盲寫。
-
-## 驗收方式
-
-用 `FakeGapComputer` 換成真實作,跑:
-
-```bash
-python scripts/interview_eval.py
-```
-
-命中率過門檻且 exit code 0 即為收貨。不用逐案討論哪一項算不算漏講。
-
-## 紀律
-
-- `conftest.py` 全部 mock,測試不打真 LLM
-- 每個 bug 先在測試裡重現,再修
-- 固定值域(六項細分名稱、STAR 四鍵、協作四項)零偏移,已寫成測試
-- `resume_grounded=False` 時 `missing_points` 強制清空,這是防捏造的最後一道
-
-## 不做的範圍
-
-A6 影像指標(裝置端 MediaPipe)、`videoDims`、prosody 的語速/停頓/語調/開口前思考、
-快速面試端點、反問環節。理由見 `CONTRACTS_interview.md` 第六節。
+照階梯的邏輯加:新的一筆要能單獨隔離出某一條門檻。
+再加一筆「四段齊全有數字有取捨」沒有任何量測價值,只是讓分母變大。
