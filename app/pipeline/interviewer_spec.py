@@ -77,18 +77,39 @@ def _declared_parts(star_parts: Sequence[str]) -> set[str]:
     return {p for p in star_parts if p in STAR_PART_KEYS}
 
 
-PROBE_ORDER: tuple[str, ...] = ("A", "R", "T", "S")
-"""段數不足時,先追哪一段。
+GAP_PRIORITY: tuple[str, ...] = (
+    "缺行動",
+    "缺結果",
+    GAP_QUANTIFICATION,
+    GAP_TRADEOFF,
+    "缺任務",
+    "缺情境",
+)
+"""不放行的時候先追哪一個缺口。只回一個,所以得排序。
 
-這是判斷不是量測:四段都缺的時候只能追一個,得挑一個。順序的理由——
+這是判斷不是量測。順序的理由——
 
-    行動  行為面試裡沒有行動就沒有東西可評,這是最該先問的
-    結果  沒有結果沒辦法判斷做得好不好
-    任務  是脈絡,而且判讀最不可靠的就是它(見 star_read 的 T)
-    情境  也是脈絡,而且幾乎每個人開口第一句就在講情境
+    缺行動      沒有行動就沒有東西可評,其他都免談
+    缺結果      沒有結果沒辦法判斷做得好不好
+    結果沒量化  有結果但不可查證。實際面試最常見的缺口就是這一型(A3)
+    沒有取捨    這個難度明確要求、而他確實沒做到的一項
+    缺任務      只透過段數下限發生作用,等於「四段裡再補一段」的湊數
+    缺情境      同上,而且幾乎每個人開口第一句就在講情境
 
-階梯裡七筆答案第一句全是情境,所以把情境排最後在實測資料上也站得住。
-`require_result` 那條比這個順序優先,因為缺結果是唯一能單獨決定放不放行的一段。
+【為什麼改成一份優先序,不是「條件順序 + 段落順序」】
+2b 原本的寫法是先看 `require_result`、再按段落順序挑、最後才看量化與取捨。
+2d 看 dump 的時候發現它在困難難度的 A3 上算出「缺任務」——那一筆交代了
+情境、行動、結果,真正缺的是數字。「你當時的任務是什麼」對一個已經講完
+情境行動結果的人來說價值很低,而「快了多少」是整段話能不能被查證的關鍵。
+
+錯的原因是把 `accepts()` 的條件順序當成了追問的價值順序。那是兩件事:
+`accepts()` 的順序只影響它怎麼短路,不影響結果;追問的順序決定問哪一句。
+所以改成一份單獨的優先序,照價值排。
+
+這個順序只決定**先**問哪一個,不決定會不會問到——`max_depth` 允許的範圍內
+補完一個缺口之後,下一輪會算出下一個。困難的 max_depth 是 3。
+
+階梯裡七筆答案第一句全是情境,所以把情境排在後面在實測資料上站得住。
 """
 
 
@@ -171,26 +192,42 @@ class AcceptRule:
         所以只回一個,而且是算出來的——哪一條條件沒過是確定的事,不用問。
 
         【順序】
-        缺結果排第一(它是唯一能單獨決定放不放行的一段),然後是段數不足時
-        照 `PROBE_ORDER` 挑,再是量化與取捨。這個順序是判斷,寫在
-        `PROBE_ORDER` 旁邊。
+        照 `GAP_PRIORITY` 挑第一個「確實是這次不放行的原因」的缺口。
+        那份順序是判斷,理由寫在它旁邊。
         """
-        parts = _declared_parts(star_parts)
         if self.accepts(star_parts=star_parts, quantified=quantified, tradeoff=tradeoff):
             return ""
-        if self.require_result and "R" not in parts:
-            return STAR_PART_GAP["R"]
-        if len(parts) < self.min_star_parts:
-            missing = [p for p in PROBE_ORDER if p not in parts]
-            if missing:
-                return STAR_PART_GAP[missing[0]]
-        if self.require_quantification and not quantified:
-            return GAP_QUANTIFICATION
-        if self.require_tradeoff and not tradeoff:
-            return GAP_TRADEOFF
-        # 走到這裡表示 accepts() 回 False 但四條都沒命中,那是矛盾。
+        live = self._live_gaps(
+            _declared_parts(star_parts), quantified=quantified, tradeoff=tradeoff
+        )
+        for gap in GAP_PRIORITY:
+            if gap in live:
+                return gap
+        # accepts() 回 False 但沒有任何缺口成立,那是矛盾。
         # 不丟例外——決定路徑不該因為這個崩掉——但測試會逐格檢查這件事不發生。
         return ""
+
+    def _live_gaps(
+        self, parts: set[str], *, quantified: bool, tradeoff: bool
+    ) -> set[str]:
+        """這一次不放行的原因有哪些。
+
+        「這一段缺了」不等於「這一段是不放行的原因」:段落只透過段數下限
+        發生作用,所以段數夠了的時候缺哪一段都不是原因。
+        少了這一層,新手難度會指出「沒有取捨」——而新手根本不要求取捨。
+        """
+        live: set[str] = set()
+        short = len(parts) < self.min_star_parts
+        for p in STAR_PART_KEYS:
+            if p in parts:
+                continue
+            if short or (p == "R" and self.require_result):
+                live.add(STAR_PART_GAP[p])
+        if self.require_quantification and not quantified:
+            live.add(GAP_QUANTIFICATION)
+        if self.require_tradeoff and not tradeoff:
+            live.add(GAP_TRADEOFF)
+        return live
 
 
 ACCEPT_RULES: dict[str, AcceptRule] = {

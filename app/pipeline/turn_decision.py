@@ -344,7 +344,8 @@ def decide_from_facts(rule: AcceptRule, facts: AnswerFacts) -> TurnDecision:
     if facts.accepted_by(rule):
         return TurnDecision(NEXT, f"{desc}。放行條件全部滿足。", source=FACTS)
     gap = facts.gap_for(rule)
-    return TurnDecision(FOLLOW_UP, f"{desc}。缺的是{gap}。", gap, FACTS)
+    # gap 的值本身就帶「缺」字(缺情境、缺行動…),再寫「缺的是」會變成「缺的是缺行動」。
+    return TurnDecision(FOLLOW_UP, f"{desc}。{gap}。", gap, FACTS)
 
 
 async def decide_turn(
