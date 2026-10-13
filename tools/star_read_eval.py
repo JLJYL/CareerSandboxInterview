@@ -343,7 +343,7 @@ def print_verdicts(name: str, reads: dict[str, list[dict]], answers) -> float:
         for a in answers:
             want = accepts(rule, a["label"])
             for r in reads[a["id"]]:
-                mine = accepts(rule, AnswerFacts(reads=r).as_label())
+                mine = AnswerFacts(reads=r).accepted_by(rule)
                 agree.append(1.0 if mine == want else 0.0)
                 got_fu.append(0.0 if mine else 1.0)
         exp = statistics.mean(

@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import NamedTuple
 
 from app.pipeline.interview_live import LLMCall, parse_obj
-from app.pipeline.interviewer_spec import STAR_PART_KEYS
+from app.pipeline.interviewer_spec import STAR_PART_KEYS, AcceptRule
 from app.pipeline.transcript import segment_text
 from app.prompts.star_read import (
     ASSIGN_SYSTEM,
@@ -250,6 +250,28 @@ class AnswerFacts:
         單獨拉出來是因為只有 T 有這個問題:其他五項在兩種路徑下都是 1.00。
         """
         return self.read_by.get("T") == ASSIGN
+
+    def accepted_by(self, rule: AcceptRule) -> bool:
+        """這些事實夠不夠放行。判斷在 `AcceptRule`,這裡只是把欄位遞過去。"""
+        return rule.accepts(
+            star_parts=self.star_parts,
+            quantified=self.quantified,
+            tradeoff=self.tradeoff,
+        )
+
+    def gap_for(self, rule: AcceptRule) -> str:
+        """最該追的那一個缺口,放行時是空字串。
+
+        這一欄以前是問模型的。1d 實測模型指錯:A3 講了結果只是沒數字,
+        20/20 次都寫「缺結果」,下一句就會去問他已經講過的東西。
+        算出來的版本在同一筆上是「結果沒量化」,而且不可能錯——
+        哪一條條件沒過是確定的事。
+        """
+        return rule.first_gap(
+            star_parts=self.star_parts,
+            quantified=self.quantified,
+            tradeoff=self.tradeoff,
+        )
 
     def as_label(self) -> dict:
         """擺成 `fixtures/golden/decision/answers_v1.json` 的 label 形狀。
