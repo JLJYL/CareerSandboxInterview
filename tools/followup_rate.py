@@ -19,6 +19,16 @@
 我們對應的是 困難 / 新手。另外他們的受訪者是打字、我們是語音,
 所以 CLARIFY 單獨數,不併進追問率跟他們比。
 
+## 兩條結構判斷,因為 2c 換了預設
+
+    --structure facts    判讀出六項事實,交給 accepts() 算。2c 之後的預設。
+    --structure prompt    放行條件寫進 prompt 問模型。1d 量到 0.500/0.500/0.500 的那條。
+
+留著 prompt 是為了這支能對照——換掉決定方式而沒有對照組,就只能說
+「現在的數字是這樣」,說不出「換了之後好了多少」。量完就刪(見 STRUCTURE_SOURCES)。
+
+facts 一次決策要三次呼叫,所以同樣的 --runs 會花三倍的 API 預算。
+
 ## 兩種深度,因為上線的那種跟設計的那種不一樣
 
 `forced_decision()` 有一條「追到 `max_depth` 就換題」,三種難度分別是 1 / 2 / 3。
@@ -50,7 +60,8 @@
 用法:
     python tools/followup_rate.py --fake              # 不打 API,驗工具本身
     python tools/followup_rate.py --dry-run           # 只印一份 prompt
-    python tools/followup_rate.py --runs 10           # 正式量測(10 × 3 × 6 = 180 次呼叫)
+    python tools/followup_rate.py --runs 10           # 正式量測(facts:10 × 3 × 7 × 3 呼叫)
+    python tools/followup_rate.py --structure prompt  # 1d 那條舊路,拿來對照
     python tools/followup_rate.py --runs 10 --temp 0  # 看噪音有多少是溫度來的
     python tools/followup_rate.py --engine device     # 看 device 判準會不會催出假 CLARIFY
 """
@@ -75,15 +86,20 @@ from app.pipeline.interviewer_spec import (  # noqa: E402
     derive_specs,
 )
 from app.pipeline.star_read import AnswerFacts  # noqa: E402
+from app.pipeline.transcript import segment_text  # noqa: E402
 from app.pipeline.turn_decision import (  # noqa: E402
     CLARIFY,
     DECISION_SOURCES,
     FALLBACK,
     FOLLOW_UP,
     NEXT,
+    STRUCTURE_FACTS,
+    STRUCTURE_PROMPT,
+    STRUCTURE_SOURCES,
     TurnDecision,
     decide_turn,
 )
+from app.prompts.star_read import FACT_QUESTION, FACTS  # noqa: E402
 from app.prompts.turn_decision import compose_decision_prompt  # noqa: E402
 
 ANSWERS = Path("fixtures/golden/decision/answers_v1.json")
@@ -209,6 +225,32 @@ def fake_gap(rule: AcceptRule, label: dict) -> str:
     return AnswerFacts.from_label(label).gap_for(rule)
 
 
+def fake_facts_reply(label: dict, answer: str, system: str) -> str | None:
+    """事實判讀那三次呼叫的完美回答。不是判讀 prompt 就回 None。
+
+    2c 之後預設路徑問的是「這段話裡有什麼」,不是「要不要追問」。
+    假模型少了這幾個分支的話每一輪的事實都會讀成什麼都沒有,
+    於是每一輪都追問——而表格照樣印得出來。1c 出過一次一樣的事。
+    """
+    if "把每一句分派到一個標籤" in system:
+        sentences, _ = segment_text(answer, level="sentence")
+        order = [f for f in ("S", "T", "A", "R") if f in label["star_parts"]]
+        if label["tradeoff"]:
+            order = order + ["取捨"]
+        return json.dumps(
+            {str(i + 1): (order[i] if i < len(order) else "其他")
+             for i in range(len(sentences))},
+            ensure_ascii=False,
+        )
+    for fact in FACTS:
+        if FACT_QUESTION[fact] in system:
+            has = fact in label["star_parts"] if fact in ("S", "T", "A", "R") else bool(label[fact])
+            return json.dumps(
+                {"present": has, "quote": answer[:12] if has else ""}, ensure_ascii=False
+            )
+    return None
+
+
 def make_fake_llm(rule: AcceptRule, answers: list[dict]):
     """完全照放行條件判斷的假模型。驗工具本身,不是量測。
 
@@ -219,9 +261,25 @@ def make_fake_llm(rule: AcceptRule, answers: list[dict]):
     """
     ordered = sorted(answers, key=lambda a: len(a["text"]), reverse=True)
 
+    def shows_up(answer: dict, user: str) -> bool:
+        """這一筆答案在不在這段 user 訊息裡。
+
+        兩種形狀都要認:單題問法帶的是整段原文,而句子分派把它拆成
+        編號的一行一句,整段原文就不再是子字串了。
+        只認前者的話分派那次會找不到答案 → 丟 AssertionError → read_facts
+        記成讀取失敗 → 每一輪都降級,而表格照樣印得出來。
+        """
+        if answer["text"] in user:
+            return True
+        sentences, _ = segment_text(answer["text"], level="sentence")
+        return bool(sentences) and all(x in user for x in sentences)
+
     def call(system: str, user: str) -> str:
         for a in ordered:
-            if a["text"] in user:
+            if shows_up(a, user):
+                facts = fake_facts_reply(a["label"], a["text"], system)
+                if facts is not None:
+                    return facts
                 action = expected_action(rule, a["label"])
                 return json.dumps(
                     {
@@ -241,7 +299,9 @@ def make_fake_llm(rule: AcceptRule, answers: list[dict]):
 # ---------------------------------------------------------------------------
 
 
-async def decide(spec, answer: dict, llm, engine: str, depth: int) -> TurnDecision:
+async def decide(
+    spec, answer: dict, llm, engine: str, depth: int, structure: str = STRUCTURE_FACTS
+) -> TurnDecision:
     return await decide_turn(
         spec=spec,
         answer=answer["text"],
@@ -250,11 +310,13 @@ async def decide(spec, answer: dict, llm, engine: str, depth: int) -> TurnDecisi
         depth=depth,
         ended_by="manual",
         transcription_engine=engine,
+        structure_from=structure,
     )
 
 
 async def run_wired(
-    spec, answers, llm, engine, runs, sem, difficulty="", log=None
+    spec, answers, llm, engine, runs, sem, difficulty="", log=None,
+    structure: str = STRUCTURE_FACTS,
 ) -> dict[str, list[TurnDecision]]:
     """depth 固定 0。上線實際的行為。
 
@@ -265,7 +327,7 @@ async def run_wired(
 
     async def one(answer, _run):
         async with sem:
-            return answer["id"], await decide(spec, answer, llm, engine, 0)
+            return answer["id"], await decide(spec, answer, llm, engine, 0, structure)
 
     jobs = [one(a, r) for r in range(runs) for a in answers]
     got: dict[str, list[TurnDecision]] = {a["id"]: [] for a in answers}
@@ -278,6 +340,7 @@ async def run_wired(
                     "答案": aid,
                     "action": d.action,
                     "source": d.source,
+                    "structure": structure,
                     "gap": d.gap,
                     "why": d.why,
                     "superseded": d.superseded,
@@ -286,7 +349,9 @@ async def run_wired(
     return got
 
 
-async def run_tracked(spec, answers, llm, engine, runs, sem) -> dict[str, list[int]]:
+async def run_tracked(
+    spec, answers, llm, engine, runs, sem, structure: str = STRUCTURE_FACTS
+) -> dict[str, list[int]]:
     """工具自己數 depth,追到決定換題或撞上限才停。
 
     回答不會變——固定腳本沒辦法讓他補內容,而讓 LLM 扮演使用者會讓
@@ -301,7 +366,7 @@ async def run_tracked(spec, answers, llm, engine, runs, sem) -> dict[str, list[i
         depth = 0
         while depth < hard_cap:
             async with sem:
-                d = await decide(spec, answer, llm, engine, depth)
+                d = await decide(spec, answer, llm, engine, depth, structure)
             if not d.is_follow_up:
                 return answer["id"], depth
             depth += 1
@@ -445,7 +510,11 @@ def print_tracked(tracked: dict[str, dict[str, list[int]]], answers) -> dict[str
     return totals
 
 
-def conclude(stats: dict[str, dict], tracked_totals: dict[str, float] | None) -> int:
+def conclude(
+    stats: dict[str, dict],
+    tracked_totals: dict[str, float] | None,
+    structure: str = STRUCTURE_FACTS,
+) -> int:
     print("\n" + "=" * 74)
 
     total = sum(s["n"] for s in stats.values())
@@ -464,11 +533,14 @@ def conclude(stats: dict[str, dict], tracked_totals: dict[str, float] | None) ->
 
     mono = obs[0] < obs[1] < obs[2]
     print(f"\n{'★' if mono else '✗'} 單調性 新手 < 中等 < 困難:{'成立' if mono else '不成立'}")
-    if not mono:
-        print("  放行條件寫進了 prompt,但模型沒照它改變行為。")
+    if not mono and structure == STRUCTURE_PROMPT:
+        print("  放行條件寫進了 prompt,但模型沒照它改變行為。這是 1d 的結論重現。")
         print("  下一步不是再改措辭——「規則寫兩次沒生效,就不要寫第三次」。")
-        print("  程式判定那條路已經鋪好了:star_read.read_facts() 供應事實,")
-        print("  AcceptRule.accepts() 算放行。缺的是 decide_turn 改成吃事實(2c)。")
+        print("  拿掉 --structure prompt 就是走程式判定那條。")
+    elif not mono:
+        print("  判斷在程式裡,照理不可能不單調——放行條件本身是單調的。")
+        print("  所以不單調表示事實判讀壞了,不是判斷壞了。先跑 tools/star_read_eval.py,")
+        print("  再看上面的 source 欄有多少 fallback。")
 
     if obs[0] > 0:
         ratio = obs[2] / obs[0]
@@ -516,6 +588,9 @@ def main() -> int:
                     help="預設 0.4,跟 get_llm_live() 一樣——量的是上線的設定。")
     ap.add_argument("--engine", choices=("api", "device"), default="api")
     ap.add_argument("--regime", choices=("wired", "tracked", "both"), default="both")
+    ap.add_argument("--structure", choices=STRUCTURE_SOURCES, default=STRUCTURE_FACTS,
+                    help="facts:判讀事實再用 accepts() 算(預設)。"
+                         "prompt:1d 那條舊路,條件寫進 prompt 問模型。")
     ap.add_argument("--concurrency", type=int, default=6)
     ap.add_argument("--fake", action="store_true", help="不打 API,用完全照條件判斷的假模型驗工具")
     ap.add_argument("--dry-run", action="store_true", help="只印一份 prompt")
@@ -563,8 +638,11 @@ def main() -> int:
 
     runs = 1 if args.fake else args.runs
     n_calls = len(DIFFICULTIES) * runs * len(answers)
+    per = 3 if args.structure == STRUCTURE_FACTS else 1
     print(f"難度 {len(DIFFICULTIES)} × 回合 {runs} × 答案 {len(answers)} "
-          f"= {n_calls} 次決策(regime={args.regime},engine={args.engine},temp={args.temp})")
+          f"= {n_calls} 次決策 × 每次 {per} 次呼叫 = {n_calls * per} 次呼叫")
+    print(f"  structure={args.structure} regime={args.regime} "
+          f"engine={args.engine} temp={args.temp}")
 
     sem = asyncio.Semaphore(args.concurrency)
     wired: dict[str, dict] = {}
@@ -581,15 +659,17 @@ def main() -> int:
             )
             if args.regime in ("wired", "both"):
                 wired[diff] = await run_wired(
-                    spec, answers, llm, args.engine, runs, sem, diff, log
+                    spec, answers, llm, args.engine, runs, sem, diff, log, args.structure
                 )
             if args.regime in ("tracked", "both"):
-                tracked[diff] = await run_tracked(spec, answers, llm, args.engine, runs, sem)
+                tracked[diff] = await run_tracked(
+                    spec, answers, llm, args.engine, runs, sem, args.structure
+                )
 
     asyncio.run(go())
 
     if log is not None:
-        cols = ("難度", "答案", "action", "source", "gap", "why", "superseded")
+        cols = ("難度", "答案", "structure", "action", "source", "gap", "why", "superseded")
         lines = ["\t".join(cols)]
         lines += ["\t".join(str(r[c]).replace("\t", " ") for c in cols) for r in log]
 
@@ -622,7 +702,7 @@ def main() -> int:
     if not stats:
         print("\n(只跑 tracked,沒有 wired 的追問率可以下結論。)")
         return 0
-    return conclude(stats, totals)
+    return conclude(stats, totals, args.structure)
 
 
 if __name__ == "__main__":

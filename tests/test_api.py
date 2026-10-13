@@ -53,12 +53,21 @@ TURN = {"speaker": "", "nextQuestion": "那個數字的母數是多少?",
 GOOD_WHY = "這份職缺把資料查詢列為日常工作,沒有這項能力就無法承擔核心職責。"
 
 
-#: 決策步驟的回覆。沒有這一條的話每一輪都會走降級(source=fallback),
-#: 測試照樣全綠但量到的是降級路徑,不是真正的決定——那種綠是假的。
+#: 決策的 prompt 路徑(2d 的對照組)。這條現在預設不會被呼叫到。
 DECISION = {"why": "缺結果段。", "action": "FOLLOW_UP", "gap": "結果段"}
+
+#: 事實判讀的三次呼叫。缺這些的話每一輪的事實都會讀成「什麼都沒有」,
+#: 於是每一輪都追問——測試照樣全綠,但量到的不是真正的判讀。
+#: 1c 出過一次一樣的事:假 LLM 少了決策分支,602 個測試全綠而每一輪都在降級。
+ASSIGNED = {"1": "S", "2": "A", "3": "R"}
+FACT_PRESENT = {"present": True, "quote": "我用 SQL 重寫查詢"}
 
 
 def fake_llm(system: str, user: str) -> str:
+    if "把每一句分派到一個標籤" in system:
+        return json.dumps(ASSIGNED, ensure_ascii=False)
+    if "這一次只判斷一件事" in system:
+        return json.dumps(FACT_PRESENT, ensure_ascii=False)
     if "決定面試官這一輪要做什麼" in system:
         return json.dumps(DECISION, ensure_ascii=False)
     if "開場問題" in system:
@@ -154,6 +163,30 @@ def test_turn_returns_next_question(client) -> None:
     assert r.status_code == 200
     assert r.json()["nextQuestion"]
     assert r.json()["topic"], "topic 不可為空,前端要拿它累積"
+
+
+def test_turn_decision_goes_through_the_facts_path(client) -> None:
+    """難度真的改變這一輪的決定,而且是程式算的。
+
+    這條存在是為了接住「假 LLM 少一個分支 → 每一輪都走降級 → 測試全綠」。
+    1c 出過一次。所以不只看回得出東西,要看同一段回答在兩種難度上分得開。
+
+    用的答案有句號,所以走句子分派那條;`ASSIGNED` 把三句掛成 S / A / R,
+    加上量化與取捨都說有——中等放行,困難要四段所以追問。
+    """
+    body = {
+        "answer": "那個專案原本都是人工整理。我用 SQL 重寫查詢。每週三小時降到二十分鐘。",
+        "followUpIdx": 0,
+        "question": "請講一個用資料做判斷的經驗",
+    }
+    easy = client.post(
+        "/interviews/itv_x/turns", json={**body, "context": {**CTX, "difficulty": "中等"}}
+    ).json()
+    hard = client.post(
+        "/interviews/itv_x/turns", json={**body, "context": {**CTX, "difficulty": "困難"}}
+    ).json()
+    assert easy["isFollowUp"] is False, "中等:三段加結果加數字,條件全滿足該放行"
+    assert hard["isFollowUp"] is True, "困難:只有三段,該追問"
 
 
 def test_turn_infers_mode_from_spoken_by(client) -> None:
