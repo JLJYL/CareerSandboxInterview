@@ -53,9 +53,6 @@ TURN = {"speaker": "", "nextQuestion": "那個數字的母數是多少?",
 GOOD_WHY = "這份職缺把資料查詢列為日常工作,沒有這項能力就無法承擔核心職責。"
 
 
-#: 決策的 prompt 路徑(2d 的對照組)。這條現在預設不會被呼叫到。
-DECISION = {"why": "缺結果段。", "action": "FOLLOW_UP", "gap": "結果段"}
-
 #: 事實判讀的三次呼叫。缺這些的話每一輪的事實都會讀成「什麼都沒有」,
 #: 於是每一輪都追問——測試照樣全綠,但量到的不是真正的判讀。
 #: 1c 出過一次一樣的事:假 LLM 少了決策分支,602 個測試全綠而每一輪都在降級。
@@ -68,8 +65,6 @@ def fake_llm(system: str, user: str) -> str:
         return json.dumps(ASSIGNED, ensure_ascii=False)
     if "這一次只判斷一件事" in system:
         return json.dumps(FACT_PRESENT, ensure_ascii=False)
-    if "決定面試官這一輪要做什麼" in system:
-        return json.dumps(DECISION, ensure_ascii=False)
     if "開場問題" in system:
         return json.dumps(OPENING, ensure_ascii=False)
     if "接話" in system:

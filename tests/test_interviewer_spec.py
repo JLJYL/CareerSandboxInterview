@@ -284,11 +284,18 @@ def test_the_golden_ladder_still_climbs():
         assert seq == sorted(seq, reverse=True), (answer["answer_id"], seq)
 
 
-def test_gap_values_are_the_only_source():
-    """prompts 那邊轉出去的 GAP_VALUES 必須是同一個物件,不是另一份一樣的清單。"""
-    from app.prompts.turn_decision import GAP_VALUES as PROMPT_GAP_VALUES
+def test_gap_values_live_only_here():
+    """缺口的值域只有這一份。
 
-    assert PROMPT_GAP_VALUES is GAP_VALUES
+    2b 之前它定義在 `app/prompts/turn_decision.py`(那時 gap 是問模型的,
+    選項文字跟解析得共用一份清單),2b 搬過來、prompts 那邊轉出去,
+    2d 把對照組刪掉之後連轉出去那一行也拿掉了。
+    這條釘住「不要再回去」:prompts 那邊不該再出現這個名字。
+    """
+    import app.prompts.turn_decision as prompt_mod
+
+    assert not hasattr(prompt_mod, "GAP_VALUES")
+    assert not hasattr(prompt_mod, "GAP_MEANING")
 
 
 # ---------------------------------------------------------------------------

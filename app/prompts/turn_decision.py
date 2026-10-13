@@ -1,15 +1,19 @@
-"""這一輪要做什麼:NEXT / FOLLOW_UP / CLARIFY 的判準文字。
+"""決定這一輪要做什麼之後,告訴生成端的那一句話。
 
-【這個檔跟 probe_rules 的分工】
-`probe_rules` 與 `DIFFICULTY_TRIGGERS` 回答「追問要問什麼」,
-這裡回答「要不要追問」。兩者問的是不同的問題,同時存在不會打架。
+【這個檔剩下什麼】
+原本這裡還有一整套判準文字:把 `AcceptRule` 寫成 prompt、列出 gap 的封閉集合、
+要求模型回 `{"why", "action", "gap"}`。2d 量完之後那些全部刪掉了。
 
-之前三種難度產出的問句幾乎逐字相同,就是因為只有前者——
-模型照著「依序檢查」跑,每一輪都找得到可以追的東西。
+刪的依據:
 
-【為什麼放行條件是從 AcceptRule 算出來的,不是寫死在這裡】
-條件同時決定兩件事:prompt 怎麼寫,以及之後怎麼驗。
-兩邊各寫一份一定會漂,所以文字從 dataclass 生出來,只有一個來源。
+    1d(條件寫進 prompt)   三種難度的追問率都是 0.500,而且 19/180 次降級
+    2d(程式用事實算)      0.143 / 0.429 / 0.857,一致率 1.00,0/630 次降級
+
+「規則寫兩次沒生效,就不要寫第三次」——寫了兩次,量了兩次,所以拿掉。
+判斷現在在 `AcceptRule.accepts()`,缺口在 `AcceptRule.first_gap()`,
+事實由 `app/pipeline/star_read.py` 供應。
+
+要翻舊版對照的話在 git 裡:刪掉它的那個 commit 之前。
 
 【CLARIFY 是我們加的】
 Panfilova et al.(2026)的 action space 只有 FOLLOW_UP 與 NEXT_MAIN。
@@ -20,54 +24,7 @@ Angular 轉成 Andrew 這類錯誤,所以需要第三個動作。
 
 from __future__ import annotations
 
-from app.pipeline.interviewer_spec import GAP_VALUES, AcceptRule, InterviewerSpec
-
 DECISION_ACTIONS: tuple[str, ...] = ("NEXT", "FOLLOW_UP", "CLARIFY")
-
-__all__ = [
-    "ACTION_INSTRUCTION",
-    "CLARIFY_BY_ENGINE",
-    "DECISION_ACTIONS",
-    "DECISION_OUTPUT",
-    "DECISION_TASK",
-    "GAP_MEANING",
-    "GAP_VALUES",
-    "compose_decision_prompt",
-    "render_accept_rule",
-    "render_gap_options",
-]
-"""`GAP_VALUES` 轉出去是為了不讓既有的 import 路徑斷掉。
-
-它本來定義在這裡,因為當時 gap 是問模型的——選項文字與解析必須共用一份清單,
-而 `pipeline` 匯入 `prompts`,反向會循環。
-
-現在 gap 是 `AcceptRule.first_gap()` 算出來的,來源變成放行條件而不是 prompt,
-所以定義搬到 `interviewer_spec` 跟條件放在一起,循環的問題也跟著消失。
-
-【1d 當初為什麼要把它改成封閉集合】
-原本是自由填寫「缺的是哪一項」,實測出兩個問題:
-
-    指錯   A3 那筆講了結果只是沒數字,20/20 次 gap 都寫「結果段」。
-           那組詞彙沒辦法表達「這一段在但不夠具體」,模型只能從
-           「結果段」跟「量化」裡挑,於是挑了會被讀成「沒有結果」的那個。
-    長度隨 prompt 變   同一筆答案 A1,新手只點 1–2 段,困難點 3–4 段。
-           列幾項取決於放行條件寫了幾條,不取決於答案。
-
-封閉集合修掉第一個(100% 格式遵從),但沒修掉指錯——A3 照樣是 20/20 錯。
-算出來才修掉:同一筆的計算結果是「結果沒量化」。
-那是「能用程式算的不要問 LLM」第二次在同一個欄位上成立。
-"""
-
-
-DECISION_TASK = """你的工作只有一件:決定面試官這一輪要做什麼。
-
-不要寫問題。只回一個動作加簡短理由。
-
-【三個動作】
-
-NEXT       回答已經講完了,換下一個主問題。
-FOLLOW_UP  回答有缺口,而且那個缺口值得追。
-CLARIFY    你看不懂他在說什麼,而且像是語音辨識轉錯,不是他講得含糊。"""
 
 
 CLARIFY_BY_ENGINE: dict[str, str] = {
@@ -85,51 +42,19 @@ CLARIFY 只用在單一詞彙明顯不合情境的時候——
 但整段都看不懂時不要用 CLARIFY——那會變成每一輪都在說沒聽清楚。
 挑一個關鍵的地方問就好。""",
 }
+"""兩種引擎下「什麼才算辨識轉錯」的判準。
 
+**目前沒有呼叫端。** 判斷 CLARIFY 需要問模型(程式算不出「這個詞像是轉錯」),
+而那一次窄問法還沒做,所以這兩段文字現在是備著的。
 
-GAP_MEANING: dict[str, str] = {
-    "缺情境": "他沒交代當時的背景或處境",
-    "缺任務": "他沒交代自己要達成什麼",
-    "缺行動": "他沒交代自己實際做了什麼",
-    "缺結果": "他完全沒講最後怎麼樣",
-    "結果沒量化": "結果有講,但沒有可查證的數字",
-    "沒有取捨": "他沒講放棄了什麼、判斷依據是什麼",
-}
-"""封閉集合每個值的意思。鍵必須與 GAP_VALUES 一致,下面有檢查。"""
+留著而不是刪掉是因為它記的是兩種引擎的差異——雲端轉錄不漏字所以破碎
+通常是猶豫、裝置端會掉字所以看不懂要先假設是辨識問題。那個區別是實測來的,
+重寫一次的成本遠高於留著這三十行。
 
-_missing = set(GAP_VALUES) ^ set(GAP_MEANING)
-if _missing:
-    raise RuntimeError(
-        f"GAP_VALUES 與 GAP_MEANING 對不上:{sorted(_missing)}。"
-        "選項與它的說明是同一件事,只能有一份來源。"
-    )
-
-
-def render_gap_options() -> str:
-    """把封閉集合寫成 prompt 文字。選項從 GAP_VALUES 生出來,不另外手寫一份。"""
-    lines = [f"    {v}{'　' * max(1, 6 - len(v))}{GAP_MEANING[v]}" for v in GAP_VALUES]
-    return "\n".join(lines)
-
-
-DECISION_OUTPUT = f"""【輸出格式】
-
-只回這個 JSON,不要加任何說明文字:
-
-{{"why": "兩三句話說明你的判斷", "action": "NEXT", "gap": ""}}
-
-    why     先寫理由再下判斷。對照上面的放行條件逐項看。
-    action  NEXT / FOLLOW_UP / CLARIFY 三者之一,一字不差。
-    gap     FOLLOW_UP 時從下面挑**一個**填進去,一字不差。
-            NEXT 與 CLARIFY 填空字串。
-
-【gap 只能填這六個其中一個】
-
-{render_gap_options()}
-
-挑最重要的那一個,不要列兩個以上,也不要自己造詞。
-
-**「缺結果」與「結果沒量化」不一樣。** 他講了結果只是沒有數字,
-那是「結果沒量化」;寫成「缺結果」會害下一句去問他已經講過的東西。"""
+接上去的做法:照 `app/prompts/star_read.py` 的格式問一次窄問題
+(「有沒有哪個詞明顯不合情境」加抄原文),抄不出原文就不採用——
+yes/no 加抄原文對窄判斷是準的(量化 60/60),對寬判斷不準(任務 0.29)。
+"""
 
 
 ACTION_INSTRUCTION: dict[str, str] = {
@@ -151,58 +76,9 @@ ACTION_INSTRUCTION: dict[str, str] = {
 然後重複偵測會對一句追問做比對——那正是這個欄位最初被誤判時出的事。
 """
 
-
-def render_accept_rule(rule: AcceptRule) -> str:
-    """把放行條件寫成 prompt 文字。唯一的來源是 dataclass,不另外手寫一份。"""
-    lines = [
-        "【什麼時候算講完了】",
-        "",
-        f"1. STAR 四段(情境 / 任務 / 行動 / 結果)至少要交代 {rule.min_star_parts} 段。",
-    ]
-    n = 2
-    if rule.require_result:
-        lines.append(f"{n}. 一定要有結果段——那是成果的唯一證據。")
-        n += 1
-    if rule.require_quantification:
-        lines.append(
-            f"{n}. 成果要有可查證的數字。只有「提升了」「變好了」這種說法不算。"
-        )
-        n += 1
-    if rule.require_tradeoff:
-        lines.append(f"{n}. 要交代取捨:放棄了什麼、判斷依據是什麼。")
-        n += 1
-    lines += [
-        "",
-        "以上**全部**滿足 → NEXT。",
-        "任何一項不滿足 → FOLLOW_UP,並在 gap 指出缺的是哪一項。",
-        "",
-        "沒有列在上面的東西不要拿來當追問的理由。"
-        "這個難度不要求的,他沒講也算講完了。",
-    ]
-    return "\n".join(lines)
-
-
-def compose_decision_prompt(
-    spec: InterviewerSpec, *, transcription_engine: str = "api"
-) -> str:
-    """決策專用的 system prompt。
-
-    刻意不帶 persona。決定「要不要追問」跟誰在問無關——
-    panel 三位看的是同一份職缺需求與同一套放行條件,
-    決定哪一輪輪到誰的是派發那一步。
-
-    帶了 persona 只會把 prompt 撐長,而 prompt 一長人格就塌——
-    派發那支拆成兩步就是為了這件事。
-    """
-    parts = [DECISION_TASK, render_accept_rule(spec.accept)]
-    if spec.has_jd():
-        listed = "、".join(spec.cares_about)
-        parts.append(f"【這個職缺在意什麼】\n\n{listed}\n\n缺口落在這些項目上才值得追。")
-    else:
-        parts.append(
-            "【這個職缺在意什麼】\n\n(沒有職缺需求可用)\n\n"
-            "只依 STAR 判斷缺口,不要自行想像這個職位需要什麼。"
-        )
-    parts.append(CLARIFY_BY_ENGINE.get(transcription_engine, CLARIFY_BY_ENGINE["api"]))
-    parts.append(DECISION_OUTPUT)
-    return "\n\n".join(parts)
+_missing_instruction = set(DECISION_ACTIONS) - set(ACTION_INSTRUCTION)
+if _missing_instruction:
+    raise RuntimeError(
+        f"這些動作沒有告訴生成端要做什麼:{sorted(_missing_instruction)}。"
+        "少一個的話那個動作會生出跟決定不符的問句,而 is_follow_up 跟著錯。"
+    )
