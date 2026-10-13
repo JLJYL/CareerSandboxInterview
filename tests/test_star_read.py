@@ -31,7 +31,7 @@ from app.pipeline.star_read import (
     read_facts,
     read_one,
 )
-from app.pipeline.interviewer_spec import STAR_PART_KEYS
+from app.pipeline.interviewer_spec import ACCEPT_RULES, STAR_PART_KEYS
 from app.pipeline.transcript import SEGMENTATION_SOURCES, SEGMENT_LEVELS, segment_text
 from app.prompts.star_read import (
     ASSIGN_SYSTEM,
@@ -142,6 +142,53 @@ def test_label_shape_matches_the_golden_fixture():
             "quantified": golden["quantified"],
             "tradeoff": golden["tradeoff"],
         }
+
+
+def test_the_ladder_derives_the_expected_follow_up_rates():
+    """標註經過 AnswerFacts 再進 accepts(),推出來的追問率要跟量測一致。
+
+    0.143 / 0.429 / 0.857 不是寫死的數字,是從七筆標註算出來的。
+    這條接住的是:標註、`AcceptRule`、`AnswerFacts` 任何一邊動了而另外兩邊
+    沒跟上——那時候量測還是跑得完,只是量到的東西換了。
+    """
+    data = json.loads(
+        Path("fixtures/golden/decision/answers_v1.json").read_text(encoding="utf-8")
+    )
+    facts = [AnswerFacts.from_label(a["label"]) for a in data["answers"]]
+    rates = {
+        diff: sum(not f.accepted_by(rule) for f in facts) / len(facts)
+        for diff, rule in ACCEPT_RULES.items()
+    }
+    assert [round(rates[d], 3) for d in ("新手", "中等", "困難")] == [0.143, 0.429, 0.857]
+
+
+def test_a_read_answer_gets_the_gap_computed_not_asked():
+    """判讀完之後缺口是算的。A3 那一筆:講了結果沒數字 → 結果沒量化。
+
+    這是 1d 指錯得最清楚的一筆,模型 20/20 次寫「缺結果」。
+    """
+    facts = AnswerFacts.from_label(
+        {"star_parts": ["S", "A", "R"], "quantified": False, "tradeoff": False}
+    )
+    assert facts.gap_for(ACCEPT_RULES["中等"]) == "結果沒量化"
+    assert facts.gap_for(ACCEPT_RULES["新手"]) == ""
+
+
+def test_an_incomplete_read_still_answers_but_the_caller_can_tell():
+    """讀失敗的時候 accepts() 照樣算得出答案,而那個答案不該被採用。
+
+    `complete` 就是那個分界。這一條存在是為了把它釘住:
+    呼叫掛掉 → 四段都沒有 → 每個難度都「該追問」,
+    而那跟「模型讀出來四段都沒有」在 accepts() 眼裡一模一樣。
+    """
+
+    def boom(system: str, user: str) -> str:
+        raise RuntimeError("timeout")
+
+    facts = asyncio.run(read_facts(answer=ANSWER, llm=boom))
+    assert not facts.complete
+    assert not facts.accepted_by(ACCEPT_RULES["新手"])
+    assert facts.gap_for(ACCEPT_RULES["新手"])
 
 
 def test_label_round_trip_keeps_the_star_order():

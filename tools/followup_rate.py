@@ -64,7 +64,6 @@ import os
 import statistics
 import sys
 import unicodedata
-from dataclasses import fields
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -75,6 +74,7 @@ from app.pipeline.interviewer_spec import (  # noqa: E402
     AcceptRule,
     derive_specs,
 )
+from app.pipeline.star_read import AnswerFacts  # noqa: E402
 from app.pipeline.turn_decision import (  # noqa: E402
     CLARIFY,
     DECISION_SOURCES,
@@ -106,44 +106,20 @@ fallback 一律回 NEXT,所以降級越多,追問率越被壓低、難度越看�
 
 
 # ---------------------------------------------------------------------------
-# 放行條件的第三種表現形式
+# 放行條件:標註與 AcceptRule 之間的接頭
 # ---------------------------------------------------------------------------
-
-_ACCEPT_FIELDS = frozenset(
-    {"min_star_parts", "require_result", "require_quantification", "require_tradeoff"}
-)
-_DEPTH_FIELDS = frozenset({"max_depth"})
-
-_declared = _ACCEPT_FIELDS | _DEPTH_FIELDS
-_actual = frozenset(f.name for f in fields(AcceptRule))
-if _declared != _actual:
-    raise RuntimeError(
-        "AcceptRule 的欄位變了,但這支的期望值沒跟著改。\n"
-        f"  只有這支知道的:{sorted(_declared - _actual)}\n"
-        f"  這支還沒處理的:{sorted(_actual - _declared)}\n"
-        "新增一個條件卻沒更新 accepts(),量測會拿舊規則去評分而且照樣跑完。"
-    )
-
 
 def accepts(rule: AcceptRule, label: dict) -> bool:
     """照放行條件判斷這段回答算不算講完了。
 
-    `render_accept_rule()` 把同一個 dataclass 變成 prompt 文字,這裡變成判斷。
-    兩邊都從 dataclass 長出來,所以改了條件不會只有一邊跟著動。
+    判斷本身在 `AcceptRule.accepts()`,這裡只是把標註擺成它吃的形狀。
+    原本這支自己實作一份,外加一段欄位檢查防止兩份漂開——
+    2b 之後只有一份,那段檢查跟著搬過去了。
 
-    上面的欄位檢查就是為了這件事:`AcceptRule` 多一個欄位而這裡沒處理時,
-    import 就會炸,不會安靜地拿舊規則去評分。
+    標註與線上判讀共用同一支函式,所以量到的期望值跟線上的行為
+    不可能因為規則改動而分叉。
     """
-    parts = label["star_parts"]
-    if len(parts) < rule.min_star_parts:
-        return False
-    if rule.require_result and "R" not in parts:
-        return False
-    if rule.require_quantification and not label["quantified"]:
-        return False
-    if rule.require_tradeoff and not label["tradeoff"]:
-        return False
-    return True
+    return AnswerFacts.from_label(label).accepted_by(rule)
 
 
 def expected_action(rule: AcceptRule, label: dict) -> str:
@@ -222,26 +198,15 @@ def make_llm(model: str, temp: float):
     return call
 
 
-_PART_GAP = {"S": "缺情境", "T": "缺任務", "A": "缺行動", "R": "缺結果"}
-
-
 def fake_gap(rule: AcceptRule, label: dict) -> str:
-    """假模型要填封閉集合裡的一個值,不是佔位字串也不是列一串。
+    """假模型要填的 gap。直接用算出來的那一個。
 
-    填「依放行條件」那種認不出來的字串,`normalize_gap` 會回空字串,
-    「合格gap」那一欄就永遠是 0,看不出那條路徑對不對。
-
-    挑最重要的那一個,順序跟 AcceptRule 的嚴重度一致:
-    段落缺了最嚴重,再來是結果沒量化,最後是取捨。
+    這支原本自己排了一套順序(結果 > 行動 > 任務 > 情境),
+    那是這個專案裡第四份 gap 推導。2b 把推導放進 `AcceptRule.first_gap()`,
+    這裡改成轉呼叫——假模型的職責是當完美的 oracle,
+    而 oracle 現在就是那支函式。
     """
-    missing = [_PART_GAP[p] for p in ("S", "T", "A", "R") if p not in label["star_parts"]]
-    if missing:
-        return missing[-1]  # 最後一段最值得追:結果 > 行動 > 任務 > 情境
-    if rule.require_quantification and not label["quantified"]:
-        return "結果沒量化"
-    if rule.require_tradeoff and not label["tradeoff"]:
-        return "沒有取捨"
-    return ""
+    return AnswerFacts.from_label(label).gap_for(rule)
 
 
 def make_fake_llm(rule: AcceptRule, answers: list[dict]):
@@ -502,8 +467,8 @@ def conclude(stats: dict[str, dict], tracked_totals: dict[str, float] | None) ->
     if not mono:
         print("  放行條件寫進了 prompt,但模型沒照它改變行為。")
         print("  下一步不是再改措辭——「規則寫兩次沒生效,就不要寫第三次」。")
-        print("  改成用程式判定:accepts() 已經可以從結構化的 STAR 事實算出同一個答案,")
-        print("  缺的只是誰來供應那些事實(成員 A 的 analyzer)。")
+        print("  程式判定那條路已經鋪好了:star_read.read_facts() 供應事實,")
+        print("  AcceptRule.accepts() 算放行。缺的是 decide_turn 改成吃事實(2c)。")
 
     if obs[0] > 0:
         ratio = obs[2] / obs[0]

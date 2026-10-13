@@ -1,14 +1,18 @@
 """面試官規格的推導測試。純函式,不打 LLM。
 
-這一版只宣告規格,還沒接進 next_turn,所以沒有行為可測。
-這裡驗的是三件事:
+這裡驗的是四件事:
 
     推導是可重現的        同樣的 JD 加同樣的難度,每次都一樣
     難度真的逐級變嚴      放行條件單調,不是三段讀起來不同的文字
+    放行與缺口算得出來    accepts() 與 first_gap() 窮舉所有事實組合都自洽
     槽位 id 對齊 persona  前端的頭像以 id 查表,錯了圖就對不上
 """
 
 from __future__ import annotations
+
+import itertools
+import json
+from pathlib import Path
 
 import pytest
 
@@ -16,6 +20,11 @@ from app.contracts.interview_protocols import JDInput
 from app.pipeline.interviewer_spec import (
     ACCEPT_RULES,
     DEFAULT_DIFFICULTY,
+    GAP_QUANTIFICATION,
+    GAP_TRADEOFF,
+    GAP_VALUES,
+    STAR_PART_GAP,
+    STAR_PART_KEYS,
     AcceptRule,
     InterviewerSpec,
     accept_rule_for,
@@ -91,6 +100,143 @@ def test_accept_rule_fields_are_decidable():
 def test_max_depth_has_an_upper_bound():
     """追問深度不能無上限——Grok 4 一場 45.7 次被評為 over-questioning。"""
     assert max(r.max_depth for r in ACCEPT_RULES.values()) <= 3
+
+
+# ---------------------------------------------------------------------------
+# 放行與缺口都是算出來的
+# ---------------------------------------------------------------------------
+
+
+def all_facts():
+    """16 種段落組合 × 量化 × 取捨。窮舉,因為手挑樣本會漏。
+
+    這條檢查原本寫在 interviewer_spec 的 import 時,我手挑了六種組合,
+    結果誤判「缺情境」算不出來——它要的是 (T, A, R) 在困難難度,
+    剛好不在我挑的那六種裡。窮舉才不會有這種事。
+    """
+    for n in range(len(STAR_PART_KEYS) + 1):
+        for parts in itertools.combinations(STAR_PART_KEYS, n):
+            for quantified in (False, True):
+                for tradeoff in (False, True):
+                    yield parts, quantified, tradeoff
+
+
+def test_every_gap_is_reachable():
+    """每一個宣告出來的缺口都要有組合算得出來。
+
+    算不出來的值是死的值域,而死的值域會被當成活的拿去寫報表。
+    """
+    produced = {
+        rule.first_gap(star_parts=parts, quantified=q, tradeoff=t)
+        for parts, q, t in all_facts()
+        for rule in ACCEPT_RULES.values()
+    }
+    assert not set(GAP_VALUES) - produced
+
+
+def test_not_accepting_always_names_a_gap():
+    """不放行就一定講得出缺哪一項。
+
+    反過來也要成立:放行的時候不能還掛著一個缺口,那會讓報告說
+    「這題過了,但缺結果」。
+    """
+    for parts, q, t in all_facts():
+        for diff, rule in ACCEPT_RULES.items():
+            ok = rule.accepts(star_parts=parts, quantified=q, tradeoff=t)
+            gap = rule.first_gap(star_parts=parts, quantified=q, tradeoff=t)
+            assert bool(gap) == (not ok), (diff, parts, q, t, ok, gap)
+            assert gap in ("",) + tuple(GAP_VALUES)
+
+
+def test_gap_only_names_something_actually_missing():
+    """算出來的缺口必須真的缺。指錯比不指更糟——下一句會去問他講過的東西。"""
+    for parts, q, t in all_facts():
+        for rule in ACCEPT_RULES.values():
+            gap = rule.first_gap(star_parts=parts, quantified=q, tradeoff=t)
+            if not gap:
+                continue
+            if gap == GAP_QUANTIFICATION:
+                assert not q
+            elif gap == GAP_TRADEOFF:
+                assert not t
+            else:
+                missing = {p for p in STAR_PART_KEYS if p not in parts}
+                assert gap in {STAR_PART_GAP[p] for p in missing}
+
+
+def test_a_result_that_lacks_a_number_is_not_called_missing():
+    """1d 最明確的一次指錯:A3 講了結果只是沒數字,20/20 次都寫「缺結果」。
+
+    算出來的版本在同一筆上必須是「結果沒量化」。
+    `缺結果` 與 `結果沒量化` 分成兩個值就是為了這件事,
+    而現在挑哪一個不是模型挑的。
+    """
+    gap = ACCEPT_RULES["中等"].first_gap(
+        star_parts=("S", "A", "R"), quantified=False, tradeoff=False
+    )
+    assert gap == GAP_QUANTIFICATION
+
+
+def test_missing_result_outranks_a_short_count():
+    """缺結果排第一——它是唯一能單獨決定放不放行的一段。"""
+    gap = ACCEPT_RULES["中等"].first_gap(
+        star_parts=("S", "A"), quantified=False, tradeoff=False
+    )
+    assert gap == STAR_PART_GAP["R"]
+
+
+def test_a_context_only_answer_is_asked_what_he_did():
+    """只講情境的時候要問行動,不要問任務。
+
+    PROBE_ORDER 的第一順位是行動:行為面試裡沒有行動就沒有東西可評。
+    新手不要求結果,所以這一筆會落在段數不足那條。
+    """
+    gap = ACCEPT_RULES["新手"].first_gap(
+        star_parts=("S",), quantified=False, tradeoff=False
+    )
+    assert gap == STAR_PART_GAP["A"]
+
+
+def test_undeclared_parts_do_not_count():
+    """認不得的段落不能墊高段數——墊高的方向是放行。"""
+    rule = ACCEPT_RULES["困難"]
+    assert not rule.accepts(
+        star_parts=("S", "T", "A", "X", "Y"), quantified=True, tradeoff=True
+    )
+    assert rule.accepts(
+        star_parts=("S", "T", "A", "R", "X"), quantified=True, tradeoff=True
+    )
+
+
+def test_repeated_parts_do_not_count_twice():
+    assert not ACCEPT_RULES["中等"].accepts(
+        star_parts=("S", "S", "S", "S"), quantified=True, tradeoff=True
+    )
+
+
+def test_the_golden_ladder_still_climbs():
+    """階梯的放行判斷必須與 fixture 的排法一致:同一筆越嚴的難度不會變成更容易過。"""
+    data = json.loads(
+        Path("fixtures/golden/decision/answers_v1.json").read_text(encoding="utf-8")
+    )
+    for answer in data["answers"]:
+        lab = answer["label"]
+        seq = [
+            ACCEPT_RULES[d].accepts(
+                star_parts=lab["star_parts"],
+                quantified=lab["quantified"],
+                tradeoff=lab["tradeoff"],
+            )
+            for d in ("新手", "中等", "困難")
+        ]
+        assert seq == sorted(seq, reverse=True), (answer["answer_id"], seq)
+
+
+def test_gap_values_are_the_only_source():
+    """prompts 那邊轉出去的 GAP_VALUES 必須是同一個物件,不是另一份一樣的清單。"""
+    from app.prompts.turn_decision import GAP_VALUES as PROMPT_GAP_VALUES
+
+    assert PROMPT_GAP_VALUES is GAP_VALUES
 
 
 # ---------------------------------------------------------------------------

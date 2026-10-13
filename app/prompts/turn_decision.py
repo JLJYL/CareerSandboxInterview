@@ -20,26 +20,32 @@ Angular 轉成 Andrew 這類錯誤,所以需要第三個動作。
 
 from __future__ import annotations
 
-from app.pipeline.interviewer_spec import AcceptRule, InterviewerSpec
+from app.pipeline.interviewer_spec import GAP_VALUES, AcceptRule, InterviewerSpec
 
 DECISION_ACTIONS: tuple[str, ...] = ("NEXT", "FOLLOW_UP", "CLARIFY")
 
-GAP_VALUES: tuple[str, ...] = (
-    "缺情境",
-    "缺任務",
-    "缺行動",
-    "缺結果",
-    "結果沒量化",
-    "沒有取捨",
-)
-"""gap 只能是這六個值其中一個。
+__all__ = [
+    "ACTION_INSTRUCTION",
+    "CLARIFY_BY_ENGINE",
+    "DECISION_ACTIONS",
+    "DECISION_OUTPUT",
+    "DECISION_TASK",
+    "GAP_MEANING",
+    "GAP_VALUES",
+    "compose_decision_prompt",
+    "render_accept_rule",
+    "render_gap_options",
+]
+"""`GAP_VALUES` 轉出去是為了不讓既有的 import 路徑斷掉。
 
-跟 `DECISION_ACTIONS` 一樣放在 prompts 這邊:選項文字與解析必須共用同一份
-清單,而 `pipeline` 匯入 `prompts`,反向會變成循環(prompts → pipeline →
-interview_live → prompts)。
+它本來定義在這裡,因為當時 gap 是問模型的——選項文字與解析必須共用一份清單,
+而 `pipeline` 匯入 `prompts`,反向會循環。
 
-【為什麼改成封閉集合】
-原本是自由填寫「缺的是哪一項」。1d 實測出兩個問題:
+現在 gap 是 `AcceptRule.first_gap()` 算出來的,來源變成放行條件而不是 prompt,
+所以定義搬到 `interviewer_spec` 跟條件放在一起,循環的問題也跟著消失。
+
+【1d 當初為什麼要把它改成封閉集合】
+原本是自由填寫「缺的是哪一項」,實測出兩個問題:
 
     指錯   A3 那筆講了結果只是沒數字,20/20 次 gap 都寫「結果段」。
            那組詞彙沒辦法表達「這一段在但不夠具體」,模型只能從
@@ -47,10 +53,9 @@ interview_live → prompts)。
     長度隨 prompt 變   同一筆答案 A1,新手只點 1–2 段,困難點 3–4 段。
            列幾項取決於放行條件寫了幾條,不取決於答案。
 
-所以改成:封閉集合、只填一個、挑最重要的那一個。
-`缺結果` 與 `結果沒量化` 分開就是為了修第一個問題。
-
-模型的窄判斷是準的(量化 60/60),把它問窄一點比問開放更可靠。
+封閉集合修掉第一個(100% 格式遵從),但沒修掉指錯——A3 照樣是 20/20 錯。
+算出來才修掉:同一筆的計算結果是「結果沒量化」。
+那是「能用程式算的不要問 LLM」第二次在同一個欄位上成立。
 """
 
 

@@ -31,7 +31,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+from typing import Sequence
 
 from app.contracts.interview_protocols import JDInput
 from app.prompts.interview_personas import personas_for
@@ -41,6 +42,54 @@ from app.prompts.interview_personas import personas_for
 # ---------------------------------------------------------------------------
 
 STAR_PART_KEYS: tuple[str, ...] = ("S", "T", "A", "R")
+
+STAR_PART_GAP: dict[str, str] = {
+    "S": "缺情境",
+    "T": "缺任務",
+    "A": "缺行動",
+    "R": "缺結果",
+}
+GAP_QUANTIFICATION = "結果沒量化"
+GAP_TRADEOFF = "沒有取捨"
+
+GAP_VALUES: tuple[str, ...] = tuple(STAR_PART_GAP[p] for p in STAR_PART_KEYS) + (
+    GAP_QUANTIFICATION,
+    GAP_TRADEOFF,
+)
+"""缺口只會是這六個值其中一個,或空字串。
+
+【為什麼跟放行條件放在同一個檔】
+每一條放行條件剛好對應一個缺口——這不是巧合,是同一組事實的兩種讀法:
+「夠不夠」與「差在哪」。放在兩個檔裡就會變成加一條條件卻忘了給它缺口,
+然後那條條件永遠追問、永遠講不出要問什麼。
+
+原本放在 `app/prompts/turn_decision.py`,因為那時 gap 是問模型的,
+選項文字與解析必須共用一份清單。現在 gap 是算出來的,它的來源是
+`AcceptRule` 不是 prompt,所以搬回來。prompt 那邊改成 import。
+"""
+
+def _declared_parts(star_parts: Sequence[str]) -> set[str]:
+    """只數宣告過的段落。
+
+    認不得的值丟掉,不要讓它墊高段數——墊高的方向是放行,
+    而「多報一段就放行」正是這一整輪要修掉的失敗模式。
+    """
+    return {p for p in star_parts if p in STAR_PART_KEYS}
+
+
+PROBE_ORDER: tuple[str, ...] = ("A", "R", "T", "S")
+"""段數不足時,先追哪一段。
+
+這是判斷不是量測:四段都缺的時候只能追一個,得挑一個。順序的理由——
+
+    行動  行為面試裡沒有行動就沒有東西可評,這是最該先問的
+    結果  沒有結果沒辦法判斷做得好不好
+    任務  是脈絡,而且判讀最不可靠的就是它(見 star_read 的 T)
+    情境  也是脈絡,而且幾乎每個人開口第一句就在講情境
+
+階梯裡七筆答案第一句全是情境,所以把情境排最後在實測資料上也站得住。
+`require_result` 那條比這個順序優先,因為缺結果是唯一能單獨決定放不放行的一段。
+"""
 
 
 @dataclass(frozen=True)
@@ -69,6 +118,79 @@ class AcceptRule:
     這是計數不是判讀:追到第三次還講不出來,繼續追只是折磨,
     而那本來就該誠實反映在報告裡。
     """
+
+    def accepts(
+        self,
+        *,
+        star_parts: Sequence[str],
+        quantified: bool,
+        tradeoff: bool,
+    ) -> bool:
+        """這些事實夠不夠放行。
+
+        【為什麼判斷在這裡而不是在 prompt 裡】
+        1d 實測:放行條件寫進 prompt 兩次都沒生效。三種難度的追問率都是 0.500,
+        而「有沒有可查證的數字」一個 bit 就能預測 180/180 次決定——
+        模型在看那一個訊號,不是在對照條件。
+
+        五個欄位本來就是可判定的,所以這一步根本不該問模型。
+        「能用程式算的不要問 LLM」。
+
+        【為什麼收原始值不收 AnswerFacts】
+        `star_read` 要 import `STAR_PART_KEYS`,所以這個檔不能反過來 import 它,
+        不然就循環了。想用物件的那一端有 `AnswerFacts.accepted_by(rule)`。
+
+        同一支函式同時吃標註與判讀結果,是 1d 之後唯一確定有效的做法:
+        量測算期望值、線上算真實決定,兩邊同一條路。
+        """
+        parts = _declared_parts(star_parts)
+        if len(parts) < self.min_star_parts:
+            return False
+        if self.require_result and "R" not in parts:
+            return False
+        if self.require_quantification and not quantified:
+            return False
+        if self.require_tradeoff and not tradeoff:
+            return False
+        return True
+
+    def first_gap(
+        self,
+        *,
+        star_parts: Sequence[str],
+        quantified: bool,
+        tradeoff: bool,
+    ) -> str:
+        """最該追的那一個缺口。放行的話回空字串。
+
+        【為什麼只回一個】
+        1d 實測自由填寫的 gap 時量到:模型列幾項取決於**放行條件寫了幾條**,
+        不取決於答案。同一筆 A1,新手點 1–2 段,困難點 3–4 段。
+        列一串看起來很完整,其實是在數 prompt 的行數。
+
+        所以只回一個,而且是算出來的——哪一條條件沒過是確定的事,不用問。
+
+        【順序】
+        缺結果排第一(它是唯一能單獨決定放不放行的一段),然後是段數不足時
+        照 `PROBE_ORDER` 挑,再是量化與取捨。這個順序是判斷,寫在
+        `PROBE_ORDER` 旁邊。
+        """
+        parts = _declared_parts(star_parts)
+        if self.accepts(star_parts=star_parts, quantified=quantified, tradeoff=tradeoff):
+            return ""
+        if self.require_result and "R" not in parts:
+            return STAR_PART_GAP["R"]
+        if len(parts) < self.min_star_parts:
+            missing = [p for p in PROBE_ORDER if p not in parts]
+            if missing:
+                return STAR_PART_GAP[missing[0]]
+        if self.require_quantification and not quantified:
+            return GAP_QUANTIFICATION
+        if self.require_tradeoff and not tradeoff:
+            return GAP_TRADEOFF
+        # 走到這裡表示 accepts() 回 False 但四條都沒命中,那是矛盾。
+        # 不丟例外——決定路徑不該因為這個崩掉——但測試會逐格檢查這件事不發生。
+        return ""
 
 
 ACCEPT_RULES: dict[str, AcceptRule] = {
@@ -114,6 +236,31 @@ DEFAULT_DIFFICULTY = "中等"
 def accept_rule_for(difficulty: str) -> AcceptRule:
     """難度對應的放行條件。認不得的值退回中等。"""
     return ACCEPT_RULES.get(difficulty, ACCEPT_RULES[DEFAULT_DIFFICULTY])
+
+
+# ---------------------------------------------------------------------------
+# 每一個欄位都要有人用
+# ---------------------------------------------------------------------------
+
+_ACCEPTS_FIELDS = frozenset(
+    {"min_star_parts", "require_result", "require_quantification", "require_tradeoff"}
+)
+_DEPTH_FIELDS = frozenset({"max_depth"})
+
+_declared = _ACCEPTS_FIELDS | _DEPTH_FIELDS
+_actual = frozenset(f.name for f in fields(AcceptRule))
+if _declared != _actual:
+    raise RuntimeError(
+        "AcceptRule 的欄位變了,但沒人處理新的那一個。\n"
+        f"  只有這份清單知道的:{sorted(_declared - _actual)}\n"
+        f"  還沒被處理的:{sorted(_actual - _declared)}\n"
+        "新增一條條件卻沒接進 accepts() / first_gap(),"
+        "結果是那條條件永遠不生效而且全部測試照樣綠。"
+    )
+
+# 「每一個缺口都算得出來」這件事要掃 16 種段落組合 × 3 難度 × 量化 × 取捨,
+# 放在 import 時跑太重,而且掃不過的時候 import 爆掉比測試紅更難查。
+# 那條在 tests/test_interviewer_spec.py 裡逐格檢查。
 
 
 # ---------------------------------------------------------------------------
