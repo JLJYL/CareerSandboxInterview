@@ -148,6 +148,29 @@ class TurnDTO(_Base):
     依賴時間的量一律不可用,由 TextStats.segmentation 反映。
     """
 
+    segment_ends_ms: list[int] = Field(default_factory=list)
+    """每一段**結束**聆聽的時點,毫秒,原點與 segment_starts_ms 相同。
+
+    【為什麼需要這一欄】
+    只有開始時點的話停頓算不出來:`starts[i+1] - starts[i]` 等於
+    「第 i 段講多久」加「停頓多久」,兩者分不開。多了結束時點之後
+    `starts[i+1] - ends[i]` 就是停頓本身。
+
+    這是報告裡「長停頓」那個訊號唯一的實測來源。沒有這一欄的時候,
+    那個訊號只能從句子長短推論,而逐字稿轉完之後停頓資訊已經不在文字裡。
+    音量與語調才真的需要音訊,停頓與語速不需要。
+
+    【筆數】
+    與 answer_segments 等長。`segment_starts_ms` 可能比它多 1
+    (使用者按下結束時系統正要開始聽新的一段),配對時以這一欄為準,
+    多出來的 start 丟掉。
+
+    【前端】
+    Android 的 STT 回呼本來就知道每一段何時結束,記下來送出即可,
+    不需要保留或上傳音訊檔。為空時視為無時間資料,
+    依賴停頓的量一律不可用,由 `speech_timing.SpeechTiming.source` 反映。
+    """
+
     ended_by: str = "unknown"
     """本輪怎麼結束的:"user"(使用者按下結束)/ "timeout"(引擎逾時)/ "unknown"。
 
@@ -576,6 +599,33 @@ class SubScoreDTO(_Base):
         return v
 
 
+class TurnEmotionDTO(_Base):
+    """某一題的情緒標註。**只有要標註的題才會出現在清單裡。**
+
+    平穩不標註,所以這個陣列是稀疏的:三題的面試可能只有一筆,也可能是空陣列。
+    空陣列的意思是「沒有哪一題需要特別標」,不是「沒判讀」——
+    判讀每一題都做,只是結果多半是平穩。
+
+    【不參與計算】
+    情緒不進分數。情緒進分數等於「緊張的人分數比較低」,而產品定位是
+    練習回饋不是能力評估。這一塊跟六項分數並列顯示,不加權、不入總分。
+
+    【前端】
+    turn_index 對齊 question_feedbacks 的題號(從 1 開始),照它掛在那一題旁邊。
+    quote 為空字串時不要畫引文那一行——「過度自責」一律為空,那是刻意的:
+    把「我真的很爛」引回去給使用者看不是回饋。
+    """
+
+    turn_index: int
+    """第幾題,從 1 開始。"""
+
+    label: str
+    """EMOTION_LABELS 其中一個,不會是「平穩」。"""
+
+    quote: str = ""
+    """報告裡可以顯示的原文。空字串表示這一類不回引文。"""
+
+
 class QuestionFeedbackDTO(_Base):
     """逐題回顧。鏡射 QuestionFeedback。
 
@@ -661,6 +711,7 @@ class ReportResponse(_Base):
       InterviewReportProvider.collabDims()       <- collab_dims(非 group 恆空)
       InterviewReportProvider.improvements()     <- improvements
       MissingPointsAnalyzer.analyze()            <- missing_points
+      (逐題回顧那一列旁邊)                        <- turn_emotions
     """
 
     mode: InterviewMode
@@ -672,6 +723,8 @@ class ReportResponse(_Base):
     collab_dims: list[CollabDimDTO] = Field(default_factory=list)
     improvements: list[str] = Field(default_factory=list)
     missing_points: list[MissingPointDTO] = Field(default_factory=list)
+    turn_emotions: list[TurnEmotionDTO] = Field(default_factory=list)
+    """逐題情緒。稀疏——只有要標註的題。見 TurnEmotionDTO。"""
 
     resume_grounded: bool = False
     """本次是否有履歷可依據。False 時 better 只做措辭重組、
