@@ -75,6 +75,30 @@ def mean_coverage(peers: Sequence[Iterable[str]], required: Iterable[str]) -> fl
     return sum(coverage(p, required) for p in peers) / len(peers)
 
 
+def union_coverage(peers: Sequence[Iterable[str]], required: Iterable[str]) -> float:
+    """四個人**聯集**踩到職缺要求的幾成。
+
+    這跟 `mean_coverage` 是兩個不同的事實,而且它們的差距就是同質度:
+
+        四人完全一樣   單人 0.50   聯集 0.50
+        四人互斥       單人 0.50   聯集 1.00
+
+    同一個 k、同一個單人壓迫度,聯集從 0.50 變 1.00。
+    使用者感受到的「被包圍」是聯集買的,不是每人幾個技能買的——
+    「每個人都有一塊比我強」是低同質度的副產品。
+
+    所以這三個數字要一起看:同質度說他們多像,單人說每個人多強,
+    聯集說這一組加起來把職缺蓋掉多少。
+    """
+    r = set(required)
+    if not r:
+        return 0.0
+    got: set[str] = set()
+    for p in peers:
+        got |= set(p)
+    return len(got & r) / len(r)
+
+
 def overlap_coefficient(a: Iterable[str], b: Iterable[str]) -> float:
     """|A∩B| / min(|A|,|B|)。**不要拿它當同質度指標。**
 
