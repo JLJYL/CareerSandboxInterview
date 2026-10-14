@@ -14,6 +14,7 @@ from app.pipeline.peer_overlap import (
     mean_coverage,
     mean_pairwise_jaccard,
     overlap_coefficient,
+    union_coverage,
 )
 
 # 成員 A 在 234 vocab 上手捏的三種情境。數字是示範不是門檻。
@@ -136,6 +137,42 @@ def test_the_two_metrics_move_independently():
     same = [{"a"}, {"a"}, {"a"}, {"a"}]
     assert mean_pairwise_jaccard(same) == 1.0
     assert mean_coverage(same, required) == 0.125
+
+
+def test_the_union_separates_what_the_mean_cannot():
+    """同一個單人壓迫度,聯集可以差四倍。
+
+    這一組是 `union_coverage` 存在的理由:四個人各踩兩個要求,
+    踩同樣兩個 → 聯集 0.25;踩不同的 → 聯集 1.00。單人數字一模一樣。
+    只報單人的話,這兩種群面在報告上長得一樣,而使用者的體感完全不同。
+    """
+    required = {"a", "b", "c", "d", "e", "f", "g", "h"}
+    same = [{"a", "b"}] * 4
+    spread = [{"a", "b"}, {"c", "d"}, {"e", "f"}, {"g", "h"}]
+    assert mean_coverage(same, required) == mean_coverage(spread, required) == 0.25
+    assert union_coverage(same, required) == 0.25
+    assert union_coverage(spread, required) == 1.0
+
+
+def test_the_union_never_falls_below_the_mean():
+    """聯集至少跟單人平均一樣高。低於的話是算錯了。
+
+    聯集是所有人技能的聯集對分母,每個人的覆蓋都是它的子集,
+    所以聯集 ≥ 任何一個人的覆蓋 ≥ 平均。
+    """
+    required = {"a", "b", "c", "d", "e"}
+    for peers in (
+        [{"a"}, {"b"}, {"c"}],
+        [{"a", "b"}, {"a", "b"}, {"a", "c"}],
+        [{"a", "b", "c", "d", "e"}, {"a"}, set()],
+    ):
+        assert union_coverage(peers, required) >= mean_coverage(peers, required)
+
+
+def test_the_union_has_no_denominator_either():
+    """JD 抽取失敗時聯集也回 0。跟 `coverage` 同一個方向。"""
+    assert union_coverage([{"a"}, {"b"}], set()) == 0.0
+    assert union_coverage([], {"a", "b"}) == 0.0
 
 
 def test_no_threshold_constants_are_declared():
