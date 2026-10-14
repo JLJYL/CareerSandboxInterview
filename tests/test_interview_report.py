@@ -111,6 +111,35 @@ async def test_emotion_block_is_wired_without_asking_the_model() -> None:
     assert [(e.turn_index, e.label) for e in r.turn_emotions] == [(2, "卡住")]
 
 
+async def test_the_emotion_read_never_sees_another_speaker() -> None:
+    """情緒只判使用者自己的回答,不碰群面裡其他人的發言。
+
+    ERC 的文獻(CoMPM, NAACL 2022)把「不要混淆說話者」當成核心問題之一,
+    而我們這邊是結構上就分開的:`turns[].answer` 是使用者的回答,
+    競爭者與面試官的發言在 `group_says`,情緒那一塊只吃前者。
+
+    釘住它是因為現在是「剛好對」:以後有人為了給情緒更多脈絡而把
+    group_says 餵進來,就會變成拿 agent 講的話去判使用者的情緒,
+    而那種錯不會壞掉,只會悄悄給錯的標註。
+    """
+    seen: list = []
+
+    def spy(system: str, user: str) -> str:
+        if EMOTION_MARK in system:
+            seen.append(user)
+            return "{}"
+        return fake_llm()(system, user)
+
+    await run(
+        mode="group",
+        turns=[TurnDTO(question="q1", answer="我負責把資料接起來", input_mode="voice")],
+        llm=spy,
+    )
+    assert seen
+    assert "我負責把資料接起來" in seen[0]
+    assert "我覺得應該先做市場調查" not in seen[0], "競爭者的發言不該進情緒判讀"
+
+
 async def test_the_pause_measurement_reaches_the_emotion_read() -> None:
     """前端送了段落結束時點之後,「長停頓」從推論變成實測。
 
