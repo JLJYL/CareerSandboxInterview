@@ -44,7 +44,7 @@ from app.pipeline.peer_generate import (
     plan_skills,
     resolve_jd,
 )
-from app.pipeline.skill_pool import VOCAB_PATH, Skill, load_pool
+from app.pipeline.skill_pool import VOCAB_PATH, Skill, default_pool
 from app.prompts.interview_personas import personas_for
 from app.prompts.peer_profile import (
     BACKGROUND_MAX_CHARS,
@@ -352,6 +352,7 @@ async def build_peers(
     title: str,
     required: Sequence[str],
     llm: LLMCall,
+    write_llm: LLMCall | None = None,
     group_size: int = 4,
     group_interviewers: int = 1,
     homogeneity: float = 0.5,
@@ -367,10 +368,15 @@ async def build_peers(
     技能集合要先定下來,模型才拿得到「已經定好的技能」而不是「請你發揮」。
     也不能並行:第二次呼叫的輸入是第一次的結果經過程式處理之後的東西。
 
+    `llm` 跑挑技能那一次,`write_llm` 跑寫人物那一次。分開的理由是溫度:
+    挑技能是分類,要可重現(temp 0),不然同一個職缺每次跑的 deck 都不一樣,
+    那會疊在 seed 的變化上面,量測就分不出哪個變化來自哪裡。
+    寫人物要有變化(temp 0.4)。不給 `write_llm` 就兩邊用同一支。
+
     兩次呼叫都失敗也回得出完整的一組:亂挑的技能 + 固定人設。
     那一組不好看,但它不會讓群面開不起來,而且 `notices` 會說清楚發生了什麼。
     """
-    pool = load_pool() if pool is None else pool
+    pool = list(default_pool()) if pool is None else pool
     peers = peer_count(group_size, group_interviewers)
     core = resolve_jd(required, pool, vocab_path=vocab_path)
 
@@ -411,7 +417,7 @@ async def build_peers(
         title=title,
         plan=plan,
         pool=pool,
-        llm=llm,
+        llm=write_llm or llm,
         group_size=group_size,
         group_interviewers=group_interviewers,
         vocab_path=vocab_path,

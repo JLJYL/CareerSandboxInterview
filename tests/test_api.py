@@ -18,6 +18,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.contracts.interview_protocols import FakeCollabObserver, GapCandidate, TextStats
+from app.prompts.peer_profile import ADJACENT_MARK, PROFILE_MARK
 from app.schemas.interview import SUB_SCORE_NAMES
 
 
@@ -60,7 +61,36 @@ ASSIGNED = {"1": "S", "2": "A", "3": "R"}
 FACT_PRESENT = {"present": True, "quote": "我用 SQL 重寫查詢"}
 
 
+#: 競爭者生成的兩次呼叫。缺這些的話三位競爭者全部退回固定人設、
+#: 分母外的技能全部亂挑——而群面的測試照樣全綠,因為 start_interview
+#: 的每一段都降級不拋例外。這是同一個錯誤的第四次:1c 的決策分支、
+#: 2c 的事實分支、情緒批次,症狀每次都是「測試綠而功能沒在跑」。
+#: 用 MARK 常數分派,prompt 改字不會讓這裡靜默失效。
+def _peer_profiles(user: str) -> str:
+    ids = [
+        line.split("應徵者 ")[1].rstrip("】")
+        for line in user.splitlines()
+        if "【應徵者" in line
+    ]
+    return json.dumps(
+        [
+            {
+                "id": pid,
+                "name": f"競爭者{'一二三四'[i]}",
+                "background": f"{pid} 的生成背景:政大資管畢業,做過一年前端。",
+                "style": "先講結論",
+            }
+            for i, pid in enumerate(ids)
+        ],
+        ensure_ascii=False,
+    )
+
+
 def fake_llm(system: str, user: str) -> str:
+    if ADJACENT_MARK in system:
+        return json.dumps(list(range(1, 31)))
+    if PROFILE_MARK in system:
+        return _peer_profiles(user)
     if "把每一句分派到一個標籤" in system:
         return json.dumps(ASSIGNED, ensure_ascii=False)
     if "這一次只判斷一件事" in system:
@@ -149,6 +179,50 @@ def test_start_group_gets_interrupt_lines(client) -> None:
 def test_start_single_has_no_interrupts(client) -> None:
     d = client.post("/interviews", json={"mode": "panel", "context": CTX}).json()
     assert d["interruptLines"] == []
+
+
+def test_the_group_opening_really_runs_the_peer_generation(client) -> None:
+    """三位競爭者的 blurb 要是生成的,不是固定那一句。
+
+    這一條在測分派。`start_interview` 的每一段都降級不拋例外,所以假 LLM
+    少了這兩個分支的時候,三位競爭者會全部退回固定人設而**測試照樣全綠**——
+    1c、2c、情緒批次都出過一樣的事。
+
+    拿掉 `fake_llm` 裡任一個 MARK 分支,這一條要變紅。
+    """
+    d = client.post("/interviews", json={"mode": "group", "context": CTX}).json()
+    peers = [p for p in d["personas"] if p["role"] == "peer"]
+    assert len(peers) == 3, "group_size 預設 4 含使用者,所以三位 AI 競爭者"
+    for p in peers:
+        assert p["blurb"] == f"{p['id']} 的生成背景:政大資管畢業,做過一年前端。"
+
+    notices = " ".join(d["notices"])
+    assert "退回固定人設" not in notices
+    assert "退回亂挑" not in notices
+
+
+def test_a_peer_generation_failure_still_opens_the_interview(client, monkeypatch) -> None:
+    """競爭者生成掛掉,開場還是要開得起來,而且退回固定人設。
+
+    按下開始卻噴 500 的話使用者連場都進不去,而這一段是新加的,
+    不該有能力讓整個開場失敗。
+    """
+    import app.api.routes as routes
+
+    def half_dead(system: str, user: str) -> str:
+        if ADJACENT_MARK in system or PROFILE_MARK in system:
+            raise RuntimeError("peer gen down")
+        return fake_llm(system, user)
+
+    for name in ("get_llm", "get_llm_live"):
+        monkeypatch.setattr(routes, name, lambda: half_dead)
+
+    d = client.post("/interviews", json={"mode": "group", "context": CTX}).json()
+    assert d["openingQuestion"]
+    peers = [p for p in d["personas"] if p["role"] == "peer"]
+    assert len(peers) == 3
+    assert all("生成背景" not in p["blurb"] for p in peers)
+    assert any("退回固定人設" in n for n in d["notices"])
 
 
 def test_turn_returns_next_question(client) -> None:

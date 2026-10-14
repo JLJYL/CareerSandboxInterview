@@ -29,6 +29,7 @@ import asyncio
 import json
 import re
 import uuid
+import zlib
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
@@ -124,9 +125,34 @@ def context_block(ctx: InterviewContext, jd: JDInput | None = None) -> str:
     return "\n".join(lines)
 
 
-def _persona_dtos(mode: str, group_interviewers: int = 1, group_size: int = 4) -> list[Persona]:
+def _persona_dtos(
+    mode: str,
+    group_interviewers: int = 1,
+    group_size: int = 4,
+    blurbs: dict[str, str] | None = None,
+) -> list[Persona]:
+    """開場回應裡的角色清單。
+
+    `blurbs` 是生成的背景敘述,按 persona id 蓋掉固定的那一句。
+
+    【為什麼只蓋 blurb 不蓋 display_name】
+    `PeerProfile.name` 有生成的中文姓名,但顯示名不能在這一層換掉:
+    `repair_speaker` 與 `_interviewer_names` 是靠顯示名比對說話者的,
+    而怡君那邊的 roster 目前寫死「AI-邏輯」這幾個字串。
+    換成「林于哲」要同時改那條線與前端,那是接線改動,不是這裡的事。
+
+    等前端改成從回應讀 roster 之後,這裡多一行就能換。在那之前
+    生成的名字留在 `PeerProfile` 上不往外送——送出去會讓 roster 與
+    每一輪的說話者名稱對不上,而那個錯是靜默的。
+    """
+    override = blurbs or {}
     return [
-        Persona(id=p.id, display_name=p.display_name, role=p.role, blurb=p.blurb)
+        Persona(
+            id=p.id,
+            display_name=p.display_name,
+            role=p.role,
+            blurb=override.get(p.id) or p.blurb,
+        )
         for p in personas_for(mode, group_interviewers, group_size)
         if p.display_name
     ]
@@ -348,15 +374,28 @@ async def start_interview(
     mode: str,
     context: InterviewContext,
     llm: LLMCall,
+    llm_exact: LLMCall | None = None,
     jd: JDInput | None = None,
     session_id: str | None = None,
 ) -> StartInterviewResponse:
-    """開場。群面另外並行生成搶話台詞。
+    """開場。群面另外並行生成搶話台詞與競爭者。
 
     任何一段失敗都退回預設值——面試按下開始卻噴 500,使用者連場都進不去。
+
+    【llm_exact 是給需要可重現的那幾次呼叫用的】
+    `llm` 是 temp 0.4 的生成用模型。競爭者的相鄰技能挑選是分類不是生成,
+    用 0.4 會讓同一個職缺每次跑挑出不同的技能池,而那個變化會疊在
+    seed 的變化上面——量測時分不出哪個變化來自哪裡。不給就兩邊共用。
+
+    【競爭者那一段的延遲】
+    它內部是兩次**相依**的呼叫(挑技能 → 排集合 → 寫人物),所以這一段
+    是開場的關鍵路徑:原本是 max(開場, 搶話) ≈ 1 次呼叫的時間,
+    現在是 max(1, 1, 2) = 2 次。換到的是競爭者的技能真的對著職缺,
+    而那是群面這個模式的全部價值。
     """
     notices: list[str] = []
     ctx_text = context_block(context, jd)
+    sid = session_id or f"itv_{uuid.uuid4().hex[:12]}"
 
     cfg = dict(
         group_interviewers=context.group_interviewers,
@@ -368,7 +407,23 @@ async def start_interview(
         "opening": asyncio.ensure_future(_gen_opening(llm, mode, ctx_text, cfg))
     }
     if mode == "group":
+        # ★ 在函式內 import。`peer_profile` 要這個模組的 LLMCall 與 parse_list,
+        #   所以模組層 import 會循環——2c 那輪就是這個錯誤,症狀是
+        #   ImportError 而不是功能失效,但它會讓整個服務起不來。
+        from app.pipeline.peer_profile import build_peers
+
         tasks["interrupts"] = asyncio.ensure_future(_gen_interrupts(llm, INTERRUPT_CAP))
+        tasks["peers"] = asyncio.ensure_future(
+            build_peers(
+                title=context.custom_role,
+                required=list(jd.required_skills) if jd else [],
+                llm=llm_exact or llm,
+                write_llm=llm,
+                group_size=context.group_size,
+                group_interviewers=context.group_interviewers,
+                seed=zlib.crc32(sid.encode("utf-8")),
+            )
+        )
 
     results: dict[str, object] = {}
     for name, task in tasks.items():
@@ -376,7 +431,7 @@ async def start_interview(
             results[name] = await task
         except Exception as exc:  # noqa: BLE001
             notices.append(f"開場:{name} 生成失敗({type(exc).__name__}),已使用預設")
-            results[name] = {} if name == "opening" else []
+            results[name] = {"opening": {}, "peers": None}.get(name, [])
 
     op = results.get("opening") or {}
     question = normalize_locale(str(op.get("openingQuestion", "")).strip()) or DEFAULT_OPENING
@@ -392,11 +447,17 @@ async def start_interview(
         interrupts = list(DEFAULT_INTERRUPTS)
         notices.append("開場:未取得搶話台詞,已使用預設")
 
-    personas = _persona_dtos(mode, context.group_interviewers, context.group_size)
+    cast = results.get("peers")
+    blurbs: dict[str, str] = {}
+    if cast is not None:
+        blurbs = {p.persona_id: p.background for p in cast.profiles}
+        notices += [f"競爭者:{n}" for n in cast.notices]
+
+    personas = _persona_dtos(mode, context.group_interviewers, context.group_size, blurbs)
     opening_speaker = personas[0].display_name if personas else ""
 
     return StartInterviewResponse(
-        session_id=session_id or f"itv_{uuid.uuid4().hex[:12]}",
+        session_id=sid,
         mode=mode,
         opening_question=question,
         opening_speaker=opening_speaker,
