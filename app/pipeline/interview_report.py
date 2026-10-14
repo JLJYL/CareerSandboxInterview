@@ -45,6 +45,8 @@ from app.contracts.interview_protocols import TextStats
 from app.pipeline.jd_normalize import normalize_locale
 from app.pipeline.text_fold import fold_variants
 from app.pipeline.parallel import gather_blocks
+from app.pipeline.speech_timing import describe_pauses, measure as measure_timing
+from app.pipeline.turn_emotion import EmotionTurn, batch_input_mode, read_emotions
 from app.prompts.interview_report import (
     MAX_IMPROVEMENTS,
     compose_face_prompt,
@@ -63,6 +65,7 @@ from app.schemas.interview import (
     StarPartDTO,
     SubScoreDTO,
     TurnDTO,
+    TurnEmotionDTO,
 )
 from app.schemas.interview_repair import repair_report, verify_star_verbatim
 
@@ -454,6 +457,25 @@ def derive_improvements(
 # ---------------------------------------------------------------------------
 
 
+def emotion_turns(turns: Sequence[TurnDTO]) -> list[EmotionTurn]:
+    """把每一輪擺成情緒判讀吃的形狀,順便把停頓算出來。
+
+    停頓是實測值,只有語音且前端送了 `segment_ends_ms` 的時候才有。
+    算不出來就是空字串,那一行不會進 prompt——印「停頓:無資料」會讓模型
+    以為是「沒有停頓」,而兩者差別很大。
+    """
+    out = []
+    for t in turns:
+        timing = measure_timing(
+            starts_ms=t.segment_starts_ms,
+            ends_ms=t.segment_ends_ms,
+            segments=t.answer_segments or [t.answer],
+            input_mode=t.input_mode,
+        )
+        out.append(EmotionTurn(t.question, t.answer, describe_pauses(timing)))
+    return out
+
+
 async def generate_report(
     *,
     mode: str,
@@ -466,7 +488,7 @@ async def generate_report(
     engine: str = "api",
     llm_verbatim: LLMCall | None = None,
 ) -> ReportResponse:
-    """產出報告。四個區塊並行,任一失敗不影響其他。
+    """產出報告。五個區塊並行,任一失敗不影響其他。
 
     llm_verbatim 給 starParts 用。fromAnswer 需要跨行原文引用,
     gpt-4o-mini 做不到,要用 gpt-4o。省略時退回 llm。
@@ -485,6 +507,15 @@ async def generate_report(
             "subs": gen_sub_scores(llm, transcript, stats_text, engine),
             "questions": gen_question_feedbacks(llm, turns, engine),
             "star": gen_star_parts(star_llm, transcript, bool(cut), engine),
+            # 第五塊。它問的是「他當時是什麼狀態」,跟其他四塊無關,
+            # 所以併進同一次 gather:多一次呼叫但不多一輪等待。
+            "emotion": read_emotions(
+                turns=emotion_turns(turns),
+                llm=llm,
+                # 逐輪的模式,不是整場那個——整場的 input_mode 是給流暢度公式用的。
+                # 混用就退回 unknown,見 batch_input_mode。
+                input_mode=batch_input_mode([t.input_mode for t in turns]),
+            ),
         }
     )
 
@@ -543,6 +574,13 @@ async def generate_report(
             )
         )
 
+    # 情緒不進分數也不進 improvements:它跟六項分數並列但不參與計算。
+    # 平穩不標註,所以這個陣列是稀疏的,空陣列是正常結果不是失敗。
+    emotions = [
+        TurnEmotionDTO(turn_index=e.turn_index, label=e.label, quote=e.shown_quote)
+        for e in results.get("emotion", [])
+    ]
+
     report = ReportResponse(
         mode=mode,
         face_dimensions=face_scored,
@@ -552,6 +590,7 @@ async def generate_report(
         improvements=derive_improvements(face_scored),
         resume_grounded=resume_grounded,
         notices=notices,
+        turn_emotions=emotions,
     )
     if cut:
         report.notices.append(

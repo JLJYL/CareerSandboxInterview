@@ -11,6 +11,7 @@ import json
 import pytest
 
 from app.contracts.interview_protocols import TextStats
+from app.prompts.turn_emotion import EMOTION_MARK
 from app.pipeline.interview_report import (
     derive_improvements,
     format_stats,
@@ -44,9 +45,15 @@ TYPED_STATS = TextStats(
 )
 
 
-def fake_llm(face=None, subs=None, questions=None, star=None):
-    """依 system prompt 的開頭判斷是哪個區塊,回對應的假輸出。"""
+def fake_llm(face=None, subs=None, questions=None, star=None, emotion=None):
+    """依 system prompt 的開頭判斷是哪個區塊,回對應的假輸出。
+
+    情緒那一塊的辨識字串由 `EMOTION_MARK` 宣告,不在這裡抄一段:
+    抄的那一段跟 prompt 漂開的時候,漂掉的方向永遠是「悄悄沒接上」。
+    """
     def call(system: str, user: str) -> str:
+        if EMOTION_MARK in system:
+            return json.dumps(emotion if emotion is not None else {}, ensure_ascii=False)
         if "三個面向" in system:
             return json.dumps(face if face is not None else [
                 {"letter": "內", "verdict": "有講到重點但缺數字", "points": ["自我介紹加一個量化成果"]},
@@ -80,6 +87,122 @@ async def run(llm=None, **kw):
         resume_text=kw.pop("resume_text", ""), resume_grounded=kw.pop("resume_grounded", False),
         llm=llm or fake_llm(), **kw,
     )
+
+
+# ---------------------------------------------------------------------------
+# 逐題情緒
+# ---------------------------------------------------------------------------
+
+
+async def test_emotion_block_is_wired_without_asking_the_model() -> None:
+    """明確說不知道那一題要被標成卡住,而且不靠模型回答。
+
+    這一條是接線證據。情緒那一塊的「沒有要標的」是合法結果,所以假 LLM
+    沒接上的時候,結果跟「整場都平穩」長得一模一樣——測試全綠而一整塊沒接。
+    程式判的那一項不依賴模型,所以它能證明這塊真的被呼叫到了。
+    """
+    r = await run(
+        turns=[
+            TurnDTO(question="q1", answer="我做過一個報表自動化的專案", input_mode="voice"),
+            TurnDTO(question="q2", answer="這個我沒想過耶", input_mode="voice"),
+        ],
+        llm=fake_llm(emotion={}),
+    )
+    assert [(e.turn_index, e.label) for e in r.turn_emotions] == [(2, "卡住")]
+
+
+async def test_the_pause_measurement_reaches_the_emotion_read() -> None:
+    """前端送了段落結束時點之後,「長停頓」從推論變成實測。
+
+    這一條驗的是接線:`segment_ends_ms` 進來,停頓算出來,
+    那一行出現在情緒判讀的 user 訊息裡。
+    """
+    seen: list = []
+
+    def spy(system: str, user: str) -> str:
+        if EMOTION_MARK in system:
+            seen.append(user)
+            return "{}"
+        return fake_llm()(system, user)
+
+    await run(
+        turns=[
+            TurnDTO(
+                question="講一個失敗的經驗",
+                answer="那個、那個我想一下 就是我當時 嗯 我不太確定要怎麼講",
+                answer_segments=["那個、那個我想一下", "就是我當時 嗯", "我不太確定要怎麼講"],
+                segment_starts_ms=[0, 5200, 12700],
+                segment_ends_ms=[4000, 8200, 15000],
+                input_mode="voice",
+            )
+        ],
+        llm=spy,
+    )
+    assert seen, "情緒那一塊沒被呼叫到"
+    assert "最長一次 4.5 秒" in seen[0]
+    assert "實測值" in seen[0]
+
+
+async def test_without_end_times_the_pause_line_is_absent() -> None:
+    """前端還沒送那一欄的時候,整塊安靜退回今天的行為,不是印一個 0。"""
+    seen: list = []
+
+    def spy(system: str, user: str) -> str:
+        if EMOTION_MARK in system:
+            seen.append(user)
+            return "{}"
+        return fake_llm()(system, user)
+
+    await run(
+        turns=[
+            TurnDTO(
+                question="q1",
+                answer="我做過一個報表自動化的專案",
+                answer_segments=["我做過一個報表自動化的專案"],
+                segment_starts_ms=[0],
+                input_mode="voice",
+            )
+        ],
+        llm=spy,
+    )
+    assert seen and "停頓" not in seen[0]
+
+
+async def test_emotion_does_not_enter_any_score() -> None:
+    """情緒不進分數也不進 improvements。
+
+    情緒進分數等於「緊張的人分數比較低」,而產品定位是練習回饋不是能力評估。
+    """
+    calm = await run(llm=fake_llm(emotion={}))
+    tense = await run(
+        llm=fake_llm(
+            emotion={"2": {"label": "焦慮", "quote": "我沒先測試就直接全推"}}
+        )
+    )
+    assert [e.turn_index for e in tense.turn_emotions] == [2]
+    assert calm.turn_emotions == []
+    assert [(s.name, s.score) for s in calm.sub_scores] == [
+        (s.name, s.score) for s in tense.sub_scores
+    ]
+    assert calm.improvements == tense.improvements
+    assert [(d.letter, d.score) for d in calm.face_dimensions] == [
+        (d.letter, d.score) for d in tense.face_dimensions
+    ]
+
+
+async def test_an_ungrounded_emotion_quote_is_not_reported() -> None:
+    """抄不出那一題的原文就不標註。報告裡不會出現沒有證據的情緒。"""
+    r = await run(llm=fake_llm(emotion={"1": {"label": "焦慮", "quote": "我整個人都慌了"}}))
+    assert r.turn_emotions == []
+
+
+async def test_self_blame_reaches_the_report_without_its_quote() -> None:
+    """過度自責要標出哪一題,但不把那句話引回去。"""
+    r = await run(
+        turns=[TurnDTO(question="q1", answer="我覺得我真的很爛,每次都做不好", input_mode="typed")],
+        llm=fake_llm(emotion={"1": {"label": "過度自責", "quote": "我覺得我真的很爛"}}),
+    )
+    assert [(e.label, e.quote) for e in r.turn_emotions] == [("過度自責", "")]
 
 
 # ---------------------------------------------------------------------------
