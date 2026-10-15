@@ -136,7 +136,8 @@ def make_fake_llm(pool):
                     {
                         "id": pid,
                         "name": f"假{'一二三四'[i]}號",
-                        "background": "政大資管畢業,做過一年的系統維護。",
+                        "school": "政治大學",
+                        "background": "政治大學資管畢業,做過一年的系統維護。",
                         "style": "先講結論",
                     }
                     for i, pid in enumerate(ids)
@@ -207,12 +208,14 @@ def row_for(case: dict, cast, pool) -> dict:
         "out_of_range": cast.adjacent.out_of_range,
         "on_jd": cast.adjacent.on_jd,
         "repaired": sum(len(p.repaired) for p in cast.profiles),
+        "repaired_why": [r for p in cast.profiles for r in p.repaired],
         "overclaims": sum(len(p.overclaims) for p in cast.profiles),
         "fell_back": sum(1 for p in cast.profiles if p.source == "fallback"),
         "peers": [
             {
                 "id": p.persona_id,
                 "name": p.name,
+                "school": p.school,
                 "skills": list(names_for(p.skills, pool)),
                 "background": p.background,
                 "style": p.style,
@@ -274,7 +277,16 @@ def report(
         f"{len(rows) * peer_count()} 位"
     )
     print(f"  欄位不合格    {sum(r['repaired'] for r in rows)} 次")
+    why = collections.Counter(w for r in rows for w in r["repaired_why"])
+    for reason, n in why.most_common():
+        print(f"    {reason:18} {n:>3}")
     print(f"  背景誇大      {sum(r['overclaims'] for r in rows)} 次")
+    schools = collections.Counter(
+        p["school"] for r in rows for p in r["peers"] if p["school"]
+    )
+    print(f"  用到的學校    {len(schools)} 所 / 共 {sum(schools.values())} 次")
+    for name, n in schools.most_common(6):
+        print(f"    {name:12} {n:>3}")
 
     if latency:
         s = sorted(latency)
@@ -289,7 +301,8 @@ def report(
     for r in rows:
         print(f"\n【{r['case']}】{r['title']}")
         for p in r["peers"]:
-            print(f"  {p['name']}({p['id']})")
+            label = f"  {p['name']}({p['id']})"
+            print(f"{label}  {p['school']}" if p["school"] else label)
             print(f"    技能 {'、'.join(p['skills'])}")
             print(f"    背景 {p['background']}")
             if p["style"]:

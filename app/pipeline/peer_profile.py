@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
@@ -48,6 +49,7 @@ from app.pipeline.skill_pool import VOCAB_PATH, Skill, default_pool
 from app.prompts.interview_personas import personas_for
 from app.prompts.peer_profile import (
     BACKGROUND_MAX_CHARS,
+    SCHOOLS,
     NAME_MAX_CHARS,
     STYLE_MAX_CHARS,
     adjacent_user_message,
@@ -111,6 +113,7 @@ class PeerProfile:
     style: str
     skills: tuple[str, ...]
     source: str
+    school: str = ""
     repaired: tuple[str, ...] = ()
     overclaims: tuple[str, ...] = ()
 
@@ -134,6 +137,67 @@ class PeerCast:
 # ---------------------------------------------------------------------------
 
 
+class AdjacentCache:
+    """按職缺快取相鄰技能的挑選結果。
+
+    【為什麼值得快取】
+    實跑量到單次呼叫中位 3.91s、p90 5.27s。競爭者那段是兩次**相依**呼叫,
+    所以群面開場的等待從 3.9s 變成 7.8s —— 按下開始要等快八秒。
+
+    而挑技能那一次的輸入只有職缺、溫度是 0,**同一個職缺的答案本來就該一樣**。
+    快取它不改語意,只是不要為同一個職缺重複問。命中之後 `build_peers`
+    只剩寫人物那一次,跟開場、搶話並行,開場的等待回到 3.9s。
+
+    【只快取乾淨的那種】
+    `topped_up` 與 `fallback` 都是降級結果,存起來會把一次失敗變成
+    那個職缺的永久答案。`put` 擋掉它們,所以降級不會黏住。
+
+    【命中之後還要對 need】
+    不同設定要的分母外技能數不同(同質度 0.5 要 6 個、兩個旋鈕歸零要 18 個)。
+    存的那筆可能不夠新的設定用,所以 `get` 要帶 `need`,不夠就當沒命中。
+
+    【不是全域單例】
+    呼叫端自己持有一份。`start_interview` 持一份、工具與測試不傳就沒有快取——
+    測試共用一份的話,同一個職缺餵不同假 LLM 會拿到第一次的結果,
+    而那種錯誤表現成「測試互相影響」,查起來很慢。
+    """
+
+    def __init__(self, max_entries: int = 64) -> None:
+        self._store: "OrderedDict[tuple, AdjacentPick]" = OrderedDict()
+        self._max = max(1, max_entries)
+        self.hits = 0
+        self.misses = 0
+
+    @staticmethod
+    def key(title: str, core: JDCore, pool_size: int) -> tuple:
+        """決定答案的那些東西:職稱、職缺要求、池子大小。
+
+        池子用大小不用內容:它是固定資產,同長度的另一個池子只有測試會出現,
+        而測試不傳快取。
+        """
+        return (str(title or "").strip(), core.coverable, pool_size)
+
+    def get(self, key: tuple, *, need: int) -> AdjacentPick | None:
+        pick = self._store.get(key)
+        if pick is None or pick.kept < need:
+            self.misses += 1
+            return None
+        self._store.move_to_end(key)
+        self.hits += 1
+        return pick
+
+    def put(self, key: tuple, pick: AdjacentPick) -> None:
+        if pick.source != LLM:
+            return
+        self._store[key] = pick
+        self._store.move_to_end(key)
+        while len(self._store) > self._max:
+            self._store.popitem(last=False)
+
+    def __len__(self) -> int:
+        return len(self._store)
+
+
 async def pick_adjacent(
     *,
     title: str,
@@ -142,6 +206,7 @@ async def pick_adjacent(
     llm: LLMCall,
     need: int,
     rng_seed: int = 0,
+    cache: AdjacentCache | None = None,
 ) -> AdjacentPick:
     """問模型哪些技能跟這個職缺相鄰。回傳的 id 保證在池子裡、不在職缺要求裡。
 
@@ -156,6 +221,13 @@ async def pick_adjacent(
     candidates = [s for s in pool if s.skill_id not in excluded]
     if not candidates:
         return AdjacentPick((), FALLBACK)
+
+    ckey = None
+    if cache is not None:
+        ckey = cache.key(title, core, len(pool))
+        hit = cache.get(ckey, need=need)
+        if hit is not None:
+            return hit
 
     try:
         raw = await asyncio.to_thread(
@@ -200,7 +272,10 @@ async def pick_adjacent(
         random.Random(rng_seed).shuffle(rest)
         picked += rest[: need - len(picked)]
 
-    return AdjacentPick(tuple(picked), source, returned, out_of_range, on_jd)
+    pick = AdjacentPick(tuple(picked), source, returned, out_of_range, on_jd)
+    if cache is not None and ckey is not None:
+        cache.put(ckey, pick)
+    return pick
 
 
 def core_names(core: JDCore, pool: Sequence[Skill]) -> tuple[str, ...]:
@@ -215,6 +290,49 @@ def core_names(core: JDCore, pool: Sequence[Skill]) -> tuple[str, ...]:
 # ---------------------------------------------------------------------------
 # 第二次呼叫
 # ---------------------------------------------------------------------------
+
+
+FIRST_PERSON = "我"
+"""背景敘述不該出現的字。
+
+實跑十個職缺,三十份背景裡有三份混了第一人稱:
+「習慣直接提出我的見解」「對於數字的敏感度讓我能迅速提出建議」。
+其餘二十七份是第三人稱。這段話顯示在小組成員名單上,混用讀起來像兩個人寫的。
+
+程式驗得掉,所以驗。
+"""
+
+
+def school_problem(school: str, background: str) -> str:
+    """學校有沒有問題。回問題名稱,沒問題回空字串。
+
+    兩個檢查,兩個都是精確比對:
+
+        school 欄位    必須一字不差落在 `SCHOOLS` 裡
+        背景敘述       必須含有 `school` 那個字串
+
+    第二個是真正擋住那個 bug 的。實跑裡「國防醫學院會計系畢業」整句寫在
+    背景敘述裡而 `school` 欄位是另一所,只驗欄位的話那一句照樣顯示出去。
+
+    【第一版用正則掃校名,而那會誤殺】
+    原本掃 `[中文]{2,6}(?:大學|學院|科大)` 然後要求每個命中都在清單裡。
+    實跑的輸出裡有「台大商學院畢業」與「台大社會科學院畢業」——
+    商學院、社會科學院是學校內部的學院,完全合法,但它們帶「學院」後綴
+    而且不在清單裡,所以會被判成假校名。
+
+    改成「背景要含有 school」之後沒有誤殺:「臺灣大學商學院畢業」配
+    `school="臺灣大學"` 兩個檢查都過,而「國防醫學院…」配任何合法 school
+    都過不了第二個。簡寫(「政大資工」)也過不了,而那是 prompt 規則 3
+    明說的事——用清單裡的寫法。
+
+    驗不到的是「這個學校有沒有這個系」:程式手上沒有系所名錄。
+    那個風險靠 `SCHOOLS` 只收綜合型大學壓低,不是靠這裡。
+    """
+    if school not in set(SCHOOLS):
+        return "school"
+    if school not in background:
+        return "background_school"
+    return ""
 
 
 def _clean(value: object, limit: int) -> str:
@@ -317,10 +435,30 @@ async def read_profiles(
         if not name or name in taken:
             name = spec.display_name
             repaired.append("name")
+        else:
+            # 同一批不能有兩個同名。實跑看過跨職缺重複(李明軒出現四次),
+            # 那個只能靠 prompt;同一批重複是程式擋得掉的,而它更嚴重——
+            # 小組名單上出現兩個同名的人,使用者會以為畫面壞了。
+            taken.add(name)
+
         background = _clean(entry.get("background"), BACKGROUND_MAX_CHARS)
+        if background and FIRST_PERSON in background:
+            background = ""
+            repaired.append("background_voice")
+        school = str(entry.get("school") or "").strip()
+        if background:
+            bad = school_problem(school, background)
+            if bad:
+                background = ""
+                school = ""
+                repaired.append(bad)
         if not background:
             background = spec.blurb
-            repaired.append("background")
+            school = ""
+            if "background_voice" not in repaired and "school" not in repaired:
+                if "background_school" not in repaired:
+                    repaired.append("background")
+
         style = _clean(entry.get("style"), STYLE_MAX_CHARS)
         if not style:
             repaired.append("style")
@@ -333,6 +471,7 @@ async def read_profiles(
                 style=style,
                 skills=tuple(skills),
                 source=PROFILE_LLM,
+                school=school,
                 repaired=tuple(repaired),
                 overclaims=find_overclaims(
                     background, skills, plan.denominator, vocab_path=vocab_path
@@ -359,6 +498,7 @@ async def build_peers(
     pressure: float = 0.5,
     seed: int = 0,
     k: int = SKILLS_PER_PEER,
+    cache: AdjacentCache | None = None,
     pool: Sequence[Skill] | None = None,
     vocab_path: Path | str = VOCAB_PATH,
 ) -> PeerCast:
@@ -384,7 +524,13 @@ async def build_peers(
         core, peers=peers, homogeneity=homogeneity, pressure=pressure, k=k
     )
     pick = await pick_adjacent(
-        title=title, core=core, pool=pool, llm=llm, need=need, rng_seed=seed
+        title=title,
+        core=core,
+        pool=pool,
+        llm=llm,
+        need=need,
+        rng_seed=seed,
+        cache=cache,
     )
     notices: list[str] = []
     if pick.source == FALLBACK:

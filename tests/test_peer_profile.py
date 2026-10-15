@@ -27,6 +27,8 @@ from app.pipeline.peer_generate import (
 )
 from app.pipeline.peer_profile import (
     FALLBACK,
+    FIRST_PERSON,
+    AdjacentCache,
     LLM,
     PROFILE_FALLBACK,
     PROFILE_LLM,
@@ -41,6 +43,7 @@ from app.prompts.interview_personas import personas_for
 from app.prompts.peer_profile import (
     ADJACENT_MARK,
     ADJACENT_TARGET,
+    SCHOOLS,
     NAME_MAX_CHARS,
     PROFILE_MARK,
     compose_adjacent_prompt,
@@ -96,7 +99,8 @@ def profile_reply(user: str, **over) -> str:
         row = {
             "id": pid,
             "name": f"林{'一二三四'[i - 1]}哲",
-            "background": "清大資工畢業,在電商做過半年的前端開發。",
+            "school": "政治大學",
+            "background": "政治大學資訊管理畢業,在電商做過半年的前端開發。",
             "style": "講話快,先講結論",
         }
         row.update(over.get(pid, {}))
@@ -334,13 +338,13 @@ def test_profiles_are_matched_by_id_not_by_order():
         rows = json.loads(profile_reply(user))
         rows.reverse()
         for row in rows:
-            row["background"] = f"{row['id']} 的背景"
+            row["background"] = f"政治大學畢業,{row['id']} 的背景"
         return json.dumps(rows, ensure_ascii=False)
 
     out = profiles_of(reply)
     assert [p.persona_id for p in out] == [s.id for s in SPECS[:PEERS]]
     for p in out:
-        assert p.background == f"{p.persona_id} 的背景"
+        assert p.background == f"政治大學畢業,{p.persona_id} 的背景"
 
 
 def test_the_order_is_the_roster_order():
@@ -500,7 +504,7 @@ def test_an_overclaim_shows_up_in_the_notices():
     cast = cast_of(
         adjacent=adjacent_reply(),
         profile=lambda u: profile_reply(
-            u, **{SPECS[0].id: {"background": f"主力是 {name}。"}}
+            u, **{SPECS[0].id: {"background": f"政治大學畢業,主力是 {name}。"}}
         ),
     )
     assert any("宣稱了它沒有的職缺技能" in n for n in cast.notices)
@@ -562,3 +566,267 @@ def test_the_plan_notices_are_carried_through():
     """
     cast = cast_of(adjacent=adjacent_reply(), profile=profile_reply)
     assert any("分母用 7 不是 8" in n for n in cast.notices)
+
+
+# ---------------------------------------------------------------------------
+# 快取
+# ---------------------------------------------------------------------------
+
+
+def adjacent_calls(seen: list) -> int:
+    return sum(1 for system, _user in seen if ADJACENT_MARK in system)
+
+
+def test_the_same_jd_only_asks_the_model_once():
+    """同一個職缺跑兩次,挑技能那次呼叫只該發生一次。
+
+    實跑量到單次呼叫中位 3.91s,而競爭者那段是兩次相依呼叫,所以群面開場
+    從 3.9s 變成 7.8s。挑技能的輸入只有職缺、溫度 0,同一個職缺答案本來就一樣,
+    所以那一次是可以省的——省掉之後只剩寫人物,跟開場、搶話並行。
+    """
+    cache = AdjacentCache()
+    seen: list = []
+    for _ in range(2):
+        cast_of(
+            adjacent=adjacent_reply(), profile=profile_reply, seen=seen, cache=cache
+        )
+    assert adjacent_calls(seen) == 1
+    assert (cache.hits, cache.misses) == (1, 1)
+
+
+def test_the_same_jd_still_gets_fresh_people():
+    """快取只省挑技能那一次,寫人物每次都要重問。
+
+    快到連人都一樣的話,同一個職缺重跑會看到同一組競爭者,
+    而「同一個職缺每次跑該產出不一樣的競爭者」是這個模組的設計要求。
+    """
+    cache = AdjacentCache()
+    seen: list = []
+    for _ in range(3):
+        cast_of(
+            adjacent=adjacent_reply(), profile=profile_reply, seen=seen, cache=cache
+        )
+    assert sum(1 for system, _u in seen if PROFILE_MARK in system) == 3
+
+
+def test_a_different_jd_is_not_a_hit():
+    cache = AdjacentCache()
+    seen: list = []
+    cast_of(adjacent=adjacent_reply(), profile=profile_reply, seen=seen, cache=cache)
+    cast_of(
+        required=jd_of("ivw-008"),
+        adjacent=adjacent_reply(),
+        profile=profile_reply,
+        seen=seen,
+        cache=cache,
+    )
+    assert adjacent_calls(seen) == 2
+
+
+def test_a_degraded_pick_does_not_stick():
+    """降級結果不進快取。
+
+    存起來的話一次失敗會變成那個職缺的永久答案,而那比當次失敗嚴重得多——
+    它會在之後每一場群面重現,而且看起來不像故障。
+    """
+    cache = AdjacentCache()
+    dead = cast_of(profile=profile_reply, cache=cache)
+    assert dead.adjacent.source == FALLBACK
+    assert len(cache) == 0
+
+    ok = cast_of(adjacent=adjacent_reply(), profile=profile_reply, cache=cache)
+    assert ok.adjacent.source == LLM
+    assert len(cache) == 1
+
+
+def test_a_cached_pick_too_small_for_the_need_is_a_miss():
+    """存的那筆不夠新設定用的時候要重問。
+
+    同質度 0.5 只要 6 個分母外技能,兩個旋鈕歸零要 18 個。
+    不對 need 的話後者會拿到一筆不夠的 deck,然後被補亂挑的——
+    而那看起來像模型挑得不好,不像快取的問題。
+    """
+    cache = AdjacentCache()
+    small = adjacent_reply(FRONTEND[:7])
+    seen: list = []
+    a = cast_of(adjacent=small, profile=profile_reply, seen=seen, cache=cache)
+    assert a.adjacent.source == LLM and a.adjacent.kept == 7
+
+    b = cast_of(
+        adjacent=small,
+        profile=profile_reply,
+        seen=seen,
+        cache=cache,
+        homogeneity=0.0,
+        pressure=0.0,
+    )
+    assert adjacent_calls(seen) == 2, "need 變成 18,7 個不夠,要重問"
+    assert b.adjacent.source == TOPPED_UP
+
+
+def test_without_a_cache_nothing_is_shared():
+    """預設不快取。測試與工具共用一份的話,同一個職缺餵不同假 LLM
+    會拿到第一次的結果,而那種錯誤表現成「測試互相影響」。"""
+    seen: list = []
+    for _ in range(2):
+        cast_of(adjacent=adjacent_reply(), profile=profile_reply, seen=seen)
+    assert adjacent_calls(seen) == 2
+
+
+def test_the_cache_is_bounded():
+    """無上限的 dict 在長命的行程裡只會長大。"""
+    cache = AdjacentCache(max_entries=2)
+    for case in ("ivw-001", "ivw-004", "ivw-008"):
+        cast_of(
+            required=jd_of(case),
+            adjacent=adjacent_reply(),
+            profile=profile_reply,
+            cache=cache,
+        )
+    assert len(cache) == 2
+
+
+# ---------------------------------------------------------------------------
+# 校系
+# ---------------------------------------------------------------------------
+
+
+def test_a_school_outside_the_list_is_refused():
+    out = profiles_of(
+        lambda u: profile_reply(u, **{SPECS[0].id: {"school": "某某大學"}})
+    )
+    assert "school" in out[0].repaired
+    assert out[0].background == SPECS[0].blurb
+    assert out[0].school == ""
+
+
+def test_a_fabricated_school_in_the_background_is_refused():
+    """這是實跑抓到的那個 bug:「國防醫學院會計系畢業」。
+
+    十個職缺的三十份背景裡「國防醫學院」出現 6 次,全部落在 peer_assertive,
+    而且掛著不存在的科系。國防醫學院是軍醫學校,沒有資訊工程也沒有會計系。
+
+    只驗 `school` 欄位擋不住——那一句是寫在背景敘述裡的。
+    """
+    out = profiles_of(
+        lambda u: profile_reply(
+            u,
+            **{
+                SPECS[0].id: {
+                    "school": "政治大學",
+                    "background": "國防醫學院會計系畢業,曾在事務所實習。",
+                }
+            },
+        )
+    )
+    assert "background_school" in out[0].repaired
+    assert "國防醫學院" not in out[0].background
+
+
+def test_an_abbreviation_instead_of_the_listed_name_is_refused():
+    """「政大資工」配 school=政治大學 不算過。
+
+    prompt 規則 3 明說要用清單裡的寫法。放寬成「簡寫也算」的話,
+    這個檢查就要去維護一張簡寫對照表,而那張表是下一個會跟清單分岔的東西。
+    """
+    out = profiles_of(
+        lambda u: profile_reply(
+            u,
+            **{
+                SPECS[0].id: {
+                    "school": "政治大學",
+                    "background": "政大資工畢業,在電商做過半年。",
+                }
+            },
+        )
+    )
+    assert "background_school" in out[0].repaired
+
+
+def test_an_internal_college_is_not_a_fake_school():
+    """「臺灣大學商學院畢業」要過。
+
+    第一版用正則掃帶「學院」後綴的校名,結果實跑輸出裡的
+    「台大商學院畢業」「台大社會科學院畢業」被判成假校名——
+    商學院是學校內部的學院,完全合法。這條把那個誤殺釘住。
+    """
+    out = profiles_of(
+        lambda u: profile_reply(
+            u,
+            **{
+                SPECS[0].id: {
+                    "school": "臺灣大學",
+                    "background": "臺灣大學商學院畢業,曾在非營利組織做行政。",
+                }
+            },
+        )
+    )
+    assert out[0].repaired == ()
+    assert out[0].school == "臺灣大學"
+
+
+def test_the_school_list_holds_only_broad_universities():
+    """清單裡每一所都以「大學」結尾。
+
+    程式驗得了校名、驗不了「這個學校有沒有這個系」。專門學院
+    (醫學院、藝術學院)掛錯科系的機率最高,所以靠清單把那個風險擋在外面。
+    加一所「○○醫學院」進來就等於把驗不到的風險放回去,這條會變紅。
+    """
+    assert all(name.endswith("大學") for name in SCHOOLS), [
+        n for n in SCHOOLS if not n.endswith("大學")
+    ]
+    assert len(set(SCHOOLS)) == len(SCHOOLS)
+
+
+def test_the_prompt_carries_the_school_list():
+    """清單要真的印在 prompt 裡,不然程式驗的是模型沒看過的規則。"""
+    text = compose_profile_prompt()
+    for name in SCHOOLS:
+        assert name in text
+
+
+# ---------------------------------------------------------------------------
+# 人稱
+# ---------------------------------------------------------------------------
+
+
+def test_a_first_person_background_is_refused():
+    """背景敘述出現「我」就退回預設。
+
+    實跑三十份裡有三份混了第一人稱(「習慣直接提出我的見解」),其餘是第三人稱。
+    這段顯示在小組成員名單上,是別人在介紹他,混用讀起來像兩個人寫的。
+    """
+    out = profiles_of(
+        lambda u: profile_reply(
+            u, **{SPECS[0].id: {"background": "政治大學畢業,習慣直接提出我的見解。"}}
+        )
+    )
+    assert "background_voice" in out[0].repaired
+    assert out[0].background == SPECS[0].blurb
+
+
+def test_a_third_person_background_passes():
+    out = profiles_of(profile_reply)
+    assert all(p.repaired == () for p in out)
+    assert all(FIRST_PERSON not in p.background for p in out)
+
+
+# ---------------------------------------------------------------------------
+# 名字
+# ---------------------------------------------------------------------------
+
+
+def test_two_peers_cannot_share_a_name():
+    """同一批不能有兩個同名的。
+
+    小組名單上出現兩個「林一哲」,使用者會以為畫面壞了。
+    跨職缺重複(實跑裡李明軒出現四次)擋不掉,那只能靠 prompt。
+    """
+    out = profiles_of(
+        lambda u: profile_reply(
+            u, **{spec.id: {"name": "林一哲"} for spec in SPECS[:PEERS]}
+        )
+    )
+    names = [p.name for p in out]
+    assert len(set(names)) == len(names)
+    assert any("name" in p.repaired for p in out[1:])

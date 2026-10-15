@@ -26,6 +26,7 @@ Kotlin 介面簽章完全不變。
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import re
 import uuid
@@ -117,7 +118,9 @@ def context_block(ctx: InterviewContext, jd: JDInput | None = None) -> str:
         f"難度:{ctx.difficulty}",
     ]
     if jd and jd.required_skills:
-        lines.append("這份職缺需要的能力(依重要性排序):" + "、".join(jd.required_skills[:15]))
+        lines.append(
+            "這份職缺需要的能力(依重要性排序):" + "、".join(jd.required_skills[:15])
+        )
     elif ctx.custom_jd:
         lines.append(f"JD 原文:{ctx.custom_jd[:600]}")
     else:
@@ -224,8 +227,12 @@ def is_near_duplicate(question: str, asked: Sequence[str]) -> str | None:
 
 
 async def _dispatch(
-    llm: LLMCall, mode: str, answer: str, counts: dict[str, int],
-    gi: int, gs: int,
+    llm: LLMCall,
+    mode: str,
+    answer: str,
+    counts: dict[str, int],
+    gi: int,
+    gs: int,
 ) -> tuple[str, str | None]:
     """先決定誰說話,再由生成那一步寫內容。
 
@@ -243,14 +250,14 @@ async def _dispatch(
     names = speaker_names(mode, gi, gs)
     if not names:
         return "", None
-    user = (
-        f"【使用者這段回答】\n{answer}\n\n"
-        "【目前為止的發言次數】\n"
-        + "\n".join(f"  {n}:{counts.get(n, 0)} 次" for n in names)
+    user = f"【使用者這段回答】\n{answer}\n\n【目前為止的發言次數】\n" + "\n".join(
+        f"  {n}:{counts.get(n, 0)} 次" for n in names
     )
     try:
         raw = await asyncio.to_thread(
-            llm, compose_dispatch_prompt(mode, group_interviewers=gi, group_size=gs), user
+            llm,
+            compose_dispatch_prompt(mode, group_interviewers=gi, group_size=gs),
+            user,
         )
     except Exception:  # noqa: BLE001
         return "", None
@@ -279,14 +286,21 @@ def salvage_question(raw: str) -> str | None:
         return None
     if not any(mark in t for mark in ("?", "?", "嗎", "呢", "什麼", "如何", "怎麼")):
         return None
-    if any(bad in t for bad in ("抱歉", "無法", "很遺憾", "作為一個", "我是 AI", "語言模型")):
+    if any(
+        bad in t
+        for bad in ("抱歉", "無法", "很遺憾", "作為一個", "我是 AI", "語言模型")
+    ):
         return None
     return t
 
 
 def required_speaker(
-    mode: str, spoken_by: Sequence[str], turn_idx: int, answer: str = "",
-    group_interviewers: int = 1, group_size: int = 4,
+    mode: str,
+    spoken_by: Sequence[str],
+    turn_idx: int,
+    answer: str = "",
+    group_interviewers: int = 1,
+    group_size: int = 4,
 ) -> str | None:
     """這一輪必須由誰開口。沒有硬性要求時回 None。
 
@@ -306,7 +320,8 @@ def required_speaker(
     # 實測群面五輪,第 3 輪強制給了主考官、第 5 輪給 AI-強勢,
     # AI-親切 因為排在宣告順序最後而永遠輪不到。
     fillable = [
-        p.display_name for p in personas_for(mode, group_interviewers, group_size)
+        p.display_name
+        for p in personas_for(mode, group_interviewers, group_size)
         if p.display_name and p.role != "moderator"
     ]
     counts = {n: list(spoken_by).count(n) for n in fillable}
@@ -353,7 +368,9 @@ async def _gen_opening(llm: LLMCall, mode: str, ctx_text: str, cfg: dict) -> dic
 
 async def _gen_interrupts(llm: LLMCall, n: int) -> list[str]:
     raw = await asyncio.to_thread(llm, compose_interrupt_prompt(n), "產生搶話台詞。")
-    return [normalize_locale(str(x).strip()) for x in parse_list(raw) if str(x).strip()][:n]
+    return [
+        normalize_locale(str(x).strip()) for x in parse_list(raw) if str(x).strip()
+    ][:n]
 
 
 DEFAULT_OPENING = "先請你用一分鐘自我介紹,重點放在跟這個職位相關的經驗。"
@@ -367,6 +384,27 @@ DEFAULT_INTERRUPTS = (
     "(舉手)我插一個快的,你慢慢想,不衝突。",
     "我補一句,這件事的順序我覺得反了。",
 )
+
+
+@functools.lru_cache(maxsize=1)
+def _adjacent_cache():
+    """相鄰技能挑選的行程內快取,整個服務共用一份。
+
+    【為什麼需要】
+    實跑量到單次呼叫中位 3.91s。競爭者那段是兩次相依呼叫,所以群面開場
+    從 3.9s 變成 7.8s。而挑技能的輸入只有職缺、溫度 0,同一個職缺答案本來就一樣。
+    命中之後只剩寫人物那一次,跟開場、搶話並行,等待回到 3.9s。
+
+    用 `lru_cache(1)` 當單例而不是模組層變數:模組層變數在 import 時就建好,
+    而這個東西只有群面會用到。差別不大,但延後建立讓 import 這個模組的成本
+    不含它——`tools/` 底下好幾支只為了一兩個常數 import 這裡。
+
+    快取物件本身不是單例設計(見 `AdjacentCache` 的說明),是這個呼叫端
+    選擇共用一份。測試與工具不傳就沒有快取。
+    """
+    from app.pipeline.peer_profile import AdjacentCache
+
+    return AdjacentCache()
 
 
 async def start_interview(
@@ -422,6 +460,7 @@ async def start_interview(
                 group_size=context.group_size,
                 group_interviewers=context.group_interviewers,
                 seed=zlib.crc32(sid.encode("utf-8")),
+                cache=_adjacent_cache(),
             )
         )
 
@@ -434,10 +473,16 @@ async def start_interview(
             results[name] = {"opening": {}, "peers": None}.get(name, [])
 
     op = results.get("opening") or {}
-    question = normalize_locale(str(op.get("openingQuestion", "")).strip()) or DEFAULT_OPENING
+    question = (
+        normalize_locale(str(op.get("openingQuestion", "")).strip()) or DEFAULT_OPENING
+    )
     if not op.get("openingQuestion"):
         notices.append("開場:未取得主問題,已使用預設")
-    probes = [normalize_locale(str(x).strip()) for x in (op.get("fallbackProbes") or []) if str(x).strip()]
+    probes = [
+        normalize_locale(str(x).strip())
+        for x in (op.get("fallbackProbes") or [])
+        if str(x).strip()
+    ]
     if not probes:
         probes = list(DEFAULT_PROBES)
         notices.append("開場:未取得備援追問,已使用預設")
@@ -453,7 +498,9 @@ async def start_interview(
         blurbs = {p.persona_id: p.background for p in cast.profiles}
         notices += [f"競爭者:{n}" for n in cast.notices]
 
-    personas = _persona_dtos(mode, context.group_interviewers, context.group_size, blurbs)
+    personas = _persona_dtos(
+        mode, context.group_interviewers, context.group_size, blurbs
+    )
     opening_speaker = personas[0].display_name if personas else ""
 
     return StartInterviewResponse(
@@ -461,7 +508,8 @@ async def start_interview(
         mode=mode,
         opening_question=question,
         opening_speaker=opening_speaker,
-        opening_topic=normalize_locale(str(op.get("openingTopic", "")).strip()) or "自我介紹",
+        opening_topic=normalize_locale(str(op.get("openingTopic", "")).strip())
+        or "自我介紹",
         personas=personas,
         interrupt_lines=interrupts,
         interrupt_cap=len(interrupts),
@@ -475,7 +523,9 @@ async def start_interview(
 # ---------------------------------------------------------------------------
 
 
-def _fallback_turn(mode: str, fallback: Sequence[str], follow_up_idx: int) -> TurnResponse:
+def _fallback_turn(
+    mode: str, fallback: Sequence[str], follow_up_idx: int
+) -> TurnResponse:
     """LLM 不可用時的降級。用前端帶來的備援池,不要臨時編。"""
     pool = list(fallback) or list(DEFAULT_PROBES)
     names = speaker_names(mode)
@@ -586,8 +636,11 @@ async def next_turn(
         raw = await asyncio.to_thread(
             llm,
             compose_turn_prompt(
-                mode, list(asked_questions),
-                group_interviewers=gi, group_size=gs, focus_speaker=focus,
+                mode,
+                list(asked_questions),
+                group_interviewers=gi,
+                group_size=gs,
+                focus_speaker=focus,
                 truncated=ended_by == "timeout",
                 engine=context.transcription_engine if context else "api",
                 difficulty=context.difficulty if context else "中等",
@@ -619,7 +672,9 @@ async def next_turn(
     notices: list[str] = [x for x in (salvage_note, dispatch_note, decision_note) if x]
     # 說話者由派發那一步決定,不採用生成端回的值——
     # 生成端的 prompt 已經寫死「speaker 一律填 X」,回別的就是它沒照做。
-    speaker, problem = repair_speaker(focus or str(data.get("speaker", "")), mode, gi, gs)
+    speaker, problem = repair_speaker(
+        focus or str(data.get("speaker", "")), mode, gi, gs
+    )
     if problem:
         notices.append(f"本輪:{problem}")
     if forced and speaker != forced:
@@ -677,7 +732,9 @@ async def next_turn(
                 notices.append(f"本輪:新主問題與先前重複,改用備援題。原本:{nxt[:30]}")
                 nxt = unused[0]
             else:
-                notices.append(f"本輪:新主問題與先前重複,但備援池已用盡。重複的是:{dup[:30]}")
+                notices.append(
+                    f"本輪:新主問題與先前重複,但備援池已用盡。重複的是:{dup[:30]}"
+                )
 
     # topic 不可以留空。前端拿它累積 asked_topics,空的那一筆會讓序列斷掉,
     # 而斷掉的地方就是之後重複提問的破口。
