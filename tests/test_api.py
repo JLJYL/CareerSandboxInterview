@@ -966,3 +966,171 @@ def test_empty_segments_falls_back_to_content() -> None:
         ]
     )
     assert text == _LONG
+
+
+# ---------------------------------------------------------------------------
+# 職缺需求回拋與追問深度
+# ---------------------------------------------------------------------------
+
+
+def _jd_calls(seen: list) -> int:
+    return sum(1 for system, _u in seen if "抽出這份工作實際需要的能力" in system)
+
+
+def test_the_opening_echoes_the_extracted_jd(client) -> None:
+    """抽好的職缺需求要回傳,不然那一次呼叫等於白跑。
+
+    開場抽一次,前端每輪帶回來,`InterviewerSpec.cares_about` 才不是空的。
+    """
+    d = client.post("/interviews", json={"mode": "single", "context": JD_CTX}).json()
+    assert d["jdSkills"] == ["SQL", "報表自動化"]
+
+
+def test_an_empty_jd_echoes_an_empty_list(client) -> None:
+    """沒填 JD 回空陣列,不是 null。前端的 list 宣告非空。"""
+    d = client.post(
+        "/interviews", json={"mode": "single", "context": {"customRole": "x"}}
+    ).json()
+    assert d["jdSkills"] == []
+
+
+def test_the_turn_prefers_the_skills_the_client_sent(client, monkeypatch) -> None:
+    """前端帶了 jdSkills 就不該再抽一次。
+
+    它可能是型錄的結構化欄位,比從散文抽的準;而且現抽是一輪一次呼叫。
+    """
+    import app.api.routes as routes
+
+    seen: list = []
+    routes.clear_jd_cache()
+    monkeypatch.setattr(
+        routes, "get_llm", lambda: lambda s, u: (seen.append((s, u)), fake_llm(s, u))[1]
+    )
+    client.post(
+        "/interviews/itv_x/turns",
+        json={
+            "answer": "我用 SQL 重寫查詢",
+            "followUpIdx": 0,
+            "question": "請自我介紹",
+            "jdSkills": ["Python"],
+            "context": JD_CTX,
+        },
+    )
+    assert _jd_calls(seen) == 0, "帶了就不該再抽"
+
+
+def test_the_jd_is_extracted_once_per_text(client, monkeypatch) -> None:
+    """沒帶 jdSkills 時退回現抽,但同一份 JD 文字只抽一次。
+
+    不快取的話五輪就是五次呼叫,而五次的答案一模一樣——抽取是 temp 0。
+    """
+    import app.api.routes as routes
+
+    seen: list = []
+    routes.clear_jd_cache()
+    monkeypatch.setattr(
+        routes, "get_llm", lambda: lambda s, u: (seen.append((s, u)), fake_llm(s, u))[1]
+    )
+    body = {
+        "answer": "我用 SQL 重寫查詢",
+        "followUpIdx": 0,
+        "question": "請自我介紹",
+        "context": JD_CTX,
+    }
+    for _ in range(3):
+        client.post("/interviews/itv_x/turns", json=body)
+    assert _jd_calls(seen) == 1, f"三輪只該抽一次,實際 {_jd_calls(seen)}"
+
+
+def test_a_failed_extraction_is_not_cached(client, monkeypatch) -> None:
+    """抽取失敗不進快取。
+
+    存起來的話一次逾時會變成那份 JD 的永久答案,而那不像故障——
+    使用者重開一場還是沒有職缺需求。
+
+    【這條第一次就抓到東西】
+    `extract_jd` 把呼叫例外吃在自己裡面,回一個空的 JDInput 加一條 notice,
+    所以 `_resolve_jd` 的 try/except 根本不會觸發——失敗是以「成功但空的」
+    形式回來的。第一版照單全收,失敗就這樣被存進去了。
+    """
+    import app.api.routes as routes
+
+    routes.clear_jd_cache()
+    monkeypatch.setattr(routes, "get_llm", lambda: boom)
+    client.post(
+        "/interviews/itv_x/turns",
+        json={
+            "answer": "我用 SQL 重寫查詢",
+            "followUpIdx": 0,
+            "context": JD_CTX,
+        },
+    )
+    assert len(routes._JD_CACHE) == 0
+
+
+JD_TEXT = (
+    "我們正在尋找一位資料分析實習生,需具備 SQL 撰寫能力,"
+    "能獨立產出每週營運報表並與產品團隊溝通需求。"
+)
+JD_CTX = dict(CTX, customJd=JD_TEXT)
+HARD = dict(JD_CTX, difficulty="困難")
+
+
+def _turn(client, **over):
+    body = {
+        # ★ 要有句號。沒有標點的話 `read_facts` 斷不出句子,會退回單題路徑,
+        #   而假 LLM 的單題分支對每一項都答 present——四段齊全,困難也會放行,
+        #   這幾條測試就測不到追問。
+        "answer": "我用 SQL 重寫查詢。查詢時間從 30 秒降到 2 秒。取捨是放棄即時性。",
+        "followUpIdx": 0,
+        "question": "請講一個你解決過的問題",
+        "context": HARD,
+    }
+    body.update(over)
+    return client.post("/interviews/itv_x/turns", json=body).json()
+
+
+def test_the_probe_state_comes_back_for_the_client_to_hold(client) -> None:
+    """追問深度的狀態由前端保管,後端只算下一步該是多少。
+
+    困難要求四段齊全,而假 LLM 只指派了 S/A/R,所以這一輪會追問缺任務。
+    """
+    d = _turn(client)
+    assert d["isFollowUp"] is True
+    assert d["probeGap"] == "缺任務"
+    assert d["probeDepth"] == 1
+
+
+def test_the_count_climbs_while_the_gap_is_the_same(client) -> None:
+    d = _turn(client, probeGap="缺任務", probeDepth=1)
+    assert d["probeGap"] == "缺任務"
+    assert d["probeDepth"] == 2
+
+
+def test_reaching_the_cap_forces_a_new_question(client) -> None:
+    """困難的 max_depth 是 3。追到上限就換題,不管他補完整沒有。
+
+    這條之前恆不觸發——`depth` 在 routes 寫死 0,所以困難難度會咬著
+    同一個缺口一直追下去。接上 probeDepth 之後才會動。
+    """
+    d = _turn(client, probeGap="缺任務", probeDepth=3)
+    assert d["isFollowUp"] is False
+    assert d["probeDepth"] == 0, "換題之後計數歸零,不然之後每一輪都被強制換題"
+
+
+def test_a_different_gap_restarts_the_count(client) -> None:
+    """上限是「同一個缺口」的上限,換了缺口要重新算。"""
+    d = _turn(client, probeGap="缺結果", probeDepth=2)
+    assert d["probeGap"] == "缺任務"
+    assert d["probeDepth"] == 1
+
+
+def test_being_cut_off_does_not_count_toward_the_cap(client) -> None:
+    """被切斷那條路不帶 gap,計數歸零。
+
+    `forced_decision` 把「被切斷」排在深度檢查前面就是這個意思:
+    被打斷不是他的問題,不該因為追過幾次就不讓他講完。
+    """
+    d = _turn(client, probeGap="缺任務", probeDepth=2, endedBy="timeout")
+    assert d["probeDepth"] == 0
+    assert d["probeGap"] == ""
