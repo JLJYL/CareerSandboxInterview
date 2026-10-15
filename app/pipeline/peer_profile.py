@@ -50,6 +50,8 @@ from app.prompts.interview_personas import personas_for
 from app.prompts.peer_profile import (
     BACKGROUND_MAX_CHARS,
     SCHOOLS,
+    SURNAMES,
+    assign_genders,
     NAME_MAX_CHARS,
     STYLE_MAX_CHARS,
     adjacent_user_message,
@@ -114,6 +116,7 @@ class PeerProfile:
     skills: tuple[str, ...]
     source: str
     school: str = ""
+    gender: str = ""
     repaired: tuple[str, ...] = ()
     overclaims: tuple[str, ...] = ()
 
@@ -303,6 +306,35 @@ FIRST_PERSON = "我"
 """
 
 
+def name_problem(name: str, gender: str, want_gender: str, taken: set[str]) -> str:
+    """名字有沒有問題。回問題名稱,沒問題回空字串。
+
+    三個檢查:
+
+        姓氏在 `SURNAMES` 裡
+        姓氏在這一批還沒被用過
+        模型回的 `gender` 等於程式指派的那個
+
+    【為什麼管到姓氏】
+    實跑十場,peer_assertive 十場全部姓陳、peer_logic 七場姓李,三十個名字
+    只有十八個不重複。模型對每個 persona 有固定聯想,而 prompt 搖不動它。
+    封閉集合讓「三個人不能同姓」變成查得出來的規則。
+
+    【性別是程式指派的】
+    peer_friendly 的名字實跑 10/10 是女性,而那個 persona 是「把分歧收起來」。
+    這裡只驗模型有沒有照指派回答,驗不到名字讀起來像不像——那要姓名語料。
+    """
+    if not name:
+        return "name"
+    if name[0] not in set(SURNAMES):
+        return "name_surname"
+    if name[0] in taken:
+        return "name_surname_dup"
+    if want_gender and gender != want_gender:
+        return "name_gender"
+    return ""
+
+
 def school_problem(school: str, background: str) -> str:
     """學校有沒有問題。回問題名稱,沒問題回空字串。
 
@@ -375,6 +407,7 @@ async def read_profiles(
     plan: PeerPlan,
     pool: Sequence[Skill],
     llm: LLMCall,
+    seed: int = 0,
     group_size: int = 4,
     group_interviewers: int = 1,
     vocab_path: Path | str = VOCAB_PATH,
@@ -392,8 +425,9 @@ async def read_profiles(
         if p.role == "peer"
     ]
     specs = specs[: len(plan.peers)]
+    want = dict(zip((s.id for s in specs), assign_genders(len(specs), seed)))
     rows = [
-        (spec.id, spec.stance, names_for(skills, pool))
+        (spec.id, want[spec.id], spec.stance, names_for(skills, pool))
         for spec, skills in zip(specs, plan.peers)
     ]
 
@@ -413,7 +447,9 @@ async def read_profiles(
             if pid and pid not in by_id:
                 by_id[pid] = item
 
-    taken = {spec.display_name for spec in specs}
+    shown = {spec.display_name for spec in specs}
+    surnames: set[str] = set()
+    used_schools: set[str] = set()
     out: list[PeerProfile] = []
     for spec, skills in zip(specs, plan.peers):
         entry = by_id.get(spec.id)
@@ -432,14 +468,19 @@ async def read_profiles(
 
         repaired: list[str] = []
         name = _clean(entry.get("name"), NAME_MAX_CHARS)
-        if not name or name in taken:
+        gender = str(entry.get("gender") or "").strip()
+        bad_name = name_problem(name, gender, want.get(spec.id, ""), surnames)
+        if name in shown:
+            bad_name = bad_name or "name"
+        if bad_name:
             name = spec.display_name
-            repaired.append("name")
+            gender = ""
+            repaired.append(bad_name)
         else:
-            # 同一批不能有兩個同名。實跑看過跨職缺重複(李明軒出現四次),
-            # 那個只能靠 prompt;同一批重複是程式擋得掉的,而它更嚴重——
-            # 小組名單上出現兩個同名的人,使用者會以為畫面壞了。
-            taken.add(name)
+            # 姓氏與全名都要記下來。同一批出現兩個「陳建宇」或兩個姓陳的人,
+            # 小組名單讀起來像畫面壞了,而那是程式擋得掉的。
+            surnames.add(name[0])
+            shown.add(name)
 
         background = _clean(entry.get("background"), BACKGROUND_MAX_CHARS)
         if background and FIRST_PERSON in background:
@@ -448,10 +489,16 @@ async def read_profiles(
         school = str(entry.get("school") or "").strip()
         if background:
             bad = school_problem(school, background)
+            if not bad and school in used_schools:
+                # 三個人同校讀起來像同一間學校派來的。學校是封閉集合,
+                # 所以這條跟姓氏一樣驗得掉。
+                bad = "school_dup"
             if bad:
                 background = ""
                 school = ""
                 repaired.append(bad)
+            else:
+                used_schools.add(school)
         if not background:
             background = spec.blurb
             school = ""
@@ -472,6 +519,7 @@ async def read_profiles(
                 skills=tuple(skills),
                 source=PROFILE_LLM,
                 school=school,
+                gender=gender,
                 repaired=tuple(repaired),
                 overclaims=find_overclaims(
                     background, skills, plan.denominator, vocab_path=vocab_path
@@ -564,6 +612,7 @@ async def build_peers(
         plan=plan,
         pool=pool,
         llm=write_llm or llm,
+        seed=seed,
         group_size=group_size,
         group_interviewers=group_interviewers,
         vocab_path=vocab_path,

@@ -44,6 +44,8 @@ from app.prompts.peer_profile import (
     ADJACENT_MARK,
     ADJACENT_TARGET,
     SCHOOLS,
+    SURNAMES,
+    assign_genders,
     NAME_MAX_CHARS,
     PROFILE_MARK,
     compose_adjacent_prompt,
@@ -88,23 +90,39 @@ def adjacent_reply(names=FRONTEND) -> str:
     return json.dumps([BY_NAME[n] for n in names if n in BY_NAME])
 
 
+SCHOOL_BY_SLOT = ("政治大學", "中央大學", "成功大學")
+GIVEN = {"男": "哲宇", "女": "怡安"}
+
+
 def profile_reply(user: str, **over) -> str:
-    ids = [
-        line.split("應徵者 ")[1].rstrip("】")
-        for line in user.splitlines()
-        if "【應徵者" in line
-    ]
+    """照 prompt 要求完美回答的假模型。
+
+    **性別從 user 訊息裡讀**,不是寫死——程式按 seed 輪替指派,寫死的話
+    測試會依 seed 隨機紅掉,而那種紅看起來像功能壞了。
+    真模型也是從那一行讀的,所以假的照做才驗得到同一條路。
+    """
     rows = []
-    for i, pid in enumerate(ids, 1):
-        row = {
-            "id": pid,
-            "name": f"林{'一二三四'[i - 1]}哲",
-            "school": "政治大學",
-            "background": "政治大學資訊管理畢業,在電商做過半年的前端開發。",
-            "style": "講話快,先講結論",
-        }
-        row.update(over.get(pid, {}))
-        rows.append(row)
+    slot = 0
+    pid = gender = ""
+    for line in user.splitlines():
+        if "【應徵者" in line:
+            pid = line.split("應徵者 ")[1].rstrip("】")
+        elif "性別(已指定" in line and pid:
+            gender = line.split(":")[-1].strip()
+            school = SCHOOL_BY_SLOT[slot % len(SCHOOL_BY_SLOT)]
+            surname = "林李王"[slot % 3]
+            row = {
+                "id": pid,
+                "name": f"{surname}{GIVEN[gender]}",
+                "gender": gender,
+                "school": school,
+                "background": f"{school}資訊管理畢業,在電商做過半年的前端開發。",
+                "style": "講話快,先講結論",
+            }
+            row.update(over.get(pid, {}))
+            rows.append(row)
+            slot += 1
+            pid = gender = ""
     return json.dumps(rows, ensure_ascii=False)
 
 
@@ -338,13 +356,13 @@ def test_profiles_are_matched_by_id_not_by_order():
         rows = json.loads(profile_reply(user))
         rows.reverse()
         for row in rows:
-            row["background"] = f"政治大學畢業,{row['id']} 的背景"
+            row["background"] = f"{row['school']}畢業,{row['id']} 的背景"
         return json.dumps(rows, ensure_ascii=False)
 
     out = profiles_of(reply)
     assert [p.persona_id for p in out] == [s.id for s in SPECS[:PEERS]]
     for p in out:
-        assert p.background == f"政治大學畢業,{p.persona_id} 的背景"
+        assert p.background.endswith(f"畢業,{p.persona_id} 的背景")
 
 
 def test_the_order_is_the_roster_order():
@@ -395,7 +413,7 @@ def test_a_name_colliding_with_a_display_name_is_refused():
     out = profiles_of(
         lambda u: profile_reply(u, **{SPECS[0].id: {"name": SPECS[1].display_name}})
     )
-    assert "name" in out[0].repaired
+    assert out[0].repaired and out[0].repaired[0].startswith("name")
 
 
 def test_a_blank_style_is_recorded_but_not_substituted():
@@ -829,4 +847,125 @@ def test_two_peers_cannot_share_a_name():
     )
     names = [p.name for p in out]
     assert len(set(names)) == len(names)
-    assert any("name" in p.repaired for p in out[1:])
+    assert any(r.startswith("name") for p in out[1:] for r in p.repaired)
+
+
+# ---------------------------------------------------------------------------
+# 姓氏與性別
+# ---------------------------------------------------------------------------
+
+
+def test_a_surname_outside_the_list_is_refused():
+    """姓氏是封閉集合。清單讓「三個人不能同姓」變成查得出來的規則。"""
+    out = profiles_of(lambda u: profile_reply(u, **{SPECS[0].id: {"name": "司馬懿"}}))
+    assert "name_surname" in out[0].repaired
+    assert out[0].name == SPECS[0].display_name
+
+
+def test_two_peers_cannot_share_a_surname():
+    """實跑十場 peer_assertive 全部姓陳、peer_logic 七場姓李。
+
+    同一批同姓是程式擋得掉的那一半;跨場次重複只能靠 prompt。
+    """
+    out = profiles_of(
+        lambda u: profile_reply(
+            u, **{spec.id: {"name": f"陳{i}哲"} for i, spec in enumerate(SPECS[:PEERS])}
+        )
+    )
+    kept = [p for p in out if not p.repaired]
+    assert len(kept) == 1, "只有第一個姓陳的留下"
+    assert all("name_surname_dup" in p.repaired for p in out if p.repaired)
+
+
+def test_the_gender_is_assigned_by_the_program_not_chosen():
+    """性別由程式按 seed 指派,模型回錯就退回預設。
+
+    實跑 peer_friendly 的名字 10/10 是女性,而那個 persona 是「把分歧收起來」。
+    叫模型注意多樣性沒有用——它對 persona 的聯想就是這麼來的。
+    輪替指派讓相關性在構造上消失,不是靠請求。
+    """
+    wrong = {"男": "女", "女": "男"}
+    out = profiles_of(
+        lambda u: profile_reply(
+            u,
+            **{
+                SPECS[0].id: {
+                    "gender": wrong[assign_genders(PEERS, 0)[0]],
+                }
+            },
+        )
+    )
+    assert "name_gender" in out[0].repaired
+
+
+def test_the_assignment_rotates_across_seeds():
+    """同一個 persona 在不同 seed 拿到不同性別。
+
+    不輪替的話「親切的那個總是女生」只是換一個地方寫死。
+    """
+    first = [assign_genders(PEERS, s)[0] for s in range(6)]
+    assert len(set(first)) == 2, f"第一位的性別應該會變,拿到 {first}"
+    for i in range(PEERS):
+        assert len({assign_genders(PEERS, s)[i] for s in range(6)}) == 2
+
+
+def test_the_assigned_gender_reaches_the_model():
+    """指派值要真的印在 user 訊息裡,不然程式驗的是模型沒看過的規則。"""
+    seen: list = []
+    cast_of(adjacent=adjacent_reply(), profile=profile_reply, seen=seen, seed=3)
+    user = next(u for s, u in seen if PROFILE_MARK in s)
+    for g in assign_genders(PEERS, 3):
+        assert f"性別(已指定,名字要符合):{g}" in user
+
+
+def test_the_prompt_carries_the_surname_list():
+    text = compose_profile_prompt()
+    for name in SURNAMES:
+        assert name in text
+
+
+def test_the_surname_list_is_all_single_chinese_characters():
+    """姓氏檢查看的是 `name[0]`,所以清單裡只能是單字姓。
+
+    複姓(司馬、歐陽)進來的話 `name[0]` 永遠對不上,那一筆會被永遠判錯。
+    這條也順便擋掉貼錯的雜訊——第一版有一筆被貼成了西里爾字母。
+    """
+    for name in SURNAMES:
+        assert len(name) == 1, f"{name!r} 不是單字姓"
+        assert "一" <= name <= "鿿", f"{name!r} 不是中文字"
+    assert len(set(SURNAMES)) == len(SURNAMES)
+
+
+# ---------------------------------------------------------------------------
+# 同校
+# ---------------------------------------------------------------------------
+
+
+def test_two_peers_cannot_share_a_school():
+    """三個人同校讀起來像同一間學校派來的。
+
+    實跑十場 peer_assertive 全部是成功大學——封閉清單解決了「假校名」,
+    沒解決「每次都一樣」,這條補的是後者在同一批裡的那一半。
+    """
+    out = profiles_of(
+        lambda u: profile_reply(
+            u,
+            **{
+                spec.id: {
+                    "school": "臺灣大學",
+                    "background": "臺灣大學資訊管理畢業,做過一年前端。",
+                }
+                for spec in SPECS[:PEERS]
+            },
+        )
+    )
+    schools = [p.school for p in out if p.school]
+    assert len(set(schools)) == len(schools)
+    assert any("school_dup" in p.repaired for p in out[1:])
+
+
+def test_distinct_schools_all_pass():
+    out = profiles_of(profile_reply)
+    assert all(p.repaired == () for p in out)
+    assert len({p.school for p in out}) == PEERS
+    assert len({p.name[0] for p in out}) == PEERS

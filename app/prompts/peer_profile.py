@@ -203,6 +203,81 @@ def render_schools() -> str:
     return "、".join(SCHOOLS)
 
 
+SURNAMES: tuple[str, ...] = (
+    "陳",
+    "林",
+    "黃",
+    "張",
+    "李",
+    "王",
+    "吳",
+    "劉",
+    "蔡",
+    "楊",
+    "許",
+    "鄭",
+    "謝",
+    "郭",
+    "洪",
+    "曾",
+    "邱",
+    "廖",
+    "賴",
+    "徐",
+    "周",
+    "葉",
+    "蘇",
+    "莊",
+    "呂",
+    "江",
+    "何",
+    "蕭",
+    "羅",
+    "高",
+)
+"""競爭者可以用的姓氏。封閉集合,程式會驗,而且同一批三個人不能同姓。
+
+【為什麼要管姓氏】
+十個職缺的實跑裡,`peer_assertive` **十場全部姓陳**、`peer_logic` 十場有七場姓李,
+三十個名字只有十八個不重複(陳建宇四次、李明哲四次、王雅婷三次)。
+模型對每個 persona 有固定的姓名聯想,temp 0.4 搖不動它。
+
+清單本身解決不了重複——它解決的是「驗得掉」:有了封閉集合,
+「三個人不能同姓」才變成一條程式查得出來的規則。
+"""
+
+GENDERS: tuple[str, ...] = ("男", "女")
+"""名字的性別。**由程式指派,不讓模型挑。**
+
+【為什麼不能讓模型挑】
+實跑十場,`peer_friendly` 的名字 10/10 是女性(雅婷、佳慧、子萱、雅雯),
+而那個 persona 的設定是「把分歧收起來、提出整合方案」。
+十場全部把這個角色指派給女性,是這個產品會被問到的那種模式。
+
+叫模型「注意性別多樣性」沒有用——它對 persona 的聯想就是這麼來的,
+而那條規則擋不住一個它認為很自然的選擇。改成程式按 seed 輪替指派:
+同一個 persona 在不同場次拿到不同性別,相關性由構造消除,不是靠請求。
+
+【驗得到什麼、驗不到什麼】
+程式驗模型回的 `gender` 欄位等於指派值。驗不到的是「這個名字讀起來
+像不像那個性別」——那要姓名語料,而我們沒有。所以這條擋得住
+「模型無視指派」,擋不住「模型指派對了但名字取得不像」。
+"""
+
+
+def assign_genders(n: int, seed: int) -> tuple[str, ...]:
+    """按 seed 輪替指派性別。
+
+    三個人兩種性別,每一場必然是 2:1。輪替讓同一個 persona 跨場次平均,
+    所以「親切的那個總是女生」這件事在構造上就不成立。
+    """
+    return tuple(GENDERS[(seed + i) % len(GENDERS)] for i in range(n))
+
+
+def render_surnames() -> str:
+    return "、".join(SURNAMES)
+
+
 PROFILE_TASK = f"""你在幫一個模擬面試系統寫「同場競爭者」的人物設定。
 
 {PROFILE_MARK}。
@@ -219,8 +294,10 @@ PROFILE_RULES = f"""【規則】
 3. **學校只能從下面那份清單裡選**,填進 `school` 欄位,一字不差。
    背景敘述裡提到校名的時候也要用清單裡的寫法,不要自己簡寫或換別的學校。
    科系自己配,但要配得上那所學校真的會有的科系。
-4. 名字用台灣常見的中文姓名,{NAME_MAX_CHARS} 個字以內。
-   不要把職稱寫進名字裡。同一批的三個人名字不要重複。
+4. 名字用台灣常見的中文姓名,{NAME_MAX_CHARS} 個字以內,不要把職稱寫進去。
+   **姓氏只能從下面那份清單裡選,而且同一批三個人不能同姓。**
+   每一位的性別已經在輸入裡指定,名字要符合那個性別,並填進 `gender` 欄位。
+4b. **三個人的學校也不能相同。**
 5. 背景敘述 {BACKGROUND_MAX_CHARS} 個字以內,一段話,**用第三人稱**。
    不要出現「我」——這段話會顯示在小組成員名單上,是別人在介紹他,
    不是他自己說話。要有科系或經歷的具體名目,不要「具備豐富經驗」這種空話。
@@ -232,7 +309,11 @@ PROFILE_RULES = f"""【規則】
 
 【可選學校】
 
-{render_schools()}"""
+{render_schools()}
+
+【可選姓氏】
+
+{render_surnames()}"""
 
 
 PROFILE_OUTPUT = """【輸出格式】
@@ -240,7 +321,7 @@ PROFILE_OUTPUT = """【輸出格式】
 只回一個 JSON 陣列,每個元素對應一位應徵者,不要任何其他文字:
 
     [
-      {"id": "peer_logic", "name": "林于哲", "school": "清華大學",
+      {"id": "peer_logic", "name": "林于哲", "gender": "男", "school": "清華大學",
        "background": "清華大學工業工程畢業,在電商做過半年成效分析,習慣先問母數再談結論。",
        "style": "愛用數字,聽到結論會先問怎麼算出來的"}
     ]
@@ -255,18 +336,22 @@ def compose_profile_prompt() -> str:
 
 
 def profile_user_message(
-    title: str, rows: Sequence[tuple[str, str, Sequence[str]]]
+    title: str, rows: Sequence[tuple[str, str, str, Sequence[str]]]
 ) -> str:
-    """每位競爭者的人格與技能擺成 user 訊息。
+    """每位競爭者的人格、性別與技能擺成 user 訊息。
 
-    rows 是 (persona_id, stance, 技能名稱)。stance 直接用 `PersonaSpec.stance`,
-    不另寫一份——人格的所有者是 `interview_personas`,抄一份過來的話
-    調 persona 會調不到這裡。
+    rows 是 (persona_id, 指派的性別, stance, 技能名稱)。stance 直接用
+    `PersonaSpec.stance`,不另寫一份——人格的所有者是 `interview_personas`,
+    抄一份過來的話調 persona 會調不到這裡。
+
+    性別是程式指派的,印在人格指示**前面**:它是一個設定不是一個偏好,
+    擺在長段落後面模型會略過。
     """
     body = [f"【職缺】{title or '(未提供職稱)'}", ""]
-    for pid, stance, skills in rows:
+    for pid, gender, stance, skills in rows:
         body += [
             f"【應徵者 {pid}】",
+            f"  性別(已指定,名字要符合):{gender}",
             f"  人格指示:{stance}",
             f"  技能(給定,不要增刪):{'、'.join(skills)}",
             "",

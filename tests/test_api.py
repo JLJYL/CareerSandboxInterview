@@ -88,24 +88,28 @@ FACT_PRESENT = {"present": True, "quote": "我用 SQL 重寫查詢"}
 #: 2c 的事實分支、情緒批次,症狀每次都是「測試綠而功能沒在跑」。
 #: 用 MARK 常數分派,prompt 改字不會讓這裡靜默失效。
 def _peer_profiles(user: str) -> str:
-    ids = [
-        line.split("應徵者 ")[1].rstrip("】")
-        for line in user.splitlines()
-        if "【應徵者" in line
-    ]
-    return json.dumps(
-        [
-            {
-                "id": pid,
-                "name": f"競爭者{'一二三四'[i]}",
-                "school": "政治大學",
-                "background": f"{pid} 的生成背景:政治大學資管畢業,做過一年前端。",
-                "style": "先講結論",
-            }
-            for i, pid in enumerate(ids)
-        ],
-        ensure_ascii=False,
-    )
+    """性別從 user 訊息讀、姓氏與學校逐位不同——照 prompt 的規則回答。"""
+    schools = ("政治大學", "中央大學", "成功大學", "臺灣大學")
+    rows, slot, pid, gender = [], 0, "", ""
+    for line in user.splitlines():
+        if "【應徵者" in line:
+            pid = line.split("應徵者 ")[1].rstrip("】")
+        elif "性別(已指定" in line and pid:
+            gender = line.split(":")[-1].strip()
+            school = schools[slot % len(schools)]
+            rows.append(
+                {
+                    "id": pid,
+                    "name": f"{'林李王吳'[slot % 4]}{'哲宇' if gender == '男' else '怡安'}",
+                    "gender": gender,
+                    "school": school,
+                    "background": f"{pid} 的生成背景:{school}資管畢業,做過一年前端。",
+                    "style": "先講結論",
+                }
+            )
+            slot += 1
+            pid = gender = ""
+    return json.dumps(rows, ensure_ascii=False)
 
 
 def fake_llm(system: str, user: str) -> str:
@@ -240,7 +244,8 @@ def test_the_group_opening_really_runs_the_peer_generation(client) -> None:
     peers = [p for p in d["personas"] if p["role"] == "peer"]
     assert len(peers) == 3, "group_size 預設 4 含使用者,所以三位 AI 競爭者"
     for p in peers:
-        assert p["blurb"] == f"{p['id']} 的生成背景:政治大學資管畢業,做過一年前端。"
+        assert p["blurb"].startswith(f"{p['id']} 的生成背景:")
+        assert "資管畢業,做過一年前端。" in p["blurb"]
 
     notices = " ".join(d["notices"])
     assert "退回固定人設" not in notices
