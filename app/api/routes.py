@@ -27,6 +27,7 @@ Interview_Sessions / Interview_Turns。所以 session_id 目前只是識別字�
 from __future__ import annotations
 
 import logging
+from collections import OrderedDict
 
 from collections.abc import Sequence
 
@@ -61,7 +62,24 @@ from app.schemas.interview import (
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/interviews", tags=["interview"])
 
-SESSION_ID = Path(..., min_length=1, max_length=64, description="開場時回傳的 sessionId")
+SESSION_ID = Path(
+    ..., min_length=1, max_length=64, description="開場時回傳的 sessionId"
+)
+
+_JD_CACHE: "OrderedDict[str, tuple[JDInput | None, list[str]]]" = OrderedDict()
+_JD_CACHE_MAX = 64
+"""JD 抽取的行程內快取,鍵是使用者貼的原文。
+
+【為什麼需要】
+每輪接話要職缺需求才算得出「這個缺口值不值得追」。前端有帶 jdSkills 的時候
+不用抽;沒帶的時候只能從 `context.custom_jd` 現抽,而那是**每一輪一次呼叫**。
+同一場面試五輪就是五次,而五次的答案一模一樣——抽取用的是 temp 0 的模型。
+
+只存**抽到東西**的結果。`extract_jd` 把呼叫例外吃在裡面、回一個空的 JDInput,
+所以「失敗」跟「這份 JD 真的沒有可抽的需求」長得一樣——照單全收的話
+一次逾時會變成那份 JD 的永久答案。空結果重算不花錢:內容過短那條路
+在打 API 之前就短路了。上限 64 筆:這是行程內的東西,不設限只會長大。
+"""
 
 
 def _resolve_jd(custom_jd: str, llm) -> tuple[JDInput | None, list[str]]:
@@ -76,14 +94,39 @@ def _resolve_jd(custom_jd: str, llm) -> tuple[JDInput | None, list[str]]:
     JD 為空時回 None——不要硬跑抽取器,那只會產生幻覺。
     抽取失敗也回 None,下游會退回只用職稱與產業出題。
     """
-    if not custom_jd.strip():
+    text = custom_jd.strip()
+    if not text:
         return None, []
+    hit = _JD_CACHE.get(text)
+    if hit is not None:
+        return hit
     try:
         result = extract_jd(custom_jd, llm)
     except Exception as exc:  # noqa: BLE001
         log.warning("JD 抽取失敗: %s", exc)
+        # 失敗不進快取。存起來的話一次逾時會變成這份 JD 的永久答案,
+        # 而那不像故障——使用者重開一場還是沒有職缺需求。
         return None, [f"JD 抽取失敗({type(exc).__name__}),改用原文出題"]
-    return result.jd, list(result.notices)
+    out = (result.jd, list(result.notices))
+    # ★ 只快取抽到東西的。`extract_jd` 自己吃掉呼叫例外,回一個空的 JDInput
+    #   加一條 notice——所以上面那個 except 根本不會觸發,失敗是以「成功但空的」
+    #   形式回來的。照單全收的話一次逾時會變成那份 JD 的永久答案。
+    #   空結果重算的成本是零:內容過短那條路在打 API 之前就短路了。
+    #   跟 `AdjacentCache.put` 拒收降級結果是同一條規則。
+    if out[0] is not None and out[0].required_skills:
+        _JD_CACHE[text] = out
+        while len(_JD_CACHE) > _JD_CACHE_MAX:
+            _JD_CACHE.pop(next(iter(_JD_CACHE)))
+    return out
+
+
+def clear_jd_cache() -> None:
+    """清掉 JD 抽取快取。測試用。
+
+    不清的話同一份 JD 文字在不同測試之間共用結果,
+    而「抽取失敗會怎樣」那種測試會因為快取是熱的而測不到。
+    """
+    _JD_CACHE.clear()
 
 
 @router.post("", response_model=StartInterviewResponse, summary="開場")
@@ -99,6 +142,7 @@ async def create_interview(req: StartInterviewRequest) -> StartInterviewResponse
         jd=jd,
     )
     resp.notices = notices + list(resp.notices)
+    resp.jd_skills = list(jd.required_skills) if jd else []
     return resp
 
 
@@ -112,9 +156,10 @@ async def submit_turn(req: TurnRequest, session_id: str = SESSION_ID) -> TurnRes
     合約不用改,前端也不用改。
     """
     mode = _mode_from_request(req)
-    return await next_turn(
+    decision = await _decide(req, mode)
+    resp = await next_turn(
         mode=mode,
-        decision=await _decide(req, mode),
+        decision=decision,
         answer=req.answer,
         follow_up_idx=req.follow_up_idx,
         asked_questions=req.asked_topics,
@@ -126,6 +171,10 @@ async def submit_turn(req: TurnRequest, session_id: str = SESSION_ID) -> TurnRes
         llm=get_llm_live(),
         context=req.context,
     )
+    # 追問深度的狀態由前端保管,後端只算下一步該是多少——跟 askedTopics
+    # 與 followUpIdx 同一個模式。前端不解讀這兩個值,原樣送回就好。
+    resp.probe_gap, resp.probe_depth = _next_probe(req, decision)
+    return resp
 
 
 async def _decide(req: TurnRequest, mode: str):
@@ -146,20 +195,20 @@ async def _decide(req: TurnRequest, mode: str):
     所以這一版的決定只依 STAR 與放行條件判斷,不看職缺需求。
     facts 路徑本來就不把職缺需求帶進判讀——判讀問的是「這段話裡有什麼」,
     跟職缺要什麼無關,所以 `has_jd()` 為 False 在這條路上不會讓模型腦補。
-    職缺需求之後是用在「這個缺口值不值得追」那一層,還沒做。
 
-    之後兩條路都能補上:履歷組給結構化職缺需求,或開場把抽好的 JD 回傳、
-    前端每輪帶回來(跟 fallback 同一個模式)。
+    【職缺需求從哪裡來】
+    兩條路,見 `_turn_jd`:前端帶 `jdSkills`(開場回傳的或型錄的結構化欄位),
+    或退回用 `context.custom_jd` 現抽並走行程內快取。
+    兩條都沒有才是 None,那時候只能看 STAR 四段判缺口。
 
-    【為什麼 depth 是 0】
-    「同一個缺口追過幾次」需要跨輪的狀態,而這支服務無狀態。
-    `max_depth` 的判斷已經寫好也測過,等 Mid 層或請求欄位把次數帶進來就會生效。
-    在那之前它恆不觸發——寧可讓一條規則明顯地沒作用,
-    也不要拿 followUpIdx(整場第幾題)去頂替,那是不同的東西。
+    【追問深度從哪裡來】
+    `probeDepth` 由前端保管、每輪帶回來,跟 askedTopics 與 followUpIdx 同一個模式。
+    這支服務無狀態,所以跨輪的計數只能這樣走。不拿 followUpIdx 頂替——
+    那是整場第幾題,跟「同一個缺口追過幾次」是不同的東西。
     """
     specs = derive_specs(
         mode,
-        jd=None,
+        jd=_turn_jd(req),
         difficulty=req.context.difficulty,
         group_interviewers=req.context.group_interviewers,
         group_size=req.context.group_size,
@@ -171,10 +220,49 @@ async def _decide(req: TurnRequest, mode: str):
         answer=req.answer,
         llm=get_llm_live(),
         question=req.question,
-        depth=0,
+        depth=req.probe_depth,
         ended_by=req.ended_by,
         transcription_engine=req.context.transcription_engine,
     )
+
+
+def _turn_jd(req: TurnRequest) -> JDInput | None:
+    """這一輪的職缺需求。兩條來源,前端帶的優先。
+
+        req.jd_skills          開場回傳的原樣帶回,或前端自己的結構化職缺
+        context.custom_jd      沒帶時現抽,走 `_JD_CACHE`,同一份文字只抽一次
+
+    前端帶的優先,因為它可能是型錄的結構化欄位——那比從散文抽的準。
+    兩條都沒有就回 None,下游退回只看 STAR 四段判缺口。
+
+    `source` 標成 catalog 只在前端帶的時候:那一批確實不是抽取器產的,
+    而合約要求評測報表把兩種來源分開統計。
+    """
+    skills = [s for s in req.jd_skills if str(s or "").strip()]
+    if skills:
+        return JDInput(required_skills=skills, source="catalog")
+    jd, _notices = _resolve_jd(req.context.custom_jd, get_llm())
+    return jd
+
+
+def _next_probe(req: TurnRequest, decision) -> tuple[str, int]:
+    """下一輪要帶回來的 (缺口, 已追次數)。
+
+    【為什麼歸零的條件是這三個】
+        換題          這個缺口的追問結束了
+        缺口為空      被切斷那條路刻意不帶 gap,而「被打斷不是他的問題」,
+                      不該算進上限——`forced_decision` 把它排在深度檢查前面
+                      就是這個意思,這裡要跟它一致
+        換了缺口      上限是「同一個缺口」的上限,換了就重新算
+
+    計數的定義:送進去的 depth 是「這個缺口已經追過幾次」,
+    所以 max_depth=2 會讓同一個缺口被追兩次,第三輪強制換題。
+    """
+    if decision is None or decision.action == "NEXT" or not decision.gap:
+        return "", 0
+    if decision.gap == req.probe_gap:
+        return decision.gap, req.probe_depth + 1
+    return decision.gap, 1
 
 
 def _interviewer_names(mode: str, ctx) -> set[str]:
@@ -228,14 +316,18 @@ def _mode_from_request(req: TurnRequest) -> str:
 
 
 @router.post("/{session_id}/report", response_model=ReportResponse, summary="賽後報告")
-async def create_report(req: ReportRequest, session_id: str = SESSION_ID) -> ReportResponse:
+async def create_report(
+    req: ReportRequest, session_id: str = SESSION_ID
+) -> ReportResponse:
     """A4 六件 + A5 漏講點。
 
     兩者合併成一個端點的理由:吃的輸入完全相同,拆開等於同一份資料送兩趟、
     LLM 跑兩趟。前端拿一份 response 餵兩個 provider。
     """
     if not req.turns:
-        raise HTTPException(status_code=422, detail="turns 不可為空,沒有逐字稿就沒有報告")
+        raise HTTPException(
+            status_code=422, detail="turns 不可為空,沒有逐字稿就沒有報告"
+        )
 
     # 【三份文字,用途不同】
     #
@@ -309,7 +401,8 @@ async def create_report(req: ReportRequest, session_id: str = SESSION_ID) -> Rep
                         text=u.content,
                         is_user=u.is_user,
                         is_interviewer=not u.is_user and u.speaker in hosts,
-                        start_ms=u.start_ms or (u.segment_starts_ms[0] if u.segment_starts_ms else 0),
+                        start_ms=u.start_ms
+                        or (u.segment_starts_ms[0] if u.segment_starts_ms else 0),
                         end_ms=u.end_ms,
                     )
                     for u in req.group_says
@@ -396,5 +489,7 @@ def _resume_text(req: ReportRequest) -> str:
     for e in req.experiences:
         bits = [e.title, e.role, e.action, e.result]
         tags = "、".join(e.tags)
-        lines.append("・" + " / ".join(b for b in bits if b) + (f"(標籤:{tags})" if tags else ""))
+        lines.append(
+            "・" + " / ".join(b for b in bits if b) + (f"(標籤:{tags})" if tags else "")
+        )
     return "\n".join(lines)

@@ -126,24 +126,28 @@ def make_fake_llm(pool):
         if ADJACENT_MARK in system:
             return json.dumps(list(range(1, 31)))
         if PROFILE_MARK in system:
-            ids = [
-                line.split("應徵者 ")[1].rstrip("】")
-                for line in user.splitlines()
-                if "【應徵者" in line
-            ]
-            return json.dumps(
-                [
-                    {
-                        "id": pid,
-                        "name": f"假{'一二三四'[i]}號",
-                        "school": "政治大學",
-                        "background": "政治大學資管畢業,做過一年的系統維護。",
-                        "style": "先講結論",
-                    }
-                    for i, pid in enumerate(ids)
-                ],
-                ensure_ascii=False,
-            )
+            schools = ("政治大學", "中央大學", "成功大學", "臺灣大學")
+            rows, slot, pid, gender = [], 0, "", ""
+            for line in user.splitlines():
+                if "【應徵者" in line:
+                    pid = line.split("應徵者 ")[1].rstrip("】")
+                elif "性別(已指定" in line and pid:
+                    gender = line.split(":")[-1].strip()
+                    school = schools[slot % len(schools)]
+                    rows.append(
+                        {
+                            "id": pid,
+                            "name": f"{'林李王吳'[slot % 4]}"
+                            f"{'哲宇' if gender == '男' else '怡安'}",
+                            "gender": gender,
+                            "school": school,
+                            "background": f"{school}資管畢業,做過一年的系統維護。",
+                            "style": "先講結論",
+                        }
+                    )
+                    slot += 1
+                    pid = gender = ""
+            return json.dumps(rows, ensure_ascii=False)
         raise AssertionError(f"沒有分支吃這個 prompt:{system[:40]!r}")
 
     return call
@@ -216,6 +220,7 @@ def row_for(case: dict, cast, pool) -> dict:
                 "id": p.persona_id,
                 "name": p.name,
                 "school": p.school,
+                "gender": p.gender,
                 "skills": list(names_for(p.skills, pool)),
                 "background": p.background,
                 "style": p.style,
@@ -284,9 +289,30 @@ def report(
     schools = collections.Counter(
         p["school"] for r in rows for p in r["peers"] if p["school"]
     )
+    names = collections.Counter(p["name"] for r in rows for p in r["peers"])
     print(f"  用到的學校    {len(schools)} 所 / 共 {sum(schools.values())} 次")
-    for name, n in schools.most_common(6):
-        print(f"    {name:12} {n:>3}")
+    print(f"  不重複的名字  {len(names)} / {sum(names.values())}")
+    dup = [f"{k}×{v}" for k, v in names.most_common(4) if v > 1]
+    if dup:
+        print(f"    重複最多的    {'、'.join(dup)}")
+
+    # ★ 逐 persona 的交叉表。實跑抓到的模式是「每個 persona 固定一所學校、
+    #   固定一個姓、固定一個性別」,那只有分開看才看得見——
+    #   合計起來三十個欄位分佈得很漂亮,per-persona 卻是 10/10。
+    print("\n  逐 persona 的分佈(相關性要在這裡看,不是看合計)")
+    by_persona: dict[str, list[dict]] = collections.defaultdict(list)
+    for r in rows:
+        for p in r["peers"]:
+            by_persona[p["id"]].append(p)
+    for pid, items in by_persona.items():
+        sch = collections.Counter(x["school"] for x in items if x["school"])
+        sur = collections.Counter(x["name"][:1] for x in items if x["name"])
+        gen = collections.Counter(x.get("gender") or "?" for x in items)
+        top_s = "、".join(f"{k}{v}" for k, v in sch.most_common(3))
+        top_n = "、".join(f"{k}{v}" for k, v in sur.most_common(3))
+        top_g = "、".join(f"{k}{v}" for k, v in gen.most_common())
+        print(f"    {pid:16} 校 {len(sch)} 種({top_s})")
+        print(f"    {'':16} 姓 {len(sur)} 種({top_n})  性別 {top_g}")
 
     if latency:
         s = sorted(latency)
@@ -302,7 +328,8 @@ def report(
         print(f"\n【{r['case']}】{r['title']}")
         for p in r["peers"]:
             label = f"  {p['name']}({p['id']})"
-            print(f"{label}  {p['school']}" if p["school"] else label)
+            tail = "  ".join(x for x in (p["school"], p.get("gender", "")) if x)
+            print(f"{label}  {tail}" if tail else label)
             print(f"    技能 {'、'.join(p['skills'])}")
             print(f"    背景 {p['background']}")
             if p["style"]:
@@ -394,6 +421,10 @@ def main() -> int:
         print("  所以 source 應該全是 llm、超範圍與撞 JD 應該是 0——只證明管線對。\n")
 
     print(
+        f"seed {args.seed}..{args.seed + len(cases) - 1}(每個職缺一個,"
+        "對齊正式環境每場一個 session_id)"
+    )
+    print(
         f"職缺 {len(cases)} 個 × 每個 {CALLS_PER_CASE} 次呼叫 "
         f"= {len(cases) * CALLS_PER_CASE} 次(挑技能 temp={args.temp}、"
         f"寫人物 temp={args.write_temp})"
@@ -413,7 +444,12 @@ def main() -> int:
                 timed(make_llm(args.model, args.write_temp), latency), args.concurrency
             )
 
-        async def one(case: dict) -> dict:
+        async def one(case: dict, index: int) -> dict:
+            # ★ 每個職缺一個不同的 seed,而不是十個共用 --seed。
+            #   正式環境的 seed 是 crc32(session_id),每一場都不同;
+            #   工具十場共用一個的話,性別輪替在這份輸出裡完全看不出來——
+            #   逐 persona 的交叉表會印出 10/10,而那會被讀成「修了沒用」。
+            #   加上 index 之後仍然可重現(給同一個 --seed 結果一樣)。
             cast = await build_peers(
                 title=case["title"],
                 required=case["required"],
@@ -422,12 +458,12 @@ def main() -> int:
                 group_size=4,
                 homogeneity=args.homogeneity,
                 pressure=args.pressure,
-                seed=args.seed,
+                seed=args.seed + index,
                 pool=pool,
             )
             return row_for(case, cast, pool)
 
-        return list(await asyncio.gather(*(one(c) for c in cases)))
+        return list(await asyncio.gather(*(one(c, i) for i, c in enumerate(cases))))
 
     rows = asyncio.run(go())
     report(rows, homogeneity=args.homogeneity, pressure=args.pressure, latency=latency)

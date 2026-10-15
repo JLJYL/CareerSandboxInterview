@@ -429,6 +429,22 @@ class StartInterviewResponse(_Base):
     interrupt_lines: list[str] = Field(default_factory=list)  # A3 搶話預生成
     interrupt_cap: int = 0  # 等於 len(interrupt_lines)
     fallback_probes: list[str] = Field(default_factory=list)
+
+    jd_skills: list[str] = Field(default_factory=list)
+    """開場抽出來的職缺需求,依重要性排序。前端每輪原樣帶回 TurnRequest。
+
+    【為什麼要回傳】
+    使用者手貼的散文 JD 在開場抽一次(一次 LLM 呼叫)。抽完如果不回傳,
+    每輪接話那條路只能用 `jd=None`,於是 `InterviewerSpec.cares_about` 恆空、
+    追問只看 STAR 四段在不在,不看這個職缺要什麼——那一次呼叫等於白跑。
+
+    【前端怎麼用】
+    跟 fallback_probes 同一個模式:收下來存著,每輪原樣送回,不要解讀內容。
+    前端若本來就有結構化職缺(使用者從型錄選的),直接送自己那份,不用等這裡。
+
+    空陣列代表使用者沒填 JD 或抽取失敗,兩者都正常,notices 會說明。
+    """
+
     notices: list[str] = Field(default_factory=list)  # 降級說明
 
 
@@ -468,6 +484,36 @@ class TurnRequest(_Base):
 
     input_mode: str = "unknown"
     """"voice"(裝置端 STT)/ "typed"(鍵盤)/ "unknown"。見 INPUT_MODE_RULE。"""
+
+    jd_skills: list[str] = Field(default_factory=list)
+    """職缺需求,依重要性排序。兩條來源都走這一欄:
+
+        開場回傳的 `StartInterviewResponse.jd_skills` 原樣帶回
+        前端自己的結構化職缺(使用者從型錄選的)
+
+    不帶也能跑:後端會退回用 `context.custom_jd` 現抽,但那是每一輪一次呼叫
+    (有行程內快取,同一份 JD 文字只抽一次)。帶上來是省錢也是省延遲。
+
+    順序即優先序,不要重排——`gap.JD_POSITION_DECAY` 依賴這個順序。
+    """
+
+    probe_gap: str = ""
+    """上一輪在追的缺口。原樣帶回,不要解讀內容。
+
+    值是 `GAP_VALUES` 其中一個或空字串,但前端不需要知道那個集合——
+    它只是一個 token,用來讓後端判斷「這一輪追的還是不是同一個缺口」。
+    """
+
+    probe_depth: int = 0
+    """同一個缺口已經追過幾次。原樣帶回。
+
+    【為什麼不能用 followUpIdx 頂替】
+    `followUpIdx` 是整場第幾題,`probe_depth` 是同一個缺口追過幾次,兩者不同。
+    `AcceptRule.max_depth` 按難度是 1 / 2 / 3,判斷寫好也測過,
+    但在這一欄接上之前恆不觸發——困難難度會咬著同一個缺口一直追下去。
+
+    第一輪送 0。之後送上一次 `TurnResponse.probe_depth`。
+    """
 
     ended_by: str = "unknown"
     """這段回答怎麼結束的:"user" / "timeout" / "unknown"。
@@ -521,6 +567,15 @@ class TurnResponse(_Base):
     is_follow_up: bool = False  # 這句是追問還是新的主問題
     should_advance: bool = False  # 前端是否該推進到下一主問題
     topic: str = ""
+
+    probe_gap: str = ""
+    """這一輪結束後在追的缺口。前端存著,下一輪原樣送回。"""
+
+    probe_depth: int = 0
+    """這個缺口累計追過幾次。前端存著,下一輪原樣送回。
+
+    換題或被切斷時歸零——被切斷不是使用者的問題,不該算進上限。
+    """
     """next_question 所屬的領域標籤,例如「資料分析」「團隊衝突」。
 
     由後端標記、前端累積,下一輪回傳 TurnRequest.asked_topics。
