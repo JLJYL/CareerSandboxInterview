@@ -100,6 +100,7 @@ from __future__ import annotations
 import json
 import random
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -208,6 +209,20 @@ class JDCore:
         return len(self.coverable) == self.requested
 
 
+@lru_cache(maxsize=4)
+def load_index(vocab_path: Path | str = VOCAB_PATH) -> SurfaceIndex:
+    """詞彙表的表面形索引,按路徑快取。
+
+    快取的理由是呼叫路徑:`create_interview` 每一場都要解析職缺,而建索引
+    要讀 234 筆 JSON 再分桶排序。那是每次請求都重做一次同樣的工作。
+
+    `with_heads=False`:詞頭索引是為了掃逐字稿補洞的,職缺要求與背景敘述
+    都是短句,補洞只會製造誤命中。
+    """
+    vocab = json.loads(Path(vocab_path).read_text(encoding="utf-8"))
+    return SurfaceIndex.from_vocab(vocab, with_heads=False)
+
+
 def resolve_jd(
     required: Sequence[str],
     pool: Sequence[Skill],
@@ -230,8 +245,7 @@ def resolve_jd(
     代價是掃描本質上是子字串掃描:一條職缺要求可能只有一部分命中。
     那種情況記進 `partial`,不當成命中也不當成漏掉 —— 它是第三種結果。
     """
-    vocab = json.loads(Path(vocab_path).read_text(encoding="utf-8"))
-    index = SurfaceIndex.from_vocab(vocab, with_heads=False)
+    index = load_index(vocab_path)
     in_pool = {s.skill_id for s in pool}
 
     coverable: list[str] = []
@@ -304,6 +318,20 @@ def _distinct_jd_needed(c: int, j: int, peers: int) -> int:
     return shared_jd + peers * (j - shared_jd)
 
 
+def _off_jd_count(c: int, j: int, peers: int, k: int) -> int:
+    """這個構造要幾個分母外的技能。
+
+    共用那塊有 c 個,其中 min(c,j) 個來自分母,所以共用要 c-min(c,j) 個分母外的。
+    每個人各自那塊有 k-c 個,其中 j-min(c,j) 個來自分母,其餘乘人數。
+
+    宣告成一支函式是因為 `plan_skills` 與 `off_jd_needed` 都要這個數字,
+    而它算錯的後果是兩種相反的錯:算多了會讓模型挑的 deck 被亂挑的稀釋,
+    算少了會在建構到一半的時候拋錯。
+    """
+    shared_jd = min(c, j)
+    return (c - shared_jd) + peers * (k - c - (j - shared_jd))
+
+
 def _pick_jd_count(target: float, c: int, k: int, peers: int, d: int) -> int:
     """挑一個 j 讓 j/d 最接近 target,且構造得出來。
 
@@ -314,6 +342,31 @@ def _pick_jd_count(target: float, c: int, k: int, peers: int, d: int) -> int:
         return 0
     options = [j for j in range(min(k, d) + 1) if _distinct_jd_needed(c, j, peers) <= d]
     return min(options, key=lambda j: (abs(j / d - target), -j))
+
+
+def off_jd_needed(
+    core: JDCore,
+    *,
+    peers: int,
+    homogeneity: float = 0.5,
+    pressure: float = 0.5,
+    k: int = SKILLS_PER_PEER,
+    n: int = JD_PREFIX,
+) -> int:
+    """這一組設定要幾個分母外的技能。呼叫 `plan_skills` 之前就算得出來。
+
+    存在的理由是模型那一側:挑相鄰技能的那次呼叫在排技能集合**之前**,
+    所以它要先知道最少要幾個,不夠才補。
+
+    不能拿最壞情況 `peers × k` 當這個數字。預設設定(同質度 0.5)只要 6 個,
+    最壞情況是 18;用 18 的話模型挑了 10 個也會被判定不足,
+    然後補 8 個亂挑的進去稀釋掉它挑的——實跑看過一次,
+    前端職缺的競爭者因此拿到「規劃與管理防火牆」。
+    """
+    d = len(core.denominator(n))
+    c = _pick_shared_size(homogeneity, k)
+    j = _pick_jd_count(pressure, c, k, peers, d)
+    return _off_jd_count(c, j, peers, k)
 
 
 @dataclass(frozen=True)
@@ -453,7 +506,7 @@ def plan_skills(
         deck = list(dict.fromkeys(off_jd_deck))
     rng.shuffle(deck)
 
-    need_off = (c - shared_jd_count) + peers * (k - c - private_jd_each)
+    need_off = _off_jd_count(c, j, peers, k)
     if need_off > len(deck):
         raise ValueError(
             f"分母外的技能不夠:要 {need_off} 個,可用的只有 {len(deck)} 個"

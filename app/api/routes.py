@@ -90,7 +90,13 @@ def _resolve_jd(custom_jd: str, llm) -> tuple[JDInput | None, list[str]]:
 async def create_interview(req: StartInterviewRequest) -> StartInterviewResponse:
     jd, notices = _resolve_jd(req.context.custom_jd, get_llm())
     resp = await start_interview(
-        mode=req.mode, context=req.context, llm=get_llm_live(), jd=jd
+        mode=req.mode,
+        context=req.context,
+        llm=get_llm_live(),
+        # 競爭者的相鄰技能挑選走這一支。那是分類不是生成,temp 0.4 會讓
+        # 同一個職缺每次挑出不同的技能池,而那個變化會疊在 seed 上面。
+        llm_exact=get_llm(),
+        jd=jd,
     )
     resp.notices = notices + list(resp.notices)
     return resp

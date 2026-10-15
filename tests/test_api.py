@@ -17,16 +17,24 @@ import json
 import pytest
 from fastapi.testclient import TestClient
 
-from app.contracts.interview_protocols import FakeCollabObserver, GapCandidate, TextStats
+from app.contracts.interview_protocols import (
+    FakeCollabObserver,
+    GapCandidate,
+    TextStats,
+)
+from app.prompts.peer_profile import ADJACENT_MARK, PROFILE_MARK
 from app.schemas.interview import SUB_SCORE_NAMES
 
 
 class StubAnalyzer:
     def text_stats(self, transcript: str) -> TextStats:
         return TextStats(
-            char_count=len(transcript), filler_count=12,
-            filler_detail={"那個": 5, "就是": 7}, quantifier_count=3,
-            filler_reliability="measured", segmentation="stt_segment",
+            char_count=len(transcript),
+            filler_count=12,
+            filler_detail={"那個": 5, "就是": 7},
+            quantifier_count=3,
+            filler_reliability="measured",
+            segmentation="stt_segment",
             avg_sentence_len=78.0,
         )
 
@@ -38,18 +46,32 @@ class StubGap:
     def compute(self, resume, jd, transcript):
         if not resume:
             return []
-        return [GapCandidate(
-            skill_id="sk:sql", display="SQL(sk:sql)", kind="hard",
-            resume_experience_ids=["e1"], resume_evidence="SQL",
-            jd_evidence="需具備 SQL 撰寫能力", weight=0.9,
-        )]
+        return [
+            GapCandidate(
+                skill_id="sk:sql",
+                display="SQL(sk:sql)",
+                kind="hard",
+                resume_experience_ids=["e1"],
+                resume_evidence="SQL",
+                jd_evidence="需具備 SQL 撰寫能力",
+                weight=0.9,
+            )
+        ]
 
 
-OPENING = {"openingQuestion": "先講一個你用資料做判斷的經驗。",
-           "openingTopic": "資料分析", "fallbackProbes": ["依據是什麼?"]}
-TURN = {"speaker": "", "nextQuestion": "那個數字的母數是多少?",
-        "reaction": "嗯。", "isFollowUp": True, "topic": "資料分析",
-        "shouldAdvance": False}
+OPENING = {
+    "openingQuestion": "先講一個你用資料做判斷的經驗。",
+    "openingTopic": "資料分析",
+    "fallbackProbes": ["依據是什麼?"],
+}
+TURN = {
+    "speaker": "",
+    "nextQuestion": "那個數字的母數是多少?",
+    "reaction": "嗯。",
+    "isFollowUp": True,
+    "topic": "資料分析",
+    "shouldAdvance": False,
+}
 GOOD_WHY = "這份職缺把資料查詢列為日常工作,沒有這項能力就無法承擔核心職責。"
 
 
@@ -60,7 +82,37 @@ ASSIGNED = {"1": "S", "2": "A", "3": "R"}
 FACT_PRESENT = {"present": True, "quote": "我用 SQL 重寫查詢"}
 
 
+#: 競爭者生成的兩次呼叫。缺這些的話三位競爭者全部退回固定人設、
+#: 分母外的技能全部亂挑——而群面的測試照樣全綠,因為 start_interview
+#: 的每一段都降級不拋例外。這是同一個錯誤的第四次:1c 的決策分支、
+#: 2c 的事實分支、情緒批次,症狀每次都是「測試綠而功能沒在跑」。
+#: 用 MARK 常數分派,prompt 改字不會讓這裡靜默失效。
+def _peer_profiles(user: str) -> str:
+    ids = [
+        line.split("應徵者 ")[1].rstrip("】")
+        for line in user.splitlines()
+        if "【應徵者" in line
+    ]
+    return json.dumps(
+        [
+            {
+                "id": pid,
+                "name": f"競爭者{'一二三四'[i]}",
+                "school": "政治大學",
+                "background": f"{pid} 的生成背景:政治大學資管畢業,做過一年前端。",
+                "style": "先講結論",
+            }
+            for i, pid in enumerate(ids)
+        ],
+        ensure_ascii=False,
+    )
+
+
 def fake_llm(system: str, user: str) -> str:
+    if ADJACENT_MARK in system:
+        return json.dumps(list(range(1, 31)))
+    if PROFILE_MARK in system:
+        return _peer_profiles(user)
     if "把每一句分派到一個標籤" in system:
         return json.dumps(ASSIGNED, ensure_ascii=False)
     if "這一次只判斷一件事" in system:
@@ -74,25 +126,40 @@ def fake_llm(system: str, user: str) -> str:
     if "抽出這份工作實際需要的能力" in system:
         return json.dumps(["SQL", "報表自動化"], ensure_ascii=False)
     if "三個面向" in system:
-        return json.dumps([
-            {"letter": "內", "verdict": "缺數字", "points": ["加一個量化成果"]},
-            {"letter": "構", "verdict": "邏輯清楚", "points": ["補結果段"]},
-            {"letter": "達", "verdict": "用詞直接", "points": ["少用填充詞"]},
-        ], ensure_ascii=False)
+        return json.dumps(
+            [
+                {"letter": "內", "verdict": "缺數字", "points": ["加一個量化成果"]},
+                {"letter": "構", "verdict": "邏輯清楚", "points": ["補結果段"]},
+                {"letter": "達", "verdict": "用詞直接", "points": ["少用填充詞"]},
+            ],
+            ensure_ascii=False,
+        )
     if "細分分數" in system:
         names = [n for n in SUB_SCORE_NAMES if n not in ("表達流暢度", "內容深度")]
-        return json.dumps([{"name": n, "score": v} for n, v in zip(names, [82, 68, 64, 80])],
-                          ensure_ascii=False)
+        return json.dumps(
+            [{"name": n, "score": v} for n, v in zip(names, [82, 68, 64, 80])],
+            ensure_ascii=False,
+        )
     if "逐題" in system:
-        return json.dumps([{"id": 1, "comment": "有交代背景", "better": "把結論提前講"}],
-                          ensure_ascii=False)
+        return json.dumps(
+            [{"id": 1, "comment": "有交代背景", "better": "把結論提前講"}],
+            ensure_ascii=False,
+        )
     if "STAR" in system:
-        return json.dumps([
-            {"key": "S", "present": True, "fromAnswer": "我用 SQL 重寫查詢", "hint": ""},
-            {"key": "T", "present": False, "fromAnswer": "", "hint": "缺任務"},
-            {"key": "A", "present": False, "fromAnswer": "", "hint": "缺行動"},
-            {"key": "R", "present": False, "fromAnswer": "", "hint": "缺結果"},
-        ], ensure_ascii=False)
+        return json.dumps(
+            [
+                {
+                    "key": "S",
+                    "present": True,
+                    "fromAnswer": "我用 SQL 重寫查詢",
+                    "hint": "",
+                },
+                {"key": "T", "present": False, "fromAnswer": "", "hint": "缺任務"},
+                {"key": "A", "present": False, "fromAnswer": "", "hint": "缺行動"},
+                {"key": "R", "present": False, "fromAnswer": "", "hint": "缺結果"},
+            ],
+            ensure_ascii=False,
+        )
     if "漏講加分點" in system:
         return json.dumps([{"id": 1, "why": GOOD_WHY}], ensure_ascii=False)
     return "{}"
@@ -107,20 +174,29 @@ def client(monkeypatch):
     """繞過 lifespan 的真實載入。TranscriptAnalyzer 會載 2.3GB,測試不能碰。"""
     from app.api import deps
 
-    monkeypatch.setattr(deps, "build_components",
-                        lambda: (StubAnalyzer(), StubGap(), FakeCollabObserver()))
+    monkeypatch.setattr(
+        deps,
+        "build_components",
+        lambda: (StubAnalyzer(), StubGap(), FakeCollabObserver()),
+    )
     for name in ("get_llm", "get_llm_live", "get_llm_verbatim"):
         monkeypatch.setattr(deps, name, lambda: fake_llm)
     import app.api.routes as routes
+
     for name in ("get_llm", "get_llm_live", "get_llm_verbatim"):
         monkeypatch.setattr(routes, name, lambda: fake_llm)
 
     from app.main import app
+
     with TestClient(app) as c:
         yield c
 
 
-CTX = {"customRole": "資料分析實習生", "customJd": "需具備 SQL 撰寫能力。", "type": "行為"}
+CTX = {
+    "customRole": "資料分析實習生",
+    "customJd": "需具備 SQL 撰寫能力。",
+    "type": "行為",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -151,10 +227,61 @@ def test_start_single_has_no_interrupts(client) -> None:
     assert d["interruptLines"] == []
 
 
+def test_the_group_opening_really_runs_the_peer_generation(client) -> None:
+    """三位競爭者的 blurb 要是生成的,不是固定那一句。
+
+    這一條在測分派。`start_interview` 的每一段都降級不拋例外,所以假 LLM
+    少了這兩個分支的時候,三位競爭者會全部退回固定人設而**測試照樣全綠**——
+    1c、2c、情緒批次都出過一樣的事。
+
+    拿掉 `fake_llm` 裡任一個 MARK 分支,這一條要變紅。
+    """
+    d = client.post("/interviews", json={"mode": "group", "context": CTX}).json()
+    peers = [p for p in d["personas"] if p["role"] == "peer"]
+    assert len(peers) == 3, "group_size 預設 4 含使用者,所以三位 AI 競爭者"
+    for p in peers:
+        assert p["blurb"] == f"{p['id']} 的生成背景:政治大學資管畢業,做過一年前端。"
+
+    notices = " ".join(d["notices"])
+    assert "退回固定人設" not in notices
+    assert "退回亂挑" not in notices
+
+
+def test_a_peer_generation_failure_still_opens_the_interview(
+    client, monkeypatch
+) -> None:
+    """競爭者生成掛掉,開場還是要開得起來,而且退回固定人設。
+
+    按下開始卻噴 500 的話使用者連場都進不去,而這一段是新加的,
+    不該有能力讓整個開場失敗。
+    """
+    import app.api.routes as routes
+
+    def half_dead(system: str, user: str) -> str:
+        if ADJACENT_MARK in system or PROFILE_MARK in system:
+            raise RuntimeError("peer gen down")
+        return fake_llm(system, user)
+
+    for name in ("get_llm", "get_llm_live"):
+        monkeypatch.setattr(routes, name, lambda: half_dead)
+
+    d = client.post("/interviews", json={"mode": "group", "context": CTX}).json()
+    assert d["openingQuestion"]
+    peers = [p for p in d["personas"] if p["role"] == "peer"]
+    assert len(peers) == 3
+    assert all("生成背景" not in p["blurb"] for p in peers)
+    assert any("退回固定人設" in n for n in d["notices"])
+
+
 def test_turn_returns_next_question(client) -> None:
-    r = client.post("/interviews/itv_x/turns", json={
-        "answer": "我用 SQL 重寫查詢", "followUpIdx": 0, "question": "請自我介紹",
-    })
+    r = client.post(
+        "/interviews/itv_x/turns",
+        json={
+            "answer": "我用 SQL 重寫查詢",
+            "followUpIdx": 0,
+            "question": "請自我介紹",
+        },
+    )
     assert r.status_code == 200
     assert r.json()["nextQuestion"]
     assert r.json()["topic"], "topic 不可為空,前端要拿它累積"
@@ -175,10 +302,12 @@ def test_turn_decision_goes_through_the_facts_path(client) -> None:
         "question": "請講一個用資料做判斷的經驗",
     }
     easy = client.post(
-        "/interviews/itv_x/turns", json={**body, "context": {**CTX, "difficulty": "中等"}}
+        "/interviews/itv_x/turns",
+        json={**body, "context": {**CTX, "difficulty": "中等"}},
     ).json()
     hard = client.post(
-        "/interviews/itv_x/turns", json={**body, "context": {**CTX, "difficulty": "困難"}}
+        "/interviews/itv_x/turns",
+        json={**body, "context": {**CTX, "difficulty": "困難"}},
     ).json()
     assert easy["isFollowUp"] is False, "中等:三段加結果加數字,條件全滿足該放行"
     assert hard["isFollowUp"] is True, "困難:只有三段,該追問"
@@ -186,18 +315,33 @@ def test_turn_decision_goes_through_the_facts_path(client) -> None:
 
 def test_turn_infers_mode_from_spoken_by(client) -> None:
     """TurnRequest 沒有 mode 欄位,從 spokenBy 反推。這是暫時做法。"""
-    d = client.post("/interviews/itv_x/turns", json={
-        "answer": "x", "followUpIdx": 0, "spokenBy": ["技術主管"],
-    }).json()
+    d = client.post(
+        "/interviews/itv_x/turns",
+        json={
+            "answer": "x",
+            "followUpIdx": 0,
+            "spokenBy": ["技術主管"],
+        },
+    ).json()
     assert d["speaker"], "panel 模式必須回說話者"
 
 
 def test_report_returns_all_blocks(client) -> None:
-    r = client.post("/interviews/itv_x/report", json={
-        "mode": "single", "context": CTX,
-        "turns": [{"question": "請自我介紹", "answer": "我用 SQL 重寫查詢", "inputMode": "voice"}],
-        "experiences": [{"id": "e1", "title": "實習", "tags": ["SQL"]}],
-    })
+    r = client.post(
+        "/interviews/itv_x/report",
+        json={
+            "mode": "single",
+            "context": CTX,
+            "turns": [
+                {
+                    "question": "請自我介紹",
+                    "answer": "我用 SQL 重寫查詢",
+                    "inputMode": "voice",
+                }
+            ],
+            "experiences": [{"id": "e1", "title": "實習", "tags": ["SQL"]}],
+        },
+    )
     assert r.status_code == 200
     d = r.json()
     assert [s["name"] for s in d["subScores"]] == list(SUB_SCORE_NAMES)
@@ -210,22 +354,30 @@ def test_report_returns_all_blocks(client) -> None:
 
 def test_report_without_resume_has_no_missing_points(client) -> None:
     """沒有履歷就不可能有漏講點。這是防捏造的最後一道。"""
-    d = client.post("/interviews/itv_x/report", json={
-        "mode": "single", "context": CTX,
-        "turns": [{"question": "q", "answer": "我用 SQL 重寫查詢"}],
-        "experiences": [],
-    }).json()
+    d = client.post(
+        "/interviews/itv_x/report",
+        json={
+            "mode": "single",
+            "context": CTX,
+            "turns": [{"question": "q", "answer": "我用 SQL 重寫查詢"}],
+            "experiences": [],
+        },
+    ).json()
     assert d["missingPoints"] == []
     assert d["resumeGrounded"] is False
     assert any("尚未建立經歷" in n for n in d["notices"])
 
 
 def test_report_with_resume_has_missing_points(client) -> None:
-    d = client.post("/interviews/itv_x/report", json={
-        "mode": "single", "context": CTX,
-        "turns": [{"question": "q", "answer": "我做過一些報表"}],
-        "experiences": [{"id": "e1", "title": "實習", "tags": ["SQL"]}],
-    }).json()
+    d = client.post(
+        "/interviews/itv_x/report",
+        json={
+            "mode": "single",
+            "context": CTX,
+            "turns": [{"question": "q", "answer": "我做過一些報表"}],
+            "experiences": [{"id": "e1", "title": "實習", "tags": ["SQL"]}],
+        },
+    ).json()
     assert d["missingPoints"]
     assert d["missingPoints"][0]["why"]
 
@@ -233,40 +385,58 @@ def test_report_with_resume_has_missing_points(client) -> None:
 def test_turn_infers_group_mode_from_context(client) -> None:
     """群面的名單依 groupInterviewers 與 groupSize 而變,
     3 位主管的配置用預設參數會對不上。"""
-    d = client.post("/interviews/itv_x/turns", json={
-        "answer": "x", "followUpIdx": 0, "spokenBy": ["用人主管"],
-        "context": {**CTX, "groupInterviewers": 3, "groupSize": 5},
-    }).json()
+    d = client.post(
+        "/interviews/itv_x/turns",
+        json={
+            "answer": "x",
+            "followUpIdx": 0,
+            "spokenBy": ["用人主管"],
+            "context": {**CTX, "groupInterviewers": 3, "groupSize": 5},
+        },
+    ).json()
     assert d["speaker"], "群面必須回說話者"
 
 
 def test_turn_passes_context_through(client) -> None:
     """設定要逐輪生效,否則第二輪之後全部退回預設值。"""
-    d = client.post("/interviews/itv_x/turns", json={
-        "answer": "x", "followUpIdx": 0,
-        "context": {**CTX, "difficulty": "困難"},
-    })
+    d = client.post(
+        "/interviews/itv_x/turns",
+        json={
+            "answer": "x",
+            "followUpIdx": 0,
+            "context": {**CTX, "difficulty": "困難"},
+        },
+    )
     assert d.status_code == 200
 
 
 def test_group_report_has_no_collab_without_rubric(client) -> None:
-    d = client.post("/interviews/itv_x/report", json={
-        "mode": "group", "context": CTX,
-        "turns": [{"question": "q", "answer": "我覺得先做市場調查"}],
-        "groupSays": [
-            {"speaker": "user", "content": "我覺得先做市場調查", "isUser": True},
-            {"speaker": "AI-邏輯", "content": "母數是多少", "isUser": False},
-        ],
-    }).json()
+    d = client.post(
+        "/interviews/itv_x/report",
+        json={
+            "mode": "group",
+            "context": CTX,
+            "turns": [{"question": "q", "answer": "我覺得先做市場調查"}],
+            "groupSays": [
+                {"speaker": "user", "content": "我覺得先做市場調查", "isUser": True},
+                {"speaker": "AI-邏輯", "content": "母數是多少", "isUser": False},
+            ],
+        },
+    ).json()
     # fake_llm 不認得協作 prompt,四個維度都會回空 dict → 全部未評分
     assert d["collabDims"] == []
     assert any("協作" in n for n in d["notices"]), "未評分要說明原因,不能靜靜地不顯示"
 
 
 def test_report_rejects_empty_turns(client) -> None:
-    r = client.post("/interviews/itv_x/report", json={
-        "mode": "single", "context": CTX, "turns": [],
-    })
+    r = client.post(
+        "/interviews/itv_x/report",
+        json={
+            "mode": "single",
+            "context": CTX,
+            "turns": [],
+        },
+    )
     assert r.status_code == 422
 
 
@@ -277,6 +447,7 @@ def test_report_rejects_empty_turns(client) -> None:
 
 def test_start_degrades_when_llm_fails(client, monkeypatch) -> None:
     import app.api.routes as routes
+
     monkeypatch.setattr(routes, "get_llm_live", lambda: boom)
     monkeypatch.setattr(routes, "get_llm", lambda: boom)
     r = client.post("/interviews", json={"mode": "single", "context": CTX})
@@ -286,25 +457,38 @@ def test_start_degrades_when_llm_fails(client, monkeypatch) -> None:
 
 def test_turn_degrades_when_llm_fails(client, monkeypatch) -> None:
     import app.api.routes as routes
+
     monkeypatch.setattr(routes, "get_llm_live", lambda: boom)
-    r = client.post("/interviews/itv_x/turns", json={
-        "answer": "x", "followUpIdx": 0, "fallback": ["備援題"],
-    })
+    r = client.post(
+        "/interviews/itv_x/turns",
+        json={
+            "answer": "x",
+            "followUpIdx": 0,
+            "fallback": ["備援題"],
+        },
+    )
     assert r.status_code == 200
     assert r.json()["nextQuestion"] == "備援題"
 
 
 def test_report_degrades_when_llm_fails(client, monkeypatch) -> None:
     import app.api.routes as routes
+
     monkeypatch.setattr(routes, "get_llm", lambda: boom)
     monkeypatch.setattr(routes, "get_llm_verbatim", lambda: boom)
-    r = client.post("/interviews/itv_x/report", json={
-        "mode": "single", "context": CTX,
-        "turns": [{"question": "q", "answer": "我用 SQL 重寫查詢"}],
-    })
+    r = client.post(
+        "/interviews/itv_x/report",
+        json={
+            "mode": "single",
+            "context": CTX,
+            "turns": [{"question": "q", "answer": "我用 SQL 重寫查詢"}],
+        },
+    )
     assert r.status_code == 200
     d = r.json()
-    assert [s["name"] for s in d["subScores"]] == list(SUB_SCORE_NAMES), "區塊全失敗仍要有形狀"
+    assert [s["name"] for s in d["subScores"]] == list(SUB_SCORE_NAMES), (
+        "區塊全失敗仍要有形狀"
+    )
     assert d["notices"]
 
 
@@ -313,39 +497,65 @@ def test_mode_field_wins_over_inference(client) -> None:
 
     反推有兩個失準點:第一輪 spokenBy 是空的、一對一不回 speaker。
     """
-    d = client.post("/interviews/itv_x/turns", json={
-        "answer": "x", "followUpIdx": 0, "mode": "panel", "spokenBy": [],
-    }).json()
+    d = client.post(
+        "/interviews/itv_x/turns",
+        json={
+            "answer": "x",
+            "followUpIdx": 0,
+            "mode": "panel",
+            "spokenBy": [],
+        },
+    ).json()
     assert d["speaker"], "帶了 panel 就該回說話者,即使 spokenBy 是空的"
 
 
 def test_first_turn_of_group_needs_mode(client) -> None:
     """第一輪 spokenBy 是空的,沒有 mode 就會被當成 single。"""
-    without = client.post("/interviews/itv_x/turns", json={
-        "answer": "x", "followUpIdx": 0, "spokenBy": [],
-    }).json()
+    without = client.post(
+        "/interviews/itv_x/turns",
+        json={
+            "answer": "x",
+            "followUpIdx": 0,
+            "spokenBy": [],
+        },
+    ).json()
     assert without["speaker"] == "", "沒帶 mode 時退回 single"
 
-    with_mode = client.post("/interviews/itv_x/turns", json={
-        "answer": "x", "followUpIdx": 0, "mode": "group",
-        "context": {**CTX, "groupInterviewers": 3, "groupSize": 5},
-    }).json()
+    with_mode = client.post(
+        "/interviews/itv_x/turns",
+        json={
+            "answer": "x",
+            "followUpIdx": 0,
+            "mode": "group",
+            "context": {**CTX, "groupInterviewers": 3, "groupSize": 5},
+        },
+    ).json()
     assert with_mode["speaker"], "帶了 group 第一輪就正確"
 
 
 def test_mode_falls_back_to_inference_when_absent(client) -> None:
     """前端還沒改之前,反推要繼續可用。"""
-    d = client.post("/interviews/itv_x/turns", json={
-        "answer": "x", "followUpIdx": 0, "spokenBy": ["技術主管"],
-    }).json()
+    d = client.post(
+        "/interviews/itv_x/turns",
+        json={
+            "answer": "x",
+            "followUpIdx": 0,
+            "spokenBy": ["技術主管"],
+        },
+    ).json()
     assert d["speaker"]
 
 
 def test_mode_rejects_unknown_value(client) -> None:
     """mode 由前端路由決定,值域封閉,這裡要嚴格。"""
-    r = client.post("/interviews/itv_x/turns", json={
-        "answer": "x", "followUpIdx": 0, "mode": "video",
-    })
+    r = client.post(
+        "/interviews/itv_x/turns",
+        json={
+            "answer": "x",
+            "followUpIdx": 0,
+            "mode": "video",
+        },
+    )
     assert r.status_code == 422
 
 
@@ -364,25 +574,39 @@ def test_collab_scored_per_dimension(client, monkeypatch) -> None:
     def spy(system: str, user: str) -> str:
         if "這個維度評分" in system:
             seen.append(system)
-            return json.dumps({"level": 3, "evidence": "我覺得先做客群分析",
-                               "hint": "開場就先表態,搶到定錨位置"}, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "level": 3,
+                    "evidence": "我覺得先做客群分析",
+                    "hint": "開場就先表態,搶到定錨位置",
+                },
+                ensure_ascii=False,
+            )
         return fake_llm(system, user)
 
     import app.api.routes as routes
+
     monkeypatch.setattr(routes, "get_llm", lambda: spy)
 
-    d = client.post("/interviews/itv_x/report", json={
-        "mode": "group", "context": CTX,
-        "turns": [{"question": "q", "answer": "我覺得先做市場調查"}],
-        "groupSays": [
-            {"speaker": "AI-邏輯", "content": "母數是多少", "isUser": False},
-            {"speaker": "user", "content": "我覺得先做客群分析", "isUser": True},
-        ],
-    }).json()
+    d = client.post(
+        "/interviews/itv_x/report",
+        json={
+            "mode": "group",
+            "context": CTX,
+            "turns": [{"question": "q", "answer": "我覺得先做市場調查"}],
+            "groupSays": [
+                {"speaker": "AI-邏輯", "content": "母數是多少", "isUser": False},
+                {"speaker": "user", "content": "我覺得先做客群分析", "isUser": True},
+            ],
+        },
+    ).json()
 
     assert len(seen) == 4, "四個維度要分開呼叫,不是一次評完"
-    names = [n for n in ("參與主動性", "傾聽與回應", "論點建構", "協作姿態")
-             if any(n in s for s in seen)]
+    names = [
+        n
+        for n in ("參與主動性", "傾聽與回應", "論點建構", "協作姿態")
+        if any(n in s for s in seen)
+    ]
     assert len(names) == 4, "每次呼叫只帶一個維度"
     assert d["collabDims"], "評出來的維度要進報告"
 
@@ -401,8 +625,9 @@ def test_collab_evidence_must_be_verbatim() -> None:
 
     assert verify_evidence([real], transcript) == []
     assert len(verify_evidence([fake], transcript)) == 1
-    assert verify_evidence([CollabDimDTO(name="x", score=76)], transcript) == [], \
+    assert verify_evidence([CollabDimDTO(name="x", score=76)], transcript) == [], (
         "找不到對應句子時留空是對的,不該被當成違規"
+    )
 
 
 def test_collab_stance_bars_marks_negation() -> None:
@@ -434,7 +659,10 @@ def test_evidence_survives_slice_markers() -> None:
     transcript = "題目是會員制度\n我覺得先做客群分析\n母數是多少"
 
     def check(ev: str) -> bool:
-        return verify_evidence([CollabDimDTO(name="x", score=76, evidence=ev)], transcript) == []
+        return (
+            verify_evidence([CollabDimDTO(name="x", score=76, evidence=ev)], transcript)
+            == []
+        )
 
     # 四種切片格式都要通過
     assert check("我覺得先做客群分析")
@@ -486,10 +714,14 @@ def test_interviewer_derived_from_persona_registry() -> None:
     from app.api.routes import _interviewer_names
     from app.schemas.interview import InterviewContext
 
-    solo = _interviewer_names("group", InterviewContext(group_interviewers=1, group_size=5))
+    solo = _interviewer_names(
+        "group", InterviewContext(group_interviewers=1, group_size=5)
+    )
     assert solo == {"主考官"}
 
-    panel = _interviewer_names("group", InterviewContext(group_interviewers=3, group_size=5))
+    panel = _interviewer_names(
+        "group", InterviewContext(group_interviewers=3, group_size=5)
+    )
     assert panel == {"用人主管", "技術主管", "HR 主管"}
     assert not any(n.startswith("AI-") for n in panel), "AI 應徵者是同儕不是面試官"
 
@@ -519,7 +751,9 @@ def test_app_main_is_tracked_by_git() -> None:
 
     r = subprocess.run(
         ["git", "ls-files", "app/main.py"],
-        capture_output=True, text=True, cwd=str(_repo_root()),
+        capture_output=True,
+        text=True,
+        cwd=str(_repo_root()),
     )
     if r.returncode != 0:
         import pytest
@@ -581,7 +815,9 @@ def test_fold_fixes_verbatim_false_positives() -> None:
     simp = "我觉得先做客群分析 样本低于三十就不采用"
     trad = "我覺得先做客群分析"
 
-    assert verify_evidence([CollabDimDTO(name="x", score=76, evidence=trad)], simp) == []
+    assert (
+        verify_evidence([CollabDimDTO(name="x", score=76, evidence=trad)], simp) == []
+    )
     r = ReportResponse(
         mode="single",
         star_parts=[StarPartDTO(key="S", name="情境", present=True, from_answer=trad)],
@@ -647,7 +883,9 @@ def _seg(text: str):
     from app.pipeline.transcript import TranscriptAnalyzer
 
     root = pathlib.Path(__file__).resolve().parents[1]
-    raw = json.loads((root / "fixtures" / "vocab" / "skills_v1.json").read_text(encoding="utf-8"))
+    raw = json.loads(
+        (root / "fixtures" / "vocab" / "skills_v1.json").read_text(encoding="utf-8")
+    )
     vocab = raw.get("skills", raw) if isinstance(raw, dict) else raw
     return TranscriptAnalyzer(vocab, engine_filler_policy="partial").text_stats(text)
 
@@ -666,7 +904,9 @@ def test_segments_produce_measured_segmentation() -> None:
     from app.api.routes import build_stats_text
     from app.schemas.interview import TurnDTO
 
-    with_seg = [TurnDTO(question="q", answer=_LONG, answer_segments=[_LONG[:20], _LONG[20:]])]
+    with_seg = [
+        TurnDTO(question="q", answer=_LONG, answer_segments=[_LONG[:20], _LONG[20:]])
+    ]
     assert _seg(build_stats_text(with_seg)).segmentation == "stt_segment"
 
 
@@ -689,11 +929,19 @@ def test_group_stats_use_only_user_utterances() -> None:
     from app.api.routes import build_group_text
     from app.schemas.interview import UtteranceDTO
 
-    text = build_group_text([
-        UtteranceDTO(speaker="你", content=_LONG, is_user=True,
-                     segments=[_LONG[:20], _LONG[20:]]),
-        UtteranceDTO(speaker="AI-邏輯", content="母數是多少 這個要問清楚", is_user=False),
-    ])
+    text = build_group_text(
+        [
+            UtteranceDTO(
+                speaker="你",
+                content=_LONG,
+                is_user=True,
+                segments=[_LONG[:20], _LONG[20:]],
+            ),
+            UtteranceDTO(
+                speaker="AI-邏輯", content="母數是多少 這個要問清楚", is_user=False
+            ),
+        ]
+    )
     assert "母數是多少" not in text
     assert _seg(text).segmentation == "stt_segment"
 
@@ -707,7 +955,9 @@ def test_empty_segments_falls_back_to_content() -> None:
     from app.api.routes import build_group_text
     from app.schemas.interview import UtteranceDTO
 
-    text = build_group_text([
-        UtteranceDTO(speaker="你", content=_LONG, is_user=True, segments=[]),
-    ])
+    text = build_group_text(
+        [
+            UtteranceDTO(speaker="你", content=_LONG, is_user=True, segments=[]),
+        ]
+    )
     assert text == _LONG

@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -147,6 +148,17 @@ def load_pool(
             )
         )
     return tuple(sorted(out, key=lambda s: s.skill_id))
+
+
+@lru_cache(maxsize=1)
+def default_pool() -> tuple[Skill, ...]:
+    """預設技能池,只載一次。
+
+    `load_pool` 本身不快取,因為測試要餵不同路徑的 fixture。
+    但正式路徑上它在 `create_interview` 裡面,而每一場都重讀兩個 JSON、
+    重建索引是白做的工。所以預設那一組單獨包一層。
+    """
+    return load_pool()
 
 
 def audit(pool: Sequence[Skill]) -> dict[str, int]:
