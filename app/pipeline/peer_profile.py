@@ -486,6 +486,12 @@ async def read_profiles(
         if background and FIRST_PERSON in background:
             background = ""
             repaired.append("background_voice")
+        if background and name and name in background:
+            # 名單上顯示的是「AI-強勢」這類標籤,背景是那個標籤底下的附註。
+            # 附註裡再出現一個人名,同一張卡就有兩個名字——實跑三十份裡有十二份
+            # 開頭就是「蔡怡君畢業於…」,而那會掛在「AI-強勢」下面。
+            background = ""
+            repaired.append("background_name")
         school = str(entry.get("school") or "").strip()
         if background:
             bad = school_problem(school, background)
@@ -502,9 +508,14 @@ async def read_profiles(
         if not background:
             background = spec.blurb
             school = ""
-            if "background_voice" not in repaired and "school" not in repaired:
-                if "background_school" not in repaired:
-                    repaired.append("background")
+            already = {
+                "background_voice",
+                "background_name",
+                "school",
+                "background_school",
+            }
+            if not already & set(repaired):
+                repaired.append("background")
 
         style = _clean(entry.get("style"), STYLE_MAX_CHARS)
         if not style:

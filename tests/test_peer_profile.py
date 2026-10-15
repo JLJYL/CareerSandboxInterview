@@ -969,3 +969,42 @@ def test_distinct_schools_all_pass():
     assert all(p.repaired == () for p in out)
     assert len({p.school for p in out}) == PEERS
     assert len({p.name[0] for p in out}) == PEERS
+
+
+def test_the_background_must_not_repeat_the_name():
+    """名單顯示「AI-強勢」,背景是那個標籤底下的附註——附註裡不該再有人名。
+
+    實跑三十份裡有十二份開頭就是「蔡怡君畢業於政治大學…」,而那會掛在
+    「AI-強勢」下面,同一張卡兩個名字。使用者會以為畫面壞了。
+    """
+    out = profiles_of(
+        lambda u: profile_reply(
+            u,
+            **{
+                SPECS[0].id: {
+                    "name": "林哲宇",
+                    "background": "林哲宇畢業於政治大學資訊管理系,做過半年前端。",
+                }
+            },
+        )
+    )
+    assert "background_name" in out[0].repaired
+    assert out[0].background == SPECS[0].blurb
+
+
+def test_a_background_starting_from_the_school_passes():
+    """從學校或經歷開始寫就對了。"""
+    out = profiles_of(profile_reply)
+    assert all(p.repaired == () for p in out)
+    assert all(p.name not in p.background for p in out)
+
+
+def test_the_name_never_reaches_the_response():
+    """生成的名字不往外送:`display_name` 不換,背景也不准出現它。
+
+    兩條路都堵住才算數——第一版只檢查了 display_name 那條(說話者比對),
+    漏了 blurb,而 blurb 是唯一真的會顯示在畫面上的欄位。
+    """
+    cast = cast_of(adjacent=adjacent_reply(), profile=profile_reply)
+    for p in cast.profiles:
+        assert p.name not in p.background
