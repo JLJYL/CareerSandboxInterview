@@ -45,6 +45,7 @@ from app.contracts.interview_protocols import TextStats
 from app.pipeline.jd_normalize import normalize_locale
 from app.pipeline.text_fold import fold_variants
 from app.pipeline.parallel import gather_blocks
+from app.pipeline.scorability import LOWEST_ANCHOR, assess
 from app.pipeline.speech_timing import describe_pauses, measure as measure_timing
 from app.pipeline.turn_emotion import EmotionTurn, batch_input_mode, read_emotions
 from app.prompts.interview_report import (
@@ -145,6 +146,30 @@ def format_stats(stats: TextStats, input_mode: str) -> tuple[str, bool]:
     return "\n".join(lines), measurable
 
 
+MIN_FLUENCY_CHARS = 100
+"""算填充詞密度需要的最小字數。短於這個字數回未評分。
+
+【這是樣本量問題,不是內容判斷】
+流暢度的分母是每百字。14 個字裡觀察到 0 個填充詞,對一個每百字 3.0 的
+正常講者來說完全是預期結果——那個長度下的 0 不代表講得順,代表沒得量。
+
+實測這個洞有多大:
+
+    「喔好啊這樣啊對啊我覺得還好。」 14 字,0 個填充詞 → 密度 0.0 → **90 分**
+    認真回答,密度 3.0                                    → 82 分
+    刻意講亂,密度 9.8                                    → 60 分
+
+亂答比認真回答高 8 分。注意失誤出在**短而乾淨**那一端:刻意講亂拿 60,
+公式本身是對的,壞的是在沒有樣本的時候還硬算。
+
+【為什麼是 100】
+以每百字 3.0 為正常值,100 字的期望填充詞數是 3。到這個長度,觀察到 0
+才開始有訊息量。低於它,0 跟講者習慣無關。
+
+黃金集十份整場 254–690 字,全部遠高於這個門檻,所以這條規則不會動到
+任何一份真實錄音——它只擋幾乎沒講話的場次。
+"""
+
 FLUENCY_BANDS: tuple[tuple[float, int, int], ...] = (
     (3.0, 82, 90),
     (6.0, 72, 82),
@@ -192,14 +217,22 @@ def score_depth(stats: TextStats) -> tuple[int, str]:
     return 90, f"數字與量化詞 {n} 處"
 
 
-def score_fluency(stats: TextStats, measurable: bool) -> tuple[int, str]:
-    """表達流暢度。回傳 (分數, 依據說明)。
+def score_fluency(stats: TextStats, measurable: bool) -> tuple[int | None, str]:
+    """表達流暢度。回傳 (分數, 依據說明)。分數可能是 None。
 
-    不可測時回 72(正常區間下緣)並註明依據不足——
-    不可以給高分,那會讓打字輸入的人佔便宜;也不可以給低分,那是懲罰未知。
+    【不可測時為什麼回 None 而不是 72】
+    原本回 72(正常區間下緣),理由寫的是「不可以給高分,那會讓打字輸入的人
+    佔便宜;也不可以給低分,那是懲罰未知」。那個推理是對的,結論是錯的:
+    兩邊都不可以,代表這一項不該有分數,不代表它該拿中間值。
+
+    72 一旦進了平均,就跟真的量到 72 完全一樣。使用者看到的是一個
+    有依據的分數,而實際上那是「我們沒量到」的委婉說法。
     """
     if not measurable or not stats.char_count:
-        return 72, "填充詞不可測,此項為預設值"
+        why = "沒有文字" if not stats.char_count else "填充詞不可測(打字輸入或引擎已移除)"
+        return None, why
+    if stats.char_count < MIN_FLUENCY_CHARS:
+        return None, f"全場只有 {stats.char_count} 字,填充詞密度沒有解析度"
     rate = stats.filler_count / stats.char_count * 100
     lo_edge = 0.0
     for edge, lo, hi in FLUENCY_BANDS:
@@ -209,6 +242,31 @@ def score_fluency(stats: TextStats, measurable: bool) -> tuple[int, str]:
             return int(round(score)), f"詞彙型填充詞每百字 {rate:.1f}"
         lo_edge = edge
     return 45, f"詞彙型填充詞每百字 {rate:.1f}"
+
+
+def overall(subs: Sequence[SubScoreDTO]) -> tuple[float | None, int]:
+    """總分與它的依據項數。只平均真的有分數的項。
+
+    【為什麼搬到後端算】
+    前端原本自己平均六項,而前端看不出一個數字是量到的還是補的。
+    三個症狀同一個原因:缺項補的 0 被平均進去、取整數截斷(64.67 → 64)、
+    陣列為空時填一個沒有依據的固定值。
+
+    後端知道哪幾項是真的,所以只平均那幾項。
+
+    【為什麼不回整數】
+    保留小數讓前端決定顯示幾位。這裡先取整的話,前端之後想顯示
+    64.7 就拿不回來了——而那正是 64.67 被截成 64 的同一個錯誤,
+    只是搬到了後端。
+
+    【為什麼要回項數】
+    總分 72 可以是六項都量到,也可以是只有一項量到。後者是那一項的
+    分數換了個名字。只給總分的話,兩種在畫面上一模一樣。
+    """
+    got = [s.score for s in subs if s.score is not None]
+    if not got:
+        return None, 0
+    return sum(got) / len(got), len(got)
 
 
 _MEASURE = "個|位|次|人|年|月|日|天|週|小時|分鐘|倍|成|%|％|元|份|家|間|種|項|篇|場"
@@ -501,40 +559,63 @@ async def generate_report(
     # 缺的段落不該算在他頭上。
     cut = truncated_turns(turns)
 
-    results, notices = await gather_blocks(
-        {
-            "face": gen_face(llm, transcript, stats_text, engine),
-            "subs": gen_sub_scores(llm, transcript, stats_text, engine),
-            "questions": gen_question_feedbacks(llm, turns, engine),
-            "star": gen_star_parts(star_llm, transcript, bool(cut), engine),
-            # 第五塊。它問的是「他當時是什麼狀態」,跟其他四塊無關,
-            # 所以併進同一次 gather:多一次呼叫但不多一輪等待。
-            "emotion": read_emotions(
-                turns=emotion_turns(turns),
-                llm=llm,
-                # 逐輪的模式,不是整場那個——整場的 input_mode 是給流暢度公式用的。
-                # 混用就退回 unknown,見 batch_input_mode。
-                input_mode=batch_input_mode([t.input_mode for t in turns]),
-            ),
-        }
-    )
+    # 可評性閘門。整場都沒有可評內容時,連問都不要問——
+    # 讓 LLM 替一段沒有內容的逐字稿寫評語與分數,它會寫得出來,
+    # 而且看起來很合理。那是最糟的失敗方式。
+    gate = assess([t.answer for t in turns])
+
+    blocks: dict[str, object] = {
+        "questions": gen_question_feedbacks(llm, turns, engine),
+        "star": gen_star_parts(star_llm, transcript, bool(cut), engine),
+        # 第五塊。它問的是「他當時是什麼狀態」,跟其他四塊無關,
+        # 所以併進同一次 gather:多一次呼叫但不多一輪等待。
+        "emotion": read_emotions(
+            turns=emotion_turns(turns),
+            llm=llm,
+            # 逐輪的模式,不是整場那個——整場的 input_mode 是給流暢度公式用的。
+            # 混用就退回 unknown,見 batch_input_mode。
+            input_mode=batch_input_mode([t.input_mode for t in turns]),
+        ),
+    }
+    if gate.scored:
+        blocks["face"] = gen_face(llm, transcript, stats_text, engine)
+        blocks["subs"] = gen_sub_scores(llm, transcript, stats_text, engine)
+
+    results, notices = await gather_blocks(blocks)
+    if not gate.scored:
+        notices.append(f"報告:{gate.reason()},六項分數與三維面向本次未評分")
 
     face = results.get("face", [])
     subs = list(results.get("subs", []))
     questions, q_notices = results.get("questions", ([], []))
     notices += q_notices
 
-    # 表達流暢度由公式決定,不採用 LLM 的值。
+    # 表達流暢度與內容深度由公式決定,不採用 LLM 的值。
     # 能用公式算的不要問 LLM——實測填充詞率 3.0(正常)時模型給 71,沒跟著錨走。
-    fluency, f_basis = score_fluency(stats, fluency_measurable)
-    depth, d_basis = score_depth(stats)
+    #
+    # 但公式跑之前要先過可評性閘門:兩個公式量的都是密度與處數,
+    # 短而乾淨的回答密度是 0,會落在最高的 band。實測「不知道。」四個字
+    # 拿到流暢度 90、內容深度 55,比認真回答的 82 還高。見 pipeline.scorability。
+    if not gate.scored:
+        fluency = depth = None
+        f_basis = d_basis = gate.reason()
+    elif gate.anchored:
+        # 全場都明確答不出來。他有回應,那是關於這幾項能力的觀察證據——
+        # 給最低錨點是誠實的評分,不是不評分。見 scorability 的模組註解。
+        fluency = depth = LOWEST_ANCHOR
+        f_basis = d_basis = gate.reason()
+    else:
+        fluency, f_basis = score_fluency(stats, fluency_measurable)
+        depth, d_basis = score_depth(stats)
+
     subs = [s for s in subs if s.name not in ("表達流暢度", "內容深度")]
     subs += [
-        SubScoreDTO(name="表達流暢度", score=fluency),
-        SubScoreDTO(name="內容深度", score=depth),
+        SubScoreDTO(name="表達流暢度", score=fluency, basis=f_basis),
+        SubScoreDTO(name="內容深度", score=depth, basis=d_basis),
     ]
-    notices.append(f"報告:表達流暢度 {fluency} 由系統計算({f_basis})")
-    notices.append(f"報告:內容深度 {depth} 由系統計算({d_basis})")
+    for label, value, basis in (("表達流暢度", fluency, f_basis), ("內容深度", depth, d_basis)):
+        shown = "未評分" if value is None else str(value)
+        notices.append(f"報告:{label} {shown} 由系統計算({basis})")
     star = results.get("star", [])
 
     # verbatim 機械檢查:對不上就把那一段降成未命中。
@@ -557,13 +638,15 @@ async def generate_report(
         else:
             fixed_star.append(part)
 
-    # 三維面向的分數對齊 subScores,避免同一件事出現兩個不一致的數字
+    # 三維面向的分數對齊 subScores,避免同一件事出現兩個不一致的數字。
+    # 來源是未評分時這裡也是未評分——抄一個 0 過來就是把 subScores 剛修好的
+    # 問題在隔壁欄位重演一次。
     by_name = {s.name: s.score for s in subs}
     pair = {"內": ("內容深度",), "構": ("邏輯清晰度",), "達": ("表達流暢度",)}
     face_scored = []
     for d in face:
         src = pair.get(d.letter, ())
-        score = next((by_name[n] for n in src if n in by_name), 0)
+        score = next((by_name[n] for n in src if n in by_name), None)
         prosody = None
         if d.letter == "達" and fluency_measurable:
             prosody = [ProsodyItem(label="填充詞", value=f"共 {stats.filler_count} 次(詞彙型)")]
@@ -597,4 +680,16 @@ async def generate_report(
             f"報告:第 {'、'.join(map(str, cut))} 題的回答被語音辨識切斷,"
             "那幾題缺少的段落不代表使用者沒講"
         )
-    return repair_report(report)
+
+    report = repair_report(report)
+
+    # 總分要在 repair 之後算。repair 會把缺的項補成未評分,
+    # 在它之前算等於照著一份還沒補齊的清單取平均。
+    report.overall_score, report.score_basis = overall(report.sub_scores)
+    if report.score_basis == 0:
+        report.notices.append("報告:沒有任何一項評得出來,本場無法給總分")
+    elif report.score_basis < len(SUB_SCORE_NAMES):
+        report.notices.append(
+            f"報告:總分由 {report.score_basis} 項算出(共 {len(SUB_SCORE_NAMES)} 項)"
+        )
+    return report

@@ -581,7 +581,7 @@ def test_positional_rescue_skips_valid_names() -> None:
     fixed, _ = repair_sub_scores([SubScoreDTO(name="表達流暢度", score=72)])
     by_name = {s.name: s.score for s in fixed}
     assert by_name["表達流暢度"] == 72
-    assert by_name["內容深度"] == 0, "名稱正確的項目不可以被搶去當別項的分數"
+    assert by_name["內容深度"] is None, "名稱正確的項目不可以被搶去當別項的分數"
 
 
 # ---------------------------------------------------------------------------
