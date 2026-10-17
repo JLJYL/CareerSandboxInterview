@@ -626,7 +626,12 @@ class FaceDimensionDTO(_Base):
 
     letter: str  # 內 / 構 / 達
     name: str  # 內容 / 結構 / 表達
-    score: int = Field(ge=0, le=100)
+    score: int | None = None
+    """未評分時為 `null`,規則與 `SubScoreDTO.score` 相同。
+
+    這一欄的值是從 `subScores` 抄過來的(內↔內容深度、構↔邏輯清晰度、
+    達↔表達流暢度),所以來源是 null 時這裡也是 null。
+    """
     verdict: str  # 一句總評
     points: list[str] = Field(default_factory=list)  # 可行動建議
     prosody: list[ProsodyItem] | None = None  # 僅「表達」面向
@@ -634,7 +639,9 @@ class FaceDimensionDTO(_Base):
     @field_validator("score", mode="before")
     @classmethod
     def _clamp(cls, v: object) -> object:
-        """LLM 偶爾會回 105 或 -3。夾回範圍,不要噴 500。"""
+        """LLM 偶爾會回 105 或 -3。夾回範圍,不要噴 500。None 原樣放行。"""
+        if v is None:
+            return None
         if isinstance(v, (int, float)):
             return max(0, min(100, int(v)))
         return v
@@ -644,11 +651,36 @@ class SubScoreDTO(_Base):
     """六項細分分數之一。鏡射 SubScore。"""
 
     name: str
-    score: int = Field(ge=0, le=100)
+    score: int | None = None
+    """未評分時為 `null`。**不可以讀成 0。**
+
+    0 分只代表一件事:評過了,而且是最低表現。沒有評到的項目是 `null`,
+    兩者在報告上的意思完全不同,前端不可以用 `score ?: 0` 把它們合併。
+
+    什麼時候會是 `null`:
+      - 這場沒有可評的內容(全部太短、沒講話)——見 `pipeline.scorability`
+      - 這一項的訊號量不到(打字輸入時的表達流暢度)
+      - 產生這一項的那次呼叫失敗
+
+    三種都會在 `notices` 說明,也會寫在同一項的 `basis`。
+
+    【前端怎麼顯示】
+    雷達圖那一軸畫成空缺或灰線,不要畫成 0——畫成 0 會讓圖形凹一個角,
+    使用者讀到的是「這項很差」。總分不要自己算,讀 `overallScore`。
+    """
+
+    basis: str = ""
+    """這個分數怎麼來的,或為什麼沒有分數。可以直接顯示給使用者。
+
+    例:「數字與量化詞 7 處」、「填充詞不可測(打字輸入)」、
+    「3 題都明確表示答不出來,此項為最低錨點」。
+    """
 
     @field_validator("score", mode="before")
     @classmethod
     def _clamp(cls, v: object) -> object:
+        if v is None:
+            return None
         if isinstance(v, (int, float)):
             return max(0, min(100, int(v)))
         return v
@@ -780,6 +812,35 @@ class ReportResponse(_Base):
     missing_points: list[MissingPointDTO] = Field(default_factory=list)
     turn_emotions: list[TurnEmotionDTO] = Field(default_factory=list)
     """逐題情緒。稀疏——只有要標註的題。見 TurnEmotionDTO。"""
+
+    overall_score: float | None = None
+    """總分。由後端算,**前端不要自己平均**。沒有任何一項可評時為 `null`。
+
+    【為什麼搬到後端】
+    前端原本是自己平均 `subScores` 六項。那有三個問題,全部來自同一件事:
+    前端看不出一個數字是量到的還是補的。
+
+      缺項補的 0 會被平均進去,一個區塊失敗就把總分拉低六分之一
+      取整數截斷,64.67 顯示成 64
+      陣列為空時前端填一個固定值(74),那個數字沒有任何依據
+
+    後端算的時候知道哪幾項是真的,所以只平均那幾項。
+
+    【為什麼是浮點數】
+    保留小數讓前端自己決定顯示幾位(64.7 或 65)。後端先取整的話,
+    前端之後想顯示一位小數就拿不回來了。
+    """
+
+    score_basis: int = 0
+    """`overallScore` 是幾項算出來的。0 代表沒有任何一項可評。
+
+    【為什麼要這一欄】
+    總分 72 有兩種來源:六項都量到,或只有一項量到。前者可信,後者是
+    一項的分數換了個名字。只給總分的話這兩種在畫面上完全一樣。
+
+    六項都在時顯示總分即可;少於六項時旁邊要標明依據幾項,
+    0 的時候顯示「本場無法評分」而不是一個數字。
+    """
 
     resume_grounded: bool = False
     """本次是否有履歷可依據。False 時 better 只做措辭重組、

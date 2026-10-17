@@ -352,10 +352,15 @@ def test_fluency_follows_measured_anchors() -> None:
     assert at(9.8) <= 62
 
 
-def test_fluency_defaults_to_mid_when_unmeasurable() -> None:
-    """不可測時不給高分(打字的人會佔便宜),也不給低分(那是懲罰未知)。"""
+def test_fluency_is_unscored_when_unmeasurable() -> None:
+    """不可測時回未評分,不是回一個中間值。
+
+    原本回 72,理由是「不可以給高分(打字的人會佔便宜),也不可以給低分
+    (那是懲罰未知)」。推理對,結論錯:兩邊都不可以,代表這一項不該有分數。
+    72 一旦進了平均,就跟真的量到 72 完全一樣。
+    """
     score, basis = score_fluency(TYPED_STATS, False)
-    assert 68 <= score <= 76
+    assert score is None
     assert "不可測" in basis
 
 
@@ -434,8 +439,14 @@ async def test_one_block_failure_keeps_the_rest() -> None:
     # 公式算的兩項不受 LLM 區塊失敗影響——這是把它們移出 LLM 的附帶好處
     assert by_name["表達流暢度"] > 0
     assert by_name["內容深度"] > 0
-    # 交給 LLM 的那幾項才會補 0
-    assert by_name["邏輯清晰度"] == 0, "失敗的區塊補 0 並記入 notices"
+    # 交給 LLM 的那幾項標成未評分,不補 0——
+    # 補 0 會讓「這一項的呼叫失敗了」跟「這一項表現最差」在報告上長得一樣。
+    assert by_name["邏輯清晰度"] is None, "失敗的區塊標為未評分並記入 notices"
+    # 而且總分只由真的有分數的那幾項算出來,不會被失敗的區塊拉低
+    assert r.score_basis == 2, "只有兩個公式項活著"
+    assert r.overall_score == pytest.approx(
+        (by_name["表達流暢度"] + by_name["內容深度"]) / 2
+    )
     assert any("subs" in n for n in r.notices)
 
 
@@ -613,7 +624,7 @@ async def test_engine_reaches_the_prompt() -> None:
 def test_whisper_style_stats_degrade_honestly() -> None:
     """Whisper 的輸出:有標點、沒有填充詞、reliability=unknown。
 
-    流暢度要走預設值不是給高分——打字與雲端轉錄都沒有填充詞,
+    流暢度要回未評分,不是給高分——打字與雲端轉錄都沒有填充詞,
     給高分等於獎勵一件跟使用者無關的事。
     """
     from app.pipeline.interview_report import format_stats, score_fluency
@@ -625,6 +636,80 @@ def test_whisper_style_stats_degrade_honestly() -> None:
     text, measurable = format_stats(whisper, "voice")
     assert measurable is False
     score, basis = score_fluency(whisper, measurable)
-    assert 68 <= score <= 76, "不給高分也不給低分"
+    assert score is None, "不給高分也不給低分,就是不給分"
     assert "不可測" in basis
     assert "有標點,精確值" in text, "雲端有標點,句長是精確的"
+
+
+# ---------------------------------------------------------------------------
+# 可評性閘門的接線證據(A / B / C)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_session_with_nothing_in_it_scores_nothing() -> None:
+    """C:沒講話的那一場,六項要全部未評分,不是拿地板分。
+
+    這一條同時是**接線證據**。閘門單元測試全綠不代表 generate_report
+    真的呼叫了它——`tests/test_scorability.py` 驗的是模組,這一條驗的是
+    那個模組有被接進管線。拆掉 generate_report 裡的 assess() 這條會紅。
+    """
+    r = await run(
+        turns=[
+            TurnDTO(question="請自我介紹", answer="嗯。", input_mode="voice"),
+            TurnDTO(question="講一個經驗", answer="喔。", input_mode="voice"),
+        ],
+        stats=TextStats(char_count=4, filler_reliability="measured"),
+    )
+    assert all(s.score is None for s in r.sub_scores), "一項都不該有分數"
+    assert r.overall_score is None
+    assert r.score_basis == 0
+    assert any("無法給總分" in n for n in r.notices)
+
+
+@pytest.mark.asyncio
+async def test_saying_you_dont_know_scores_the_lowest_anchor_not_a_blank() -> None:
+    """B:全場答不出來要拿最低錨點。
+
+    不評分的話使用者會收到一份六項全空的報告,他什麼都得不到。
+    他有回應——「我沒做過這件事」就是關於這幾項能力的觀察證據。
+    """
+    from app.pipeline.scorability import LOWEST_ANCHOR
+
+    r = await run(
+        turns=[
+            TurnDTO(question="請自我介紹", answer="不知道。", input_mode="voice"),
+            TurnDTO(question="講一個經驗", answer="這個我沒想過。", input_mode="voice"),
+        ],
+        stats=TextStats(char_count=12, filler_reliability="measured"),
+    )
+    by_name = {s.name: s.score for s in r.sub_scores}
+    assert by_name["表達流暢度"] == LOWEST_ANCHOR
+    assert by_name["內容深度"] == LOWEST_ANCHOR
+    assert r.overall_score is not None, "答不出來是可評的,要有總分"
+    assert any("答不出來" in s.basis for s in r.sub_scores)
+
+
+@pytest.mark.asyncio
+async def test_face_dimensions_do_not_invent_a_zero_for_an_unscored_sub() -> None:
+    """三維面向的分數是從 subScores 抄的。來源未評分時這裡也要未評分。
+
+    抄一個 0 過來,等於把 subScores 剛修好的問題在隔壁欄位重演一次,
+    而且那一欄沒有人在看。
+    """
+    r = await run(
+        turns=[TurnDTO(question="q", answer="嗯。", input_mode="voice")],
+        stats=TextStats(char_count=2, filler_reliability="measured"),
+    )
+    assert r.face_dimensions, "面向本身還在,只是沒有分數"
+    assert all(d.score is None for d in r.face_dimensions)
+
+
+@pytest.mark.asyncio
+async def test_a_normal_session_still_gets_a_total_from_all_six() -> None:
+    """閘門不可以誤傷正常的一場。"""
+    r = await run()
+    assert r.score_basis == len(SUB_SCORE_NAMES)
+    assert r.overall_score is not None
+    scored = [s.score for s in r.sub_scores if s.score is not None]
+    assert r.overall_score == pytest.approx(sum(scored) / len(scored))

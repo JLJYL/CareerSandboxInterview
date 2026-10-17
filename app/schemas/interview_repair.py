@@ -31,10 +31,17 @@ from app.schemas.interview import (
 
 
 def repair_sub_scores(items: list[SubScoreDTO]) -> tuple[list[SubScoreDTO], list[str]]:
-    """六項固定名稱,缺補 0、多丟棄、順序歸位。
+    """六項固定名稱,缺的標成未評分、多的丟棄、順序歸位。
 
     對不上名稱時用位置對齊:LLM 常寫成「邏輯清楚度」這種近義變體,
     位置通常是對的,直接改名比丟掉整項好。
+
+    【缺項為什麼是 None 不是 0】
+    原本補 0。那讓「這一項的呼叫失敗了」跟「這一項表現最差」在報告上
+    長得一樣,而前端平均六項的時候那個 0 會把總分拉低六分之一。
+
+    不變量:**0 分只代表評過了而且是最低表現**。系統失敗一律 None。
+    協作那側的 `collab_score._to_dim` 一直是這樣做的,六項這邊補上。
     """
     notices: list[str] = []
     by_name = {i.name: i for i in items}
@@ -42,7 +49,8 @@ def repair_sub_scores(items: list[SubScoreDTO]) -> tuple[list[SubScoreDTO], list
 
     for idx, name in enumerate(SUB_SCORE_NAMES):
         if name in by_name:
-            out.append(SubScoreDTO(name=name, score=by_name[name].score))
+            src = by_name[name]
+            out.append(SubScoreDTO(name=name, score=src.score, basis=src.basis))
         elif idx < len(items) and items[idx].name not in SUB_SCORE_NAMES:
             # 位置對齊救援。只在該位置的項目**不是**其他合法名稱時才做——
             # 否則會把一個名稱正確、只是位置不同的項目搶過來當成別項的分數。
@@ -50,11 +58,11 @@ def repair_sub_scores(items: list[SubScoreDTO]) -> tuple[list[SubScoreDTO], list
             # 實測踩到的坑:區塊失敗時 subs 只剩系統計算的「表達流暢度」一項,
             # 位置救援把那個分數當成第一項「內容深度」的值。
             # 救援是給近義變體用的(邏輯清楚度 → 邏輯清晰度),不是給缺項用的。
-            out.append(SubScoreDTO(name=name, score=items[idx].score))
+            out.append(SubScoreDTO(name=name, score=items[idx].score, basis=items[idx].basis))
             notices.append(f"subScores 第 {idx + 1} 項名稱不符,已依位置歸位為「{name}」")
         else:
-            out.append(SubScoreDTO(name=name, score=0))
-            notices.append(f"subScores 缺少「{name}」,已補 0")
+            out.append(SubScoreDTO(name=name, score=None, basis="這一項的評分沒有產生出來"))
+            notices.append(f"subScores 缺少「{name}」,標為未評分")
 
     extra = len(items) - len(SUB_SCORE_NAMES)
     if extra > 0:
@@ -121,10 +129,12 @@ def repair_face_dimensions(
             src = items[idx]
             notices.append(f"faceDimensions 第 {idx + 1} 項標記不符,已依位置歸位為「{letter}」")
         if src is None:
+            # 補 None 不補 0,理由同 repair_sub_scores:
+            # 0 分只代表評過了而且是最低表現。缺的那一項沒有被評過。
             out.append(
-                FaceDimensionDTO(letter=letter, name=name, score=0, verdict="", points=[])
+                FaceDimensionDTO(letter=letter, name=name, score=None, verdict="", points=[])
             )
-            notices.append(f"faceDimensions 缺少「{name}」,已補 0")
+            notices.append(f"faceDimensions 缺少「{name}」,標為未評分")
             continue
         out.append(
             FaceDimensionDTO(
