@@ -45,6 +45,7 @@ from app.prompts.interview_live import (
 from app.prompts.turn_decision import ACTION_INSTRUCTION
 from app.prompts.interview_personas import (
     INTERRUPT_CAP,
+    opening_intro,
     personas_for,
     speaker_names,
 )
@@ -506,6 +507,16 @@ async def start_interview(
     return StartInterviewResponse(
         session_id=sid,
         mode=mode,
+        # 程式組的,不問模型——面試官是誰是 personas_for 已經決定的事實,
+        # 而模型猜錯的方式是編一個姓名出來。見 opening_intro 的註解。
+        opening_intro=opening_intro(
+            mode,
+            role_title=context.custom_role,
+            company=context.custom_company,
+            round_name=context.round,
+            group_interviewers=context.group_interviewers,
+            group_size=context.group_size,
+        ),
         opening_question=question,
         opening_speaker=opening_speaker,
         opening_topic=normalize_locale(str(op.get("openingTopic", "")).strip())
