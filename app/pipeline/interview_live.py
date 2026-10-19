@@ -416,7 +416,30 @@ async def _gen_interrupts(llm: LLMCall, n: int) -> list[str]:
     ][:n]
 
 
+def opening_question(ctx: InterviewContext) -> str:
+    """開場的第一題:請使用者自我介紹。程式組的,不問模型。
+
+    【為什麼開場固定成自我介紹】
+    真實面試的順序是先自我介紹、再追履歷、最後問職缺。原本沒有這個順序,
+    `OPENING_RULES` 反而明文寫「不是通用的『請自我介紹』」,所以一場四題
+    全部是職缺題,而使用者連開口暖身的機會都沒有。
+
+    三段的分法見 `probe_rules.interview_phase`。
+
+    【為什麼不問模型】
+    這一句的內容只隨職稱變動,其餘完全固定。問模型等於讓它在一件沒有
+    變化空間的事情上產生變化,而那個變化只會是壞的——`DEFAULT_OPENING`
+    本來就是這一句,它一直是生成失敗時的退路,現在扶正成正常路徑。
+
+    省下來的不只是穩定性:開場那次呼叫現在只需要產備援追問。
+    """
+    role = (ctx.custom_role or "").strip()
+    about = f"跟{role}這個職缺相關的經驗" if role else "跟這個職位相關的經驗"
+    return f"先請你用一分鐘自我介紹,重點放在{about}。"
+
+
 DEFAULT_OPENING = "先請你用一分鐘自我介紹,重點放在跟這個職位相關的經驗。"
+"""`opening_question` 在沒有職稱時的輸出。測試與舊呼叫端還在用這個常數。"""
 DEFAULT_PROBES = (
     "這個判斷你當時是依據什麼下的?",
     "如果時間只剩一半,你會先砍掉哪一段?",
@@ -520,11 +543,10 @@ async def start_interview(
             results[name] = {"opening": {}, "peers": None}.get(name, [])
 
     op = results.get("opening") or {}
-    question = (
-        normalize_locale(str(op.get("openingQuestion", "")).strip()) or DEFAULT_OPENING
-    )
-    if not op.get("openingQuestion"):
-        notices.append("開場:未取得主問題,已使用預設")
+    # 開場固定是自我介紹,不採用模型回的 openingQuestion——
+    # 那一句只隨職稱變動,沒有需要模型發揮的空間。見 opening_question。
+    # 那次呼叫留著是因為備援追問仍然要生成。
+    question = opening_question(context)
     probes = [
         normalize_locale(str(x).strip())
         for x in (op.get("fallbackProbes") or [])
@@ -565,8 +587,8 @@ async def start_interview(
         ),
         opening_question=question,
         opening_speaker=opening_speaker,
-        opening_topic=normalize_locale(str(op.get("openingTopic", "")).strip())
-        or "自我介紹",
+        # 開場固定是自我介紹,領域標籤跟著固定,不採用模型回的。
+        opening_topic="自我介紹",
         personas=personas,
         interrupt_lines=interrupts,
         interrupt_cap=len(interrupts),
@@ -611,6 +633,8 @@ async def next_turn(
     llm: LLMCall,
     context: InterviewContext | None = None,
     decision: "TurnDecision | None" = None,
+    jd: JDInput | None = None,
+    experiences: Sequence[ExperienceDTO] = (),
 ) -> TurnResponse:
     """一輪接話。
 
@@ -648,7 +672,11 @@ async def next_turn(
         f"【前一題(脈絡)】{question or '(未提供)'}",
     ]
     if context:
-        user_parts.append("【職位脈絡】\n" + context_block(context))
+        # jd 與 experiences 原本都沒傳,所以每輪的 context_block 會寫
+        # 「JD:使用者沒有提供」而實際上 `_turn_jd` 早就抽出來了,
+        # 履歷也同樣看不到。職缺那一段跟履歷那一段都靠這兩份材料,
+        # 不帶的話階段的指示會落在空的脈絡上。
+        user_parts.append("【職位脈絡】\n" + context_block(context, jd, experiences))
     gi = context.group_interviewers if context else 1
     gs = context.group_size if context else 4
     names = speaker_names(mode, gi, gs)
@@ -702,6 +730,8 @@ async def next_turn(
                 engine=context.transcription_engine if context else "api",
                 difficulty=context.difficulty if context else "中等",
                 group_role=context.group_role if context else "一般應徵者",
+                turn_index=follow_up_idx,
+                has_resume=bool(resume_block(experiences)),
             ),
             "\n\n".join(user_parts),
         )

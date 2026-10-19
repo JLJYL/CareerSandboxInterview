@@ -576,6 +576,23 @@ class TurnRequest(_Base):
     **這一欄是描述性標籤,不是防重複的比對鍵。** 比對鍵是下面那一欄。
     """
 
+    experiences: list[ExperienceDTO] = Field(default_factory=list)
+    """使用者選的那份履歷。**每輪都要帶**,跟開場送的是同一份。
+
+    【為什麼每輪都要】
+    面試分三段:開場自我介紹、接著兩題問履歷、最後兩題問職缺
+    (見 `probe_rules.interview_phase`)。第二段沒有履歷就沒有材料,
+    面試官只能問空泛的題目,而使用者在應徵頁選了哪一版履歷看不出差別。
+
+    原本只有開場與報告拿得到履歷,每一輪拿不到——所以開場那一題會貼著
+    履歷問,然後系統就忘了,第三題又回到跟履歷無關的題目。
+
+    跟 `jd_skills` 同一個模式:前端存著,每輪原樣送回,不要解讀內容。
+    session 落地後可由後端自行查詢,屆時可省略,合約不用改。
+
+    空的話履歷那一段會跳過,直接問職缺——不會假裝有履歷去編一筆。
+    """
+
     asked_questions: list[str] = Field(default_factory=list)
     """本場已經問過的**問題原文**,前端累積 TurnResponse.next_question 後回傳。
 

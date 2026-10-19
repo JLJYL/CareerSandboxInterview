@@ -105,10 +105,38 @@ def test_group_speakers_include_peers_and_moderator() -> None:
 @pytest.mark.asyncio
 async def test_start_happy_path() -> None:
     r = await start_interview(mode="single", context=CTX, llm=llm_returning(OPENING))
-    assert r.opening_question == OPENING["openingQuestion"]
-    assert r.opening_topic == "資料分析"
     assert len(r.fallback_probes) == 2
     assert r.session_id.startswith("itv_")
+
+
+@pytest.mark.asyncio
+async def test_the_opening_always_asks_for_a_self_introduction() -> None:
+    """開場固定是自我介紹,不採用模型回的 openingQuestion。
+
+    三段式的第一段。原本 `OPENING_RULES` 明文寫「不是通用的『請自我介紹』」,
+    所以一場四題全部是職缺題,使用者連開口暖身的機會都沒有。
+
+    模型這裡回的是「先講一個你用資料做出判斷的經驗。」,不可以被採用。
+    """
+    r = await start_interview(mode="single", context=CTX, llm=llm_returning(OPENING))
+
+    assert "自我介紹" in r.opening_question
+    assert r.opening_question != OPENING["openingQuestion"]
+    assert r.opening_topic == "自我介紹", "領域標籤跟著固定"
+    # 職稱有填就帶進去,那是這一句唯一會變的地方
+    assert CTX.custom_role in r.opening_question
+
+
+@pytest.mark.asyncio
+async def test_the_opening_still_reads_the_fallback_probes_from_the_model() -> None:
+    """開場那次呼叫留著是因為備援追問仍然要生成。
+
+    沒有這一條的話,「開場不問模型」可能被實作成整個呼叫都拿掉,
+    而備援池會靜靜退回寫死的三句。
+    """
+    r = await start_interview(mode="single", context=CTX, llm=llm_returning(OPENING))
+    assert r.fallback_probes == OPENING["fallbackProbes"]
+    assert not any("備援追問" in n for n in r.notices)
 
 
 @pytest.mark.asyncio
