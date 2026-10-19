@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from app.prompts.interview_personas import PersonaSpec, personas_for
-from app.prompts.probe_rules import compose_probe_rules
+from app.prompts.probe_rules import RESUME_PHASE, compose_probe_rules, interview_phase
 
 # ---------------------------------------------------------------------------
 # 共用
@@ -427,11 +427,15 @@ def compose_turn_prompt(
     group_interviewers: int = 1, group_size: int = 4,
     difficulty: str = "中等", group_role: str = "一般應徵者",
     focus_speaker: str = "", truncated: bool = False, engine: str = "device",
+    turn_index: int = 0, has_resume: bool = False,
 ) -> str:
     """每輪追問的 system prompt。
 
     追問判準與禁則來自 probe_rules,不在這裡重寫——
     重寫會產生兩份會分岔的規則,而黃金集的標記標準也綁在那一份上。
+
+    `turn_index` 決定這一輪換新主問題時問哪一段(履歷 / 職缺),
+    見 `probe_rules.interview_phase`。階段只管新主問題,追問不受它限制。
     """
     parts = [
         "你的工作是在一場模擬面試裡,聽完對方的回答之後接話。",
@@ -456,6 +460,12 @@ def compose_turn_prompt(
     parts.append(
         compose_probe_rules(asked_questions, include_triggers=False, truncated=truncated)
     )
+
+    # 階段。沒有履歷的時候不講履歷那一段——材料是空的,
+    # 叫它「從他履歷上寫的經歷挑一筆」會讓它去編一筆。
+    phase = interview_phase(turn_index)
+    if phase is not RESUME_PHASE or has_resume:
+        parts.append(phase)
 
     if mode == "single":
         parts.append(TURN_OUTPUT_SINGLE)

@@ -1368,3 +1368,76 @@ def test_a_long_resume_is_cut_between_entries_not_inside_one(client) -> None:
     for line in text.splitlines():
         if line.startswith("・"):
             assert line.endswith("成果很好"), "每一筆都是完整的,不切在中間"
+
+
+# ---------------------------------------------------------------------------
+# 三段式:開場自介 → 兩題履歷 → 兩題職缺
+# ---------------------------------------------------------------------------
+
+
+def _turn_system(client, monkeypatch, **body) -> str:
+    """跑一輪,把接話那次呼叫的 system prompt 攔下來。"""
+    seen = {}
+
+    def spy(system: str, user: str) -> str:
+        if "接話" in system:
+            seen["system"], seen["user"] = system, user
+        return fake_llm(system, user)
+
+    from app.api import routes
+    monkeypatch.setattr(routes, "get_llm_live", lambda: spy)
+    client.post(
+        "/interviews/itv_x/turns",
+        json={"answer": PASSING_ANSWER, "question": OPENING_Q,
+              "context": {**CTX, "difficulty": "中等"}, **body},
+    )
+    return seen["system"], seen["user"]
+
+
+def test_the_first_two_turns_ask_about_the_resume(client, monkeypatch) -> None:
+    """第二段。使用者剛自我介紹完,接著追他履歷上寫的。"""
+    for idx in (0, 1):
+        system, _ = _turn_system(client, monkeypatch,
+                                 followUpIdx=idx, experiences=RESUME)
+        assert "這一段問履歷" in system, f"第 {idx} 輪應該在履歷那一段"
+
+
+def test_the_later_turns_move_on_to_the_job(client, monkeypatch) -> None:
+    """第三段。履歷問完了,改問這個職缺會遇到的事。"""
+    for idx in (2, 3):
+        system, _ = _turn_system(client, monkeypatch,
+                                 followUpIdx=idx, experiences=RESUME)
+        assert "這一段問職缺" in system, f"第 {idx} 輪應該在職缺那一段"
+        assert "這一段問履歷" not in system
+
+
+def test_the_resume_phase_is_skipped_when_there_is_no_resume(client, monkeypatch) -> None:
+    """沒有履歷就不要叫它「從他履歷上寫的經歷挑一筆」——那會讓它去編一筆。"""
+    system, _ = _turn_system(client, monkeypatch, followUpIdx=0)
+    assert "這一段問履歷" not in system
+
+
+def test_the_resume_reaches_every_turn_not_just_the_opening(client, monkeypatch) -> None:
+    """原本只有開場與報告拿得到履歷。
+
+    開場那一題會貼著履歷問,然後系統就忘了,第三題又回到跟履歷無關的題目。
+    """
+    _, user = _turn_system(client, monkeypatch, followUpIdx=0, experiences=RESUME)
+    assert "系學會行銷" in user
+    assert "【他選的這份履歷】" in user
+
+
+def test_the_jd_reaches_every_turn_too(client, monkeypatch) -> None:
+    """職缺那一段要有職缺內容才問得具體。
+
+    原本每輪的 context_block 不帶 jd,所以它會寫「使用者沒有提供」,
+    而 `_turn_jd` 早就抽出來了。
+    """
+    _, user = _turn_system(client, monkeypatch, followUpIdx=2,
+                           jdSkills=["版本控制", "需求訪談"])
+
+    # 比對的是**結構化技能清單**那一行,不是 "SQL" 三個字——
+    # 回答裡本來就有 SQL,而 CTX.custom_jd 也會讓散文那條分支印出東西。
+    # 第一版就是這樣寫的,拆掉接線它照樣綠。
+    assert "這份職缺需要的能力" in user
+    assert "版本控制、需求訪談" in user

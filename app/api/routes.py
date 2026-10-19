@@ -173,6 +173,10 @@ async def submit_turn(req: TurnRequest, session_id: str = SESSION_ID) -> TurnRes
         fallback=req.fallback,
         llm=get_llm_live(),
         context=req.context,
+        # 職缺那一段跟履歷那一段的材料。原本每輪都沒帶,所以
+        # context_block 會寫「使用者沒有提供 JD」而 _turn_jd 早就抽出來了。
+        jd=_turn_jd(req),
+        experiences=req.experiences,
     )
     # 追問深度的狀態由前端保管,後端只算下一步該是多少——跟 askedTopics
     # 與 followUpIdx 同一個模式。前端不解讀這兩個值,原樣送回就好。
