@@ -1278,3 +1278,93 @@ def test_an_empty_context_still_produces_an_intro(client) -> None:
     assert intro
     assert "的的" not in intro and "  " not in intro
     assert not intro.startswith("你好,我是,")
+
+
+# ---------------------------------------------------------------------------
+# 履歷進開場(M)
+# ---------------------------------------------------------------------------
+
+RESUME = [
+    {"id": "e1", "title": "系學會行銷", "role": "行銷組長",
+     "action": "每週出一則短影音", "result": "追蹤數從零到一千二",
+     "tags": ["社群經營", "內容企劃"]},
+    {"id": "e2", "title": "電商實習", "role": "資料分析實習生",
+     "action": "用 SQL 重寫查詢", "result": "每週三小時降到二十分鐘",
+     "tags": ["SQL", "報表自動化"]},
+]
+
+
+def _opening_prompt(client, monkeypatch, **body):
+    """開一場,把開場那次呼叫的 system 與 user 都攔下來。"""
+    seen = {}
+
+    def spy(system: str, user: str) -> str:
+        if "開場問題" in system:
+            seen["system"], seen["user"] = system, user
+        return fake_llm(system, user)
+
+    from app.api import routes
+    monkeypatch.setattr(routes, "get_llm_live", lambda: spy)
+    client.post("/interviews", json={"mode": "single", "context": CTX, **body})
+    return seen
+
+
+def test_the_resume_reaches_the_opening_prompt(client, monkeypatch) -> None:
+    """欄位一直都在,開場那支從來沒讀過它——三處使用全在報告那條路徑。
+
+    使用者在應徵頁選了哪一版履歷,開場題就該跟著那一版走。
+    """
+    seen = _opening_prompt(client, monkeypatch, experiences=RESUME)
+
+    assert "系學會行銷" in seen["user"], "經歷要進開場的材料"
+    assert "SQL" in seen["user"], "標籤也要,那是技能的來源"
+    assert "【他選的這份履歷】" in seen["user"]
+
+
+def test_two_different_resumes_give_the_model_different_material(client, monkeypatch) -> None:
+    """換一份履歷,送進去的材料要不一樣。
+
+    沒有這一條的話,「履歷有進去」可以靠一個寫死的字串通過。
+    """
+    a = _opening_prompt(client, monkeypatch, experiences=RESUME)["user"]
+    b = _opening_prompt(client, monkeypatch, experiences=[RESUME[1]])["user"]
+    assert a != b
+    assert "系學會行銷" in a and "系學會行銷" not in b
+
+
+def test_the_no_assumptions_rule_flips_when_there_is_a_resume(client, monkeypatch) -> None:
+    """一邊列出他的經歷、一邊叫模型不要假設他做過什麼,是自相矛盾的指示。
+
+    模型遇到矛盾會挑一條遵守,而挑哪一條我們控制不了。
+    """
+    with_r = _opening_prompt(client, monkeypatch, experiences=RESUME)["system"]
+    without = _opening_prompt(client, monkeypatch)["system"]
+
+    assert "不預設對方有什麼經歷" in without
+    assert "不預設對方有什麼經歷" not in with_r
+    assert "只能問履歷上寫了的事" in with_r
+
+
+def test_no_resume_says_so_instead_of_leaving_a_blank(client, monkeypatch) -> None:
+    """空欄位會讓模型以為漏了什麼而去猜。JD 那邊同一個理由。"""
+    user = _opening_prompt(client, monkeypatch)["user"]
+    assert "履歷:使用者沒有選" in user
+
+
+def test_a_long_resume_is_cut_between_entries_not_inside_one(client) -> None:
+    """半句話的經歷比沒有這一筆更糟,模型會對著殘句出題。"""
+    from app.pipeline.interview_live import RESUME_MAX_CHARS, resume_block
+    from app.schemas.interview import ExperienceDTO
+
+    many = [
+        ExperienceDTO(id=f"e{i}", title=f"經歷{i}", role="負責人",
+                      action="做了很多事情" * 20, result="成果很好")
+        for i in range(30)
+    ]
+    text = resume_block(many)
+
+    assert len(text) < RESUME_MAX_CHARS + 200
+    assert "未列出" in text, "截掉的要講,不要靜靜消失"
+    for line in text.splitlines():
+        if line.startswith("・"):
+            assert line.endswith("成果很好"), "每一筆都是完整的,不切在中間"
