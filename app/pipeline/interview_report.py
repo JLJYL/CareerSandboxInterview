@@ -184,37 +184,77 @@ FLUENCY_BANDS: tuple[tuple[float, int, int], ...] = (
 """
 
 
-DEPTH_BANDS: tuple[tuple[int, int, int], ...] = (
-    (3, 55, 68),
-    (9, 68, 80),
-    (20, 80, 90),
-)
-"""(量化詞處數上限, 分數下界, 分數上界)。區間內線性內插。
+STAR_BANDS: dict[int, tuple[int, int]] = {
+    4: (80, 95),
+    3: (68, 82),
+    2: (56, 70),
+    1: (46, 60),
+    0: (40, 52),
+}
+"""STAR 命中段數 → (分數下界, 分數上界)。量化詞在區間內定位。
 
-【為什麼也改成公式】
-實測十格,LLM 給的內容深度有 7 格是完全相同的 68——它把 prompt 裡的
-band 邊界值當成答案,而不是在 band 內分辨。邏輯清晰度更嚴重,8/10 是 78。
+【為什麼要第二個訊號】
+原本只看量化詞處數。實測黃金集十份:
 
-這是同一個教訓的第三次:能用公式算的不要問 LLM。
-量化詞處數是 TextStats 已經有的確定性統計,映射成分數比印象分穩定。
+    量化詞  2  2  2  2  3  3  3  4  12  12
+    內容深度 64 64 64 64 68 68 68 70 83  83
 
-【這個訊號的限制】
-內容深度不只是「有沒有數字」,也包括有沒有具體事例、有沒有落到自己做的事上。
-量化詞處數只涵蓋第一項。但 prompt 原本也只給了這一個錨,
-模型並沒有用到其他訊號——所以形式化並沒有損失什麼,只是把它變穩定。
+十份裡有八份落在 64–70,**相差 6 分**。全距看起來是 19,但那 19 全部
+來自一份剛好講了 12 個數字的逐字稿。換句話說這個維度只在有人湊巧
+講很多數字的時候才分得出東西,其餘時間所有人都是同一分。
+
+對照組:邏輯清晰度(LLM 評的)四場實跑全距 25。把內容深度改成公式
+讓它穩定了,但也讓它變成六項裡最分不出好壞的一項。
+
+【為什麼是 STAR 當主軸,量化詞當副軸】
+這個分法不是我挑的,是評分標準本來的形狀:
+
+    90–100  有具體情境、行動、結果,**且**包含量化成果或清楚的決策理由
+    70–89   有具體行動與結果,但缺少量化證據、取捨理由或細節
+    50–69   有回答問題,但內容偏概括,只描述「有做」而沒有說明怎麼做
+    0–49    明顯答非所問、內容過短
+
+讀一遍就看得出來:前面那一段決定落在哪一帶的是**講了幾個 STAR 要素**,
+量化成果只負責把 70–89 那一帶推上 90。所以 STAR 段數定帶、量化詞定位置。
+
+【用驗證過的 STAR,不用模型原本回的】
+`verify_star_verbatim` 會把引用不存在於逐字稿的段落降成未命中。
+用未驗證的版本等於讓模型編一句引用就把內容深度推上去——
+那是我們已經擋過一次的失敗(`ungrounded_numbers` 同一個理由)。
+
+【沒有校準資料】
+黃金集十份的 labels 只有 skills / alias_decisions / gap_ranking,
+沒有 STAR 標註也沒有品質標註。所以這些分界是照上面那份評分標準取的,
+不是量出來的——跟它取代的那一版一樣。
+
+要校準需要一批標好高/中/低品質的回答。那也正是修完之後第五步
+(用不同品質的回答測區分度)要做的事。
+
+【已知的不對稱】
+STAR 是行為題的結構。整場都是非行為題(純自我介紹、動機題)的話,
+段數本來就低,內容深度會跟著被壓低。目前先接受:報告的 STAR 區塊
+本來就在告訴使用者「你應該講出這四段」,兩邊的立場一致。
+"""
+
+QUANT_FULL = 6
+"""量化詞到幾處算把該帶推到頂。
+
+黃金集的分布是 2 / 3 / 4 / 12,取 6 讓多數回答落在帶內的 1/3 到 2/3,
+而不是一進來就頂到天花板。沒有校準資料,理由同 STAR_BANDS。
 """
 
 
-def score_depth(stats: TextStats) -> tuple[int, str]:
-    """內容深度。回傳 (分數, 依據說明)。"""
+def score_depth(stats: TextStats, star_present: int = 0) -> tuple[int, str]:
+    """內容深度。回傳 (分數, 依據說明)。
+
+    `star_present` 是 S/T/A/R 四段裡**驗證過**命中的段數,0–4。
+    """
+    hit = max(0, min(4, star_present))
+    lo, hi = STAR_BANDS[hit]
     n = stats.quantifier_count
-    lo_edge = 0
-    for edge, lo, hi in DEPTH_BANDS:
-        if n <= edge:
-            span = edge - lo_edge or 1
-            return int(round(lo + (n - lo_edge) / span * (hi - lo))), f"數字與量化詞 {n} 處"
-        lo_edge = edge
-    return 90, f"數字與量化詞 {n} 處"
+    pos = min(n, QUANT_FULL) / QUANT_FULL
+    score = int(round(lo + pos * (hi - lo)))
+    return score, f"STAR 命中 {hit}/4 段,數字與量化詞 {n} 處"
 
 
 def score_fluency(stats: TextStats, measurable: bool) -> tuple[int | None, str]:
@@ -589,37 +629,13 @@ async def generate_report(
     subs = list(results.get("subs", []))
     questions, q_notices = results.get("questions", ([], []))
     notices += q_notices
-
-    # 表達流暢度與內容深度由公式決定,不採用 LLM 的值。
-    # 能用公式算的不要問 LLM——實測填充詞率 3.0(正常)時模型給 71,沒跟著錨走。
-    #
-    # 但公式跑之前要先過可評性閘門:兩個公式量的都是密度與處數,
-    # 短而乾淨的回答密度是 0,會落在最高的 band。實測「不知道。」四個字
-    # 拿到流暢度 90、內容深度 55,比認真回答的 82 還高。見 pipeline.scorability。
-    if not gate.scored:
-        fluency = depth = None
-        f_basis = d_basis = gate.reason()
-    elif gate.anchored:
-        # 全場都明確答不出來。他有回應,那是關於這幾項能力的觀察證據——
-        # 給最低錨點是誠實的評分,不是不評分。見 scorability 的模組註解。
-        fluency = depth = LOWEST_ANCHOR
-        f_basis = d_basis = gate.reason()
-    else:
-        fluency, f_basis = score_fluency(stats, fluency_measurable)
-        depth, d_basis = score_depth(stats)
-
-    subs = [s for s in subs if s.name not in ("表達流暢度", "內容深度")]
-    subs += [
-        SubScoreDTO(name="表達流暢度", score=fluency, basis=f_basis),
-        SubScoreDTO(name="內容深度", score=depth, basis=d_basis),
-    ]
-    for label, value, basis in (("表達流暢度", fluency, f_basis), ("內容深度", depth, d_basis)):
-        shown = "未評分" if value is None else str(value)
-        notices.append(f"報告:{label} {shown} 由系統計算({basis})")
     star = results.get("star", [])
 
     # verbatim 機械檢查:對不上就把那一段降成未命中。
     # 不做自動修復——引用不存在的原文是嚴重錯誤,而且修復等於我們自己編一句。
+    #
+    # 這一段排在算分之前,因為內容深度要吃驗證過的 STAR 段數。
+    # 用未驗證的版本等於讓模型編一句引用就把分數推上去。
     raw_answers = "\n".join(t.answer for t in turns)
     fixed_star = []
     for part in star:
@@ -637,6 +653,35 @@ async def generate_report(
             )
         else:
             fixed_star.append(part)
+
+    star_hits = sum(1 for p in fixed_star if p.present)
+
+    # 表達流暢度與內容深度由公式決定,不採用 LLM 的值。
+    # 能用公式算的不要問 LLM——實測填充詞率 3.0(正常)時模型給 71,沒跟著錨走。
+    #
+    # 但公式跑之前要先過可評性閘門:兩個公式量的都是密度與處數,
+    # 短而乾淨的回答密度是 0,會落在最高的 band。實測「不知道。」四個字
+    # 拿到流暢度 90、內容深度 55,比認真回答的 82 還高。見 pipeline.scorability。
+    if not gate.scored:
+        fluency = depth = None
+        f_basis = d_basis = gate.reason()
+    elif gate.anchored:
+        # 全場都明確答不出來。他有回應,那是關於這幾項能力的觀察證據——
+        # 給最低錨點是誠實的評分,不是不評分。見 scorability 的模組註解。
+        fluency = depth = LOWEST_ANCHOR
+        f_basis = d_basis = gate.reason()
+    else:
+        fluency, f_basis = score_fluency(stats, fluency_measurable)
+        depth, d_basis = score_depth(stats, star_hits)
+
+    subs = [s for s in subs if s.name not in ("表達流暢度", "內容深度")]
+    subs += [
+        SubScoreDTO(name="表達流暢度", score=fluency, basis=f_basis),
+        SubScoreDTO(name="內容深度", score=depth, basis=d_basis),
+    ]
+    for label, value, basis in (("表達流暢度", fluency, f_basis), ("內容深度", depth, d_basis)):
+        shown = "未評分" if value is None else str(value)
+        notices.append(f"報告:{label} {shown} 由系統計算({basis})")
 
     # 三維面向的分數對齊 subScores,避免同一件事出現兩個不一致的數字。
     # 來源是未評分時這裡也是未評分——抄一個 0 過來就是把 subScores 剛修好的

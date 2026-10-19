@@ -327,9 +327,49 @@ def test_depth_comes_from_formula_not_llm() -> None:
 
 
 def test_depth_is_monotonic() -> None:
+    """量化詞越多分數不可以往下掉,而且在真實落點上要分得開。
+
+    原本這條要求 (0, 3, 6, 12, 30) 五個輸入五個不同分數。那個要求
+    把刻度攤到 30 個量化詞才頂天,結果是真實回答落的 2–4 這一段
+    只剩 6 分可用——黃金集十份有八份擠在 64–70。
+
+    現在量化詞到 `QUANT_FULL` 就推到該帶頂端,超過不再加分。
+    鑑別力要求改成落在真實分布上,那才是它該有的地方。
+    """
     scores = [score_depth(TextStats(quantifier_count=n))[0] for n in (0, 3, 6, 12, 30)]
-    assert scores == sorted(scores)
-    assert len(set(scores)) == len(scores), "每個輸入要有不同輸出,否則沒有鑑別力"
+    assert scores == sorted(scores), "不可以往下掉"
+
+    real = [score_depth(TextStats(quantifier_count=n))[0] for n in range(0, 7)]
+    assert len(set(real)) >= 5, "真實回答落在 0–6 處,這一段要分得開"
+
+
+def test_star_completeness_is_the_main_axis() -> None:
+    """同樣的量化詞處數,STAR 講滿與沒講要差得出來。
+
+    這是 D 的核心:量化詞單獨撐不起這個維度,因為多數回答都是 2–4 處。
+    """
+    at = lambda hits: score_depth(TextStats(quantifier_count=3), hits)[0]
+    by_star = [at(h) for h in range(5)]
+
+    assert by_star == sorted(by_star), "STAR 段數越多分數不可以往下掉"
+    assert by_star[4] - by_star[0] >= 30, "四段全中與一段都沒有,要拉得開"
+
+
+def test_depth_spreads_wider_than_the_old_single_signal() -> None:
+    """黃金集的量化詞分布是 2 / 3 / 4 / 12,舊公式讓八份擠在 64–70。
+
+    新公式在同一組量化詞上、配不同的 STAR 段數,全距要明顯變寬。
+    """
+    golden_quantifiers = (2, 2, 2, 2, 3, 3, 3, 4, 12, 12)
+
+    old_like = [score_depth(TextStats(quantifier_count=q), 2)[0] for q in golden_quantifiers]
+    spread_one_star_level = max(old_like) - min(old_like)
+
+    everything = [
+        score_depth(TextStats(quantifier_count=q), h)[0]
+        for q in golden_quantifiers for h in range(5)
+    ]
+    assert max(everything) - min(everything) > spread_one_star_level + 20
 
 
 def test_llm_depth_value_is_ignored() -> None:
@@ -713,3 +753,46 @@ async def test_a_normal_session_still_gets_a_total_from_all_six() -> None:
     assert r.overall_score is not None
     scored = [s.score for s in r.sub_scores if s.score is not None]
     assert r.overall_score == pytest.approx(sum(scored) / len(scored))
+
+
+@pytest.mark.asyncio
+async def test_depth_uses_the_verified_star_not_what_the_model_claimed() -> None:
+    """編一句不存在的引用,不可以把內容深度推上去。
+
+    STAR 段數現在是內容深度的主軸,所以它變成一條攻擊路徑:模型只要宣稱
+    四段全中、附一句編的原文,分數就從 44 跳到 85。`verify_star_verbatim`
+    會把對不上的段落降成未命中,內容深度吃的必須是降級後的結果。
+
+    這跟 `ungrounded_numbers` 是同一個理由——判斷型規則有殘留率,
+    所以在它後面補一道機械檢查。
+    """
+    claimed_all_four = [
+        {"key": k, "present": True,
+         "fromAnswer": "這句話逐字稿裡沒有出現過", "hint": ""}
+        for k in ("S", "T", "A", "R")
+    ]
+    r = await run(fake_llm(star=claimed_all_four))
+
+    depth = next(s.score for s in r.sub_scores if s.name == "內容深度")
+    honest_zero = score_depth(VOICE_STATS, 0)[0]
+    assert depth == honest_zero, "四段全被驗掉,分數要等同一段都沒中"
+    assert sum(1 for n in r.notices if VERBATIM_FAIL_MARKER in n) == 4
+
+
+@pytest.mark.asyncio
+async def test_depth_rises_when_the_star_quotes_are_real() -> None:
+    """對照組:引用真的在逐字稿裡的時候,分數要跟著上去。
+
+    沒有這一條,上面那一條用「內容深度恆為最低」也會過。
+    """
+    real = [
+        {"key": "S", "present": True, "fromAnswer": "我們辦過一場聯名活動", "hint": ""},
+        {"key": "T", "present": True, "fromAnswer": "我是資管系大三的學生", "hint": ""},
+        {"key": "A", "present": True, "fromAnswer": "我沒先測試就直接全推", "hint": ""},
+        {"key": "R", "present": True, "fromAnswer": "過去在系學會做行銷", "hint": ""},
+    ]
+    r = await run(fake_llm(star=real))
+
+    depth = next(s.score for s in r.sub_scores if s.name == "內容深度")
+    assert depth == score_depth(VOICE_STATS, 4)[0]
+    assert depth > score_depth(VOICE_STATS, 0)[0] + 30
