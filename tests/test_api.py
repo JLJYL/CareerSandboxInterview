@@ -1134,3 +1134,147 @@ def test_being_cut_off_does_not_count_toward_the_cap(client) -> None:
     d = _turn(client, probeGap="缺任務", probeDepth=2, endedBy="timeout")
     assert d["probeDepth"] == 0
     assert d["probeGap"] == ""
+
+
+# ---------------------------------------------------------------------------
+# 防重複的比對鍵:已問問題原文,不是領域標籤(K)
+# ---------------------------------------------------------------------------
+
+#: `compose_probe_rules` 的註解記的那一組實測重複。重疊 0.69,門檻 0.6。
+OPENING_Q = "你在資料分析方面的經驗,特別是如何處理數據或報表"
+REPEAT_Q = "你過去如何處理資料清理的經驗"
+
+#: 中等難度下會放行的回答。防重複只套用在**新主問題**上,
+#: 追問本來就該留在同一個話題,所以觸發追問的回答測不到這一段。
+PASSING_ANSWER = "那個專案原本都是人工整理。我用 SQL 重寫查詢。每週三小時降到二十分鐘。"
+
+
+def _llm_that_repeats(system: str, user: str) -> str:
+    """接話時生出一題跟開場高度重疊的新主問題。"""
+    if "接話" in system:
+        return json.dumps(
+            {**TURN, "nextQuestion": REPEAT_Q, "isFollowUp": False},
+            ensure_ascii=False,
+        )
+    return fake_llm(system, user)
+
+
+def _repeating_turn(client, monkeypatch, llm=None, **extra):
+    from app.api import routes
+    monkeypatch.setattr(routes, "get_llm_live", lambda: llm or _llm_that_repeats)
+    return client.post(
+        "/interviews/itv_x/turns",
+        json={"answer": PASSING_ANSWER, "followUpIdx": 1, "question": OPENING_Q,
+              "context": {**CTX, "difficulty": "中等"},
+              "fallback": ["你怎麼跟工程師溝通需求?"], **extra},
+    ).json()
+
+
+def test_a_rephrased_main_question_is_swapped_for_a_fallback(client, monkeypatch) -> None:
+    """帶了問句原文,重複的新主問題要被換掉。
+
+    這是 `is_near_duplicate` 當初就是為了擋的那一組,寫在它的 docstring 裡。
+    """
+    d = _repeating_turn(client, monkeypatch,
+                        askedQuestions=[OPENING_Q], askedTopics=["資料分析"])
+
+    assert d["isFollowUp"] is False, "防重複只套用在新主問題上"
+    assert d["nextQuestion"] != REPEAT_Q, "重複的主問題要被備援題換掉"
+    assert any("與先前重複" in n for n in d["notices"])
+
+
+def test_topic_labels_cannot_stand_in_for_the_asked_questions(client, monkeypatch) -> None:
+    """只帶領域標籤時擋不下來,而且要講出來。
+
+    這是原本的線上行為:routes 把 `asked_topics` 塞進一個叫
+    `asked_questions` 的參數。兩邊都是 list[str],接錯沒有東西擋得住。
+
+    「資料分析」跟那句問句的交集只有「資料」兩個字,而 `is_near_duplicate`
+    要求至少四個字,所以永遠回 None——失效的方式是沉默的,
+    比對照樣跑,只是從來不命中。
+    """
+    d = _repeating_turn(client, monkeypatch, askedTopics=["資料分析"])
+
+    assert d["nextQuestion"] == REPEAT_Q, "標籤擋不下來,這是已知的降級"
+    assert any("askedQuestions" in n for n in d["notices"]), "降級一定要講"
+
+
+def test_the_prompt_lists_questions_not_labels(client, monkeypatch) -> None:
+    """prompt 的標題寫「本場已經問過的問題」,底下列的就必須是問題。
+
+    列標籤的話模型會靠操弄標籤滿足禁則——實測六輪裡問題問到協調排程,
+    標籤卻回收成「資料清理經驗」。
+    """
+    seen = {}
+
+    def spy(system: str, user: str) -> str:
+        if "接話" in system:
+            seen["system"] = system
+        return _llm_that_repeats(system, user)
+
+    _repeating_turn(client, monkeypatch, llm=spy,
+                    askedQuestions=[OPENING_Q], askedTopics=["資料分析"])
+
+    assert "本場已經問過的問題" in seen["system"]
+    assert OPENING_Q in seen["system"], "問句原文要進 prompt"
+
+
+# ---------------------------------------------------------------------------
+# 面試官自我介紹(L)
+# ---------------------------------------------------------------------------
+
+
+def test_the_opening_introduces_the_interviewer_first(client) -> None:
+    """一進去就直接問題目,使用者不知道誰在問、這是什麼場合。"""
+    d = client.post(
+        "/interviews",
+        json={"mode": "single",
+              "context": {**CTX, "customRole": "資料分析實習生",
+                          "customCompany": "聯發科", "round": "複試"}},
+    ).json()
+
+    intro = d["openingIntro"]
+    assert intro, "開場要先有面試官那一段"
+    assert "資料分析實習生" in intro and "複試" in intro
+    assert intro != d["openingQuestion"], "介紹跟題目是兩則,不可以串成一段"
+
+
+def test_the_intro_never_invents_a_name_or_a_duration(client) -> None:
+    """只講我們真的知道的事。
+
+    競爭者那邊踩過:模型生成的中文姓名漏進 blurb,12/30 筆的開頭是生成的
+    名字,而畫面標籤是「AI-強勢」。面試官這邊的顯示名是角色名不是姓名,
+    同樣不可以被寫成「我是陳經理」。
+
+    長度與關卡數也一樣——「我們今天大概聊二十分鐘」聽起來很自然,
+    但那個數字是我們發明的。
+    """
+    d = client.post("/interviews", json={"mode": "panel", "context": CTX}).json()
+    intro = d["openingIntro"]
+
+    assert "經理" not in intro and "先生" not in intro and "小姐" not in intro
+    assert "分鐘" not in intro and "小時" not in intro
+    # 角色名要出現,那是我們真的知道的
+    assert "HR 主管" in intro
+
+
+def test_the_group_intro_matches_the_roster_on_screen(client) -> None:
+    """人數講錯會跟畫面上的卡片對不起來。"""
+    d = client.post(
+        "/interviews",
+        json={"mode": "group", "context": {**CTX, "groupSize": 5}},
+    ).json()
+
+    peers = [p for p in d["personas"] if p["role"] == "peer"]
+    assert len(peers) == 4
+    assert "五位" in d["openingIntro"], "連使用者自己共五位"
+
+
+def test_an_empty_context_still_produces_an_intro(client) -> None:
+    """沒填職稱公司也要講得出話,不可以出現空格或殘句。"""
+    d = client.post("/interviews", json={"mode": "single", "context": {}}).json()
+    intro = d["openingIntro"]
+
+    assert intro
+    assert "的的" not in intro and "  " not in intro
+    assert not intro.startswith("你好,我是,")

@@ -422,6 +422,28 @@ class StartInterviewResponse(_Base):
 
     session_id: str
     mode: InterviewMode
+
+    opening_intro: str = ""
+    """面試官的自我介紹,在 openingQuestion **之前**顯示或播出。
+
+    一進去就直接問題目,使用者不知道誰在問、這是什麼場合。真實面試不會
+    這樣開始。
+
+    【這段是程式組的,不是模型生的】
+    面試官是誰、有幾位、各自什麼角色,`personas_for` 已經決定好了。
+    問模型等於讓它猜一件我們已經知道的事,而它猜錯的方式很具體:
+    編一個姓名。競爭者那邊踩過——12/30 筆的 blurb 開頭是生成的中文姓名,
+    而畫面標籤是「AI-強勢」,一張卡兩個名字。
+
+    所以內容只會提到:角色名(「HR 主管」)、關卡(初試)、人數、
+    以及使用者自己填的職稱與公司。**不會出現姓名、面試長度、關卡數**——
+    那些是我們沒有的資訊。
+
+    【前端】
+    不接的話不會壞,只是開場維持現況。接的話當成面試官的第一句話顯示,
+    跟 openingQuestion 分開兩則,不要串成一段。
+    """
+
     opening_question: str
     opening_speaker: str = ""  # single 可空;panel/group 帶說話者
     opening_topic: str = ""  # 開場題所屬領域,前端由此開始累積 asked_topics
@@ -550,6 +572,40 @@ class TurnRequest(_Base):
     「追問不得重複已問領域」這條禁則沒有清單就無法執行——只在 prompt 寫
     「不得重複」,模型會自行想像哪些問過了,結果照樣重複。
     session 落地後這個欄位可由後端自行查詢,屆時前端可省略,合約不用改。
+
+    **這一欄是描述性標籤,不是防重複的比對鍵。** 比對鍵是下面那一欄。
+    """
+
+    asked_questions: list[str] = Field(default_factory=list)
+    """本場已經問過的**問題原文**,前端累積 TurnResponse.next_question 後回傳。
+
+    【為什麼不能用 asked_topics 代替】
+    `compose_probe_rules` 的註解早就寫明「傳的是已問過的問題原文,不是領域
+    標籤」,理由是實測六輪裡模型靠操弄標籤滿足禁則:問題問到協調排程,
+    標籤卻回收成「資料清理經驗」。標籤是模型自己填的,拿它當比對鍵等於
+    讓它自己出考卷。
+
+    但這個欄位一直不存在,所以 routes 只能把 `asked_topics` 塞進一個叫
+    `asked_questions` 的參數。兩邊都是 `list[str]`,接錯看不出來,結果是:
+
+      prompt 標題寫「本場已經問過的問題」,底下列的是四個字的標籤
+      `is_near_duplicate` 拿問句去比標籤,**永不觸發**
+
+    實測它當初就是為了擋的那一case:
+
+        已問  「你在資料分析方面的經驗,特別是如何處理數據或報表」
+        新題  「你過去如何處理資料清理的經驗」
+
+        問句 vs 問句   → 抓到(重疊 0.69)
+        問句 vs 標籤   → None
+
+    這是「一個事實只存在於資料的形狀裡而沒有被宣告」的又一次:
+    兩個欄位型別相同、語意不同,而型別系統擋不住。
+
+    【前端怎麼帶】
+    跟 `asked_topics` 完全同一個模式,只是存的是 `nextQuestion` 而不是
+    `topic`。不帶的話後端退回用 `asked_topics`,功能不會壞,但防重複
+    形同關閉,`notices` 會說明。
     """
 
 
@@ -566,7 +622,17 @@ class TurnResponse(_Base):
     reaction: str = ""  # A1.reaction / A2.reaction;group 不使用
     is_follow_up: bool = False  # 這句是追問還是新的主問題
     should_advance: bool = False  # 前端是否該推進到下一主問題
+
     topic: str = ""
+    """next_question 所屬的領域標籤,例如「資料分析」「團隊衝突」。
+
+    由後端標記、前端累積,下一輪回傳 TurnRequest.asked_topics。
+    讓前端不必自己判斷題目屬於哪個領域。追問(is_follow_up=True)沿用
+    上一題的 topic,不算新領域。
+
+    **這是描述性標籤,不是防重複的比對鍵**——模型會操弄它。
+    比對鍵是 next_question 原文,累積到 TurnRequest.asked_questions。
+    """
 
     probe_gap: str = ""
     """這一輪結束後在追的缺口。前端存著,下一輪原樣送回。"""
@@ -576,12 +642,7 @@ class TurnResponse(_Base):
 
     換題或被切斷時歸零——被切斷不是使用者的問題,不該算進上限。
     """
-    """next_question 所屬的領域標籤,例如「資料分析」「團隊衝突」。
 
-    由後端標記、前端累積,下一輪回傳 TurnRequest.asked_topics。
-    讓前端不必自己判斷題目屬於哪個領域。追問(is_follow_up=True)沿用
-    上一題的 topic,不算新領域。
-    """
     notices: list[str] = Field(default_factory=list)
 
 

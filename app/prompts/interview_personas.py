@@ -362,3 +362,91 @@ INTERRUPT_CAP = 3
 多備一句的成本是零,少一句就沒得用。
 實際上限由 StartInterviewResponse.interrupt_cap 帶給前端。
 """
+
+
+# ---------------------------------------------------------------------------
+# 面試官自我介紹
+# ---------------------------------------------------------------------------
+
+
+def opening_intro(
+    mode: str,
+    *,
+    role_title: str = "",
+    company: str = "",
+    round_name: str = "初試",
+    group_interviewers: int = 1,
+    group_size: int = 4,
+) -> str:
+    """開場時面試官先講的那一段。回空字串代表這一場不需要。
+
+    【為什麼不問模型】
+    面試官是誰、有幾位、各自什麼角色,全部是 `personas_for` 已經決定好的
+    確定性事實。問模型等於讓它去猜一件我們已經知道的事,而它猜錯的方式
+    很具體:編一個姓名出來。
+
+    競爭者那邊踩過同一個坑——模型生成的中文姓名漏進 blurb,12/30 筆的
+    開頭是生成的名字,而畫面上的標籤是「AI-強勢」,一張卡會有兩個名字。
+    面試官這邊的顯示名是「HR 主管」這種角色名,不是姓名,同樣不能被
+    改寫成「我是陳經理」。
+
+    而且開場那次呼叫的輸出已經有三個欄位。實測欄位越多越可能不被遵守
+    (一對一的接話 prompt 從五個欄位砍到兩個,就是因為 60–80% 的輪次
+    根本沒包成 JSON)。多加一個欄位去換一段算得出來的話,不划算。
+
+    【不編造沒有的東西】
+    公司名、面試長度、關卡數都只在使用者填了才講。空的就不提——
+    「我們今天大概聊二十分鐘」聽起來很自然,但那個數字是我們發明的。
+    """
+    personas = personas_for(mode, group_interviewers, group_size)
+    post = _job_phrase(role_title, company)
+
+    if mode == "group":
+        peers = sum(1 for p in personas if p.role == "peer")
+        host = next((p for p in personas if p.role != "peer"), None)
+        who = host.display_name if host and host.display_name else "主考官"
+        # 人數講出來,因為使用者在畫面上看得到幾張卡,對不起來會很怪
+        job = f"應徵的職缺是{post}," if post else ""
+        return (
+            f"你好,我是{who}。這是一場{round_name}團體面試,{job}"
+            f"今天連你在內共{_cn_count(peers + 1)}位應徵者,我會輪流請各位回答。"
+        )
+
+    if mode == "panel":
+        names = [p.display_name for p in personas if p.display_name]
+        line = f"你好,今天由我們{_cn_count(len(names))}位一起面試:{'、'.join(names)}。"
+        if post:
+            line += f"我們想了解你跟{post}這個職缺的適配程度。"
+        return line
+
+    # 一對一。display_name 是空字串(前端不顯示說話者),所以不自稱名字。
+    if post:
+        return (
+            f"你好,我是{post}的面試官,今天是{round_name}。"
+            "我會針對你的經歷問幾個問題。"
+        )
+    return f"你好,今天是{round_name},我會針對你的經歷問幾個問題。"
+
+
+_CN_DIGITS = ("零", "一", "兩", "三", "四", "五", "六", "七", "八", "九", "十")
+
+
+def _cn_count(n: int) -> str:
+    """人數用中文數字。
+
+    這一段是要被唸出來的,不是印在表格裡。「我們3位」讀起來是機器寫的,
+    而使用者說過不要像 AI 寫的東西。超出範圍退回阿拉伯數字,不要硬湊。
+    """
+    return _CN_DIGITS[n] if 0 <= n <= 10 else str(n)
+
+
+def _job_phrase(role_title: str, company: str) -> str:
+    """把公司與職稱接成一個詞組。兩者都可能是空的。
+
+    用「的」接,不要用空白——中文沒有這個用法,而「聯發科 資料分析實習生」
+    看起來像欄位拼接的結果,因為它就是。
+    """
+    role, firm = role_title.strip(), company.strip()
+    if role and firm:
+        return f"{firm}的{role}"
+    return role or firm
