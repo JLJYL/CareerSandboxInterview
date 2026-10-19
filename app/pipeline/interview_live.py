@@ -51,6 +51,7 @@ from app.prompts.interview_personas import (
 )
 from app.prompts.probe_rules import MAX_TURNS_PER_SESSION, turn_cap_for
 from app.schemas.interview import (
+    ExperienceDTO,
     InterviewContext,
     Persona,
     StartInterviewResponse,
@@ -103,11 +104,46 @@ def parse_list(raw: str) -> list:
 # ---------------------------------------------------------------------------
 
 
-def context_block(ctx: InterviewContext, jd: JDInput | None = None) -> str:
+RESUME_MAX_CHARS = 1200
+"""履歷帶進開場時的上限。
+
+超過就截掉後面的經歷,不截單一筆的中間——半句話的經歷比沒有這一筆更糟,
+模型會對著一個殘缺的句子出題。
+"""
+
+
+def resume_block(experiences: Sequence[ExperienceDTO]) -> str:
+    """把經歷攤成 prompt 材料。開場與報告共用這一份。
+
+    原本只有報告那條路有這個函式(`routes._resume_text`),而開場那邊
+    根本沒用到履歷。兩邊各寫一份的話格式會分岔,而分岔的方向通常是
+    「其中一邊忘了帶某個欄位」,然後沒有人發現。
+    """
+    lines: list[str] = []
+    used = 0
+    for e in experiences:
+        bits = [e.title, e.role, e.action, e.result]
+        tags = "、".join(t for t in e.tags if str(t or "").strip())
+        line = "・" + " / ".join(b for b in bits if b) + (f"(標籤:{tags})" if tags else "")
+        if line == "・":
+            continue
+        if used + len(line) > RESUME_MAX_CHARS:
+            lines.append(f"(還有 {len(experiences) - len(lines)} 筆經歷未列出)")
+            break
+        lines.append(line)
+        used += len(line)
+    return "\n".join(lines)
+
+
+def context_block(
+    ctx: InterviewContext,
+    jd: JDInput | None = None,
+    experiences: Sequence[ExperienceDTO] = (),
+) -> str:
     """把設定頁的欄位攤成 prompt 材料。
 
     JD 是選填的。空的時候不要留一個空欄位讓模型腦補,直接寫明沒有——
-    「JD:」後面接空白會讓它以為漏了什麼而去猜。
+    「JD:」後面接空白會讓它以為漏了什麼而去猜。履歷同理。
     """
     lines = [
         f"職稱:{ctx.custom_role or '(未填)'}",
@@ -126,6 +162,12 @@ def context_block(ctx: InterviewContext, jd: JDInput | None = None) -> str:
         lines.append(f"JD 原文:{ctx.custom_jd[:600]}")
     else:
         lines.append("JD:使用者沒有提供。只用上面的職位脈絡出題,不要假裝知道職缺內容。")
+
+    resume = resume_block(experiences)
+    if resume:
+        lines += ["", "【他選的這份履歷】", resume]
+    else:
+        lines.append("履歷:使用者沒有選。不要假設他做過什麼。")
     return "\n".join(lines)
 
 
@@ -415,6 +457,7 @@ async def start_interview(
     llm: LLMCall,
     llm_exact: LLMCall | None = None,
     jd: JDInput | None = None,
+    experiences: Sequence[ExperienceDTO] = (),
     session_id: str | None = None,
 ) -> StartInterviewResponse:
     """開場。群面另外並行生成搶話台詞與競爭者。
@@ -433,7 +476,7 @@ async def start_interview(
     而那是群面這個模式的全部價值。
     """
     notices: list[str] = []
-    ctx_text = context_block(context, jd)
+    ctx_text = context_block(context, jd, experiences)
     sid = session_id or f"itv_{uuid.uuid4().hex[:12]}"
 
     cfg = dict(
@@ -441,6 +484,9 @@ async def start_interview(
         group_size=context.group_size,
         difficulty=context.difficulty,
         group_role=context.group_role,
+        # 有履歷的時候要換掉「不預設對方有什麼經歷」那一條,
+        # 否則 prompt 一邊列出他的經歷、一邊叫模型不要假設他做過什麼。
+        has_resume=bool(resume_block(experiences)),
     )
     tasks: dict[str, asyncio.Task] = {
         "opening": asyncio.ensure_future(_gen_opening(llm, mode, ctx_text, cfg))

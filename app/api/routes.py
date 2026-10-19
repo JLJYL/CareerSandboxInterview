@@ -42,7 +42,7 @@ from app.api.deps import (
     get_analyzer,
 )
 from app.contracts.interview_protocols import JDInput, Utterance
-from app.pipeline.interview_live import next_turn, start_interview
+from app.pipeline.interview_live import next_turn, resume_block, start_interview
 from app.pipeline.interview_report import generate_report
 from app.pipeline.interviewer_spec import derive_specs
 from app.pipeline.turn_decision import decide_turn
@@ -140,6 +140,9 @@ async def create_interview(req: StartInterviewRequest) -> StartInterviewResponse
         # 同一個職缺每次挑出不同的技能池,而那個變化會疊在 seed 上面。
         llm_exact=get_llm(),
         jd=jd,
+        # 欄位一直都在,只是開場那支從來沒讀過它——三處使用全在報告那條路徑。
+        # 使用者在應徵頁選了哪一版履歷,開場題就該跟著那一版走。
+        experiences=req.experiences,
     )
     resp.notices = notices + list(resp.notices)
     resp.jd_skills = list(jd.required_skills) if jd else []
@@ -514,11 +517,10 @@ def _dominant_input_mode(req: ReportRequest) -> str:
 
 
 def _resume_text(req: ReportRequest) -> str:
-    lines = []
-    for e in req.experiences:
-        bits = [e.title, e.role, e.action, e.result]
-        tags = "、".join(e.tags)
-        lines.append(
-            "・" + " / ".join(b for b in bits if b) + (f"(標籤:{tags})" if tags else "")
-        )
-    return "\n".join(lines)
+    """報告那條路的履歷文字。格式與開場共用同一支,見 `resume_block`。
+
+    原本這裡自己攤一份,而開場那邊根本沒用到履歷。開場接上之後
+    兩邊各留一份的話格式會分岔,而分岔的方向通常是「其中一邊忘了
+    帶某個欄位」,然後沒有人發現。
+    """
+    return resume_block(req.experiences)
