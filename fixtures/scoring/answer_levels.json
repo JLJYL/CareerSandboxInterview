@@ -1,0 +1,212 @@
+{
+  "_about": "分數區分度的驗收集。四個題目 × 四個品質等級。來源是前端組的「個人面試評分範例集」。",
+  "_provenance": {
+    "answers_from": "前端組(怡君),2026-10-19「個人面試評分範例集」",
+    "expected_from": "前端組草稿,模型組尚未逐條確認",
+    "star_labeled_by": [
+      "B-draft"
+    ],
+    "star_double_labeled": false,
+    "_star_note": "STAR 段數是模型組 B 依文字判讀的草稿,**還沒有第二人複核**。黃金集的慣例是 A-draft + B-review,這一份只有一半。內容深度的分數直接吃這個數字,所以標錯會直接變成測試通過或不通過——請怡君或組內再看一遍。"
+  },
+  "_what_this_is_for": [
+    "驗收:改完評分之後重跑,檢查四個等級的分數有沒有真的拉開、順序對不對。",
+    "**不是** few-shot 材料。帶數字的區間貼進 prompt 會讓模型輸出邊界值——",
+    "實測內容深度十格有七格是同一個 68,邏輯清晰度 8/10 是 78。",
+    "要給模型看範例的話要走 BARS 的形狀(行為描述分級,分數由程式映射),",
+    "見 app/prompts/collab_rubric.py。那需要逐維度重新標註,不是這一份的格式。"
+  ],
+  "_known_limits": [
+    "十六筆裡只有兩筆是實測,其餘是為了補齊等級寫的。",
+    "寫出來的範例有標點、沒有填充詞、結構乾淨,所以:",
+    "  斷句走 punctuation 那條路(品質較好的那條),不是裝置端的 stt_segment",
+    "  填充詞恆為 0,表達流暢度量不到真實的口語習慣",
+    "所以這一份驗的是**內容面的區分度**,不是表達面的。",
+    "表達面要等 Whisper 錄音進來。"
+  ],
+  "levels": [
+    "good",
+    "fair",
+    "off_topic",
+    "refusal"
+  ],
+  "_level_names": {
+    "good": "好",
+    "fair": "普通",
+    "off_topic": "離題",
+    "refusal": "拒答"
+  },
+  "expected_overall": {
+    "good": [
+      80,
+      90
+    ],
+    "fair": [
+      55,
+      68
+    ],
+    "off_topic": [
+      30,
+      45
+    ],
+    "refusal": [
+      15,
+      30
+    ]
+  },
+  "_expected_note": "前端組的草稿區間。模型組對 off_topic 與 refusal 兩列有異議:離題要靠離題偵測才壓得下來(目前卡住),拒答的下限低於現行刻度的地板。見 REPLY_前端_評分範例集.md 第三節。",
+  "cases": [
+    {
+      "question": "可以分享一次你在學校或實習中遇到的挑戰,以及你怎麼處理的?",
+      "answers": {
+        "good": {
+          "source": "written",
+          "star": 4,
+          "text": "上學期專題我負責資料前處理。我發現三份資料來源的日期格式不一致,合併之後大約兩成的資料對不上。我先寫腳本統計錯誤類型,再跟組員約定統一格式,並加上自動檢查。最後對不上的資料降到 2% 以下,清理時間從三天縮到半天。我也學到先定義資料規格再開工,比事後修正省時間。",
+          "char_count": 129,
+          "quantifier_count": 3
+        },
+        "fair": {
+          "source": "written",
+          "star": 2,
+          "text": "專題的時候資料有點亂,後來我跟組員一起整理,最後有弄好,蠻辛苦的,學到要多溝通。",
+          "char_count": 40,
+          "quantifier_count": 0
+        },
+        "off_topic": {
+          "source": "measured",
+          "star": 2,
+          "_star_note": "前端組記錄模型把 S 與 A 標成有。內容是旅行不是挑戰,但結構上確實有情境與行動——這正是公式看不出離題的地方。",
+          "measured_before": {
+            "overall": 65,
+            "content": 55,
+            "structure": 60,
+            "delivery": 82
+          },
+          "text": "我有在實習 然後我那時候規劃跟我朋友去的旅行 然後安排行程 光是交通票券就花了很多時間",
+          "char_count": 40,
+          "quantifier_count": 0
+        },
+        "refusal": {
+          "source": "measured",
+          "star": 0,
+          "measured_before": {
+            "overall": 59,
+            "content": 55,
+            "structure": 50,
+            "delivery": 85
+          },
+          "text": "我沒有遇到任何挑戰,不需要處理。\n沒有學到 不太確定。",
+          "char_count": 25,
+          "quantifier_count": 0
+        }
+      }
+    },
+    {
+      "question": "有沒有跟組員意見不合的經驗?你怎麼處理?",
+      "answers": {
+        "good": {
+          "source": "written",
+          "star": 4,
+          "text": "專題討論要用哪個模型,我主張用簡單的邏輯迴歸,另一位組員想用深度學習,討論兩次都沒結論。我提議用同一份驗證資料各跑一次,以 F1 和訓練時間當標準。結果邏輯迴歸只差 0.02,但快了十倍,大家就採用了。之後我們把這個做法訂成固定的決策流程。",
+          "char_count": 117,
+          "quantifier_count": 3
+        },
+        "fair": {
+          "source": "written",
+          "star": 2,
+          "text": "之前小組報告大家意見不一樣,後來討論一下,各退一步,最後有完成。",
+          "char_count": 32,
+          "quantifier_count": 0
+        },
+        "off_topic": {
+          "source": "written",
+          "star": 0,
+          "text": "我覺得團隊合作很重要。最近選舉結果出來,我周遭有些人不太開心,現在大家對很多事情意見都蠻多的。",
+          "char_count": 47,
+          "quantifier_count": 0
+        },
+        "refusal": {
+          "source": "written",
+          "star": 0,
+          "text": "沒有吵過,大家都很好,沒什麼好說的。",
+          "char_count": 18,
+          "quantifier_count": 0
+        }
+      }
+    },
+    {
+      "question": "請做一個簡單的自我介紹。",
+      "answers": {
+        "good": {
+          "source": "written",
+          "star": 3,
+          "_star_note": "有背景、能力、可驗證成果,但沒有一個明確的任務段。",
+          "text": "我是資管系三年級,修過統計、資料庫和機器學習。去年做過一個專題,用銷售資料預測下個月庫存,誤差比原本的人工估算低了約 15%。平常用 Python 和 SQL,也在社團負責過活動報名資料的整理。這次想應徵資料分析實習,希望把分析做到能讓團隊直接用來決策。",
+          "char_count": 123,
+          "quantifier_count": 3
+        },
+        "fair": {
+          "source": "written",
+          "star": 1,
+          "text": "我是資管系的學生,平常對資料分析有興趣,有做過一些專題,個性比較認真,希望有機會學習。",
+          "char_count": 43,
+          "quantifier_count": 0
+        },
+        "off_topic": {
+          "source": "written",
+          "star": 0,
+          "text": "我平常很喜歡打籃球跟看電影,假日會跟朋友去咖啡廳,最近在追一部影集。",
+          "char_count": 34,
+          "quantifier_count": 0
+        },
+        "refusal": {
+          "source": "written",
+          "star": 0,
+          "text": "嗯……不知道要講什麼,就是學生。",
+          "char_count": 16,
+          "quantifier_count": 0
+        }
+      }
+    },
+    {
+      "question": "為什麼想應徵這個職位?",
+      "answers": {
+        "good": {
+          "source": "written",
+          "star": 4,
+          "text": "職缺要求用 SQL 做報表與分析,正好是我專題做過的。我曾經把三個月的訂單資料做成每週報表,讓組員一眼看出退貨集中在兩個品項。貴公司做電商資料,我希望把這種分析用在更大的資料量上,也想學習業界的指標定義。",
+          "char_count": 100,
+          "quantifier_count": 2
+        },
+        "fair": {
+          "source": "written",
+          "star": 0,
+          "text": "我覺得這個職位跟我的興趣符合,公司也很有名,希望可以學到東西。",
+          "char_count": 31,
+          "quantifier_count": 0
+        },
+        "off_topic": {
+          "source": "written",
+          "star": 0,
+          "text": "公司離我家很近,通勤很方便,薪水如果高一點更好。",
+          "char_count": 24,
+          "quantifier_count": 0
+        },
+        "refusal": {
+          "source": "written",
+          "star": 0,
+          "text": "沒有特別原因,就想試試看。",
+          "char_count": 13,
+          "quantifier_count": 0
+        }
+      }
+    }
+  ],
+  "_stats_provenance": {
+    "produced_by": "app.pipeline.transcript.TranscriptAnalyzer.text_stats",
+    "produced_at": "2026-10-19",
+    "regenerate": "python3 tools/refresh_answer_levels.py",
+    "_why_baked_in": "測試不要自己重算。第一版在測試裡用正則重寫了一份計數,題目 2 的「好」算出 8 處而正式是 3 處——測試量的跟上線的不是同一件事,而那個差距會讓分數看起來比實際高。計數的唯一來源是 text_stats。"
+  }
+}
