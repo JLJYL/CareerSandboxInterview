@@ -40,8 +40,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from app.pipeline.interviewer_spec import AcceptRule, InterviewerSpec
-from app.pipeline.star_read import AnswerFacts, read_facts
+from app.pipeline.interviewer_spec import (
+    DIM_STRUGGLE,
+    GAP_DIMENSION,
+    STRUGGLE_FACT,
+    AcceptRule,
+    InterviewerSpec,
+)
+from app.pipeline.star_read import ASSIGN, QUESTION, AnswerFacts, read_facts
 from app.prompts.star_read import FACT_NAME
 from app.prompts.turn_decision import DECISION_ACTIONS
 
@@ -114,6 +120,23 @@ class TurnDecision:
     要查覆寫掉了什麼只能靠 why 裡剛好寫了推導過程——那是運氣不是設計。
 
     所以規則是:任何取代模型決定的程式路徑,都要把原本的東西放進這裡。
+    """
+
+    dimension: str = ""
+    """缺的是哪個能力維度。只會是 `PROBE_DIMENSIONS` 其中一個,或空字串。
+
+    派發讀這一欄:有值而且那個維度有負責人,這一輪就直接給他,不問模型。
+    空字串表示「這一輪沒有維度資訊」,派發照舊做語意判斷。
+
+    【為什麼跟 gap 分開存而不是現算】
+    兩者不是一對一:缺情境與缺任務不屬於任何維度(`GAP_DIMENSION` 沒列它們),
+    而自述困難那一維沒有對應的 STAR 缺口。現算的話每個讀 gap 的地方
+    都要自己記得這兩條例外。
+
+    【為什麼排在最後一個欄位】
+    既有的呼叫有四個位置參數(action, why, gap, source)。插在 gap 後面會把
+    source 擠掉,而且不會噴錯——只是變成 dimension 收下 "facts"。
+    位置參數的順序是合約。
     """
 
     @property
@@ -217,10 +240,39 @@ def decide_from_facts(rule: AcceptRule, facts: AnswerFacts) -> TurnDecision:
         )
     desc = describe_facts(facts)
     if facts.accepted_by(rule):
-        return TurnDecision(NEXT, f"{desc}。放行條件全部滿足。", source=FACTS)
+        # STAR 都交代了,所以沒有缺口可追。但一段完整漂亮的成功敘事在 STAR
+        # 眼裡是滿分,而那正是「他自己卡在哪」還沒問到的時候——那一維
+        # STAR 看不到,要靠 star_read 多讀一件事。
+        return TurnDecision(
+            NEXT,
+            f"{desc}。放行條件全部滿足。",
+            source=FACTS,
+            dimension=struggle_dimension(facts),
+        )
     gap = facts.gap_for(rule)
     # gap 的值本身就帶「缺」字(缺情境、缺行動…),再寫「缺的是」會變成「缺的是缺行動」。
-    return TurnDecision(FOLLOW_UP, f"{desc}。{gap}。", gap, FACTS)
+    return TurnDecision(
+        FOLLOW_UP, f"{desc}。{gap}。", gap, FACTS,
+        dimension=GAP_DIMENSION.get(gap, ""),
+    )
+
+
+def struggle_dimension(facts: AnswerFacts) -> str:
+    """他有沒有自述困難。沒講就回那個維度名,講了或沒讀到都回空字串。
+
+    【「沒讀到」與「讀出來沒有」不可以混】
+    `AnswerFacts.read()` 對沒讀過的鍵回 `_ABSENT`,`present` 是 False——
+    跟「讀過了,他確實沒講」長得一模一樣。混在一起的後果是:
+    `STRUGGLE_FACT` 還沒接上的時候,每一輪都會判成「這一維是缺的」,
+    於是 HR 永遠拿到所有 NEXT 輪。
+
+    所以這裡看的是 `read_by`:那一項真的被讀過,才信它的 present。
+    成員A 把那一件事加進 `FACTS` 之前,這個函式一律回空字串,
+    派發行為跟現在完全一樣。
+    """
+    if facts.read_by.get(STRUGGLE_FACT) not in (ASSIGN, QUESTION):
+        return ""
+    return "" if facts.read(STRUGGLE_FACT).present else DIM_STRUGGLE
 
 
 async def decide_turn(

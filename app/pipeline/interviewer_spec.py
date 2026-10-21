@@ -122,7 +122,34 @@ class AcceptRule:
     """
 
     min_star_parts: int
-    """STAR 四段裡至少要交代幾段。"""
+    """STAR 四段裡至少要交代幾段。
+
+    【這一欄同時是最低句數,調之前要知道】
+    事實判讀走句子分派的時候,一句只能掛一個標籤,所以**段數上限等於句數**。
+    句數少於這個值的回答,內容再好也放行不了:
+
+        中等 要 3 段 → 至少 3 句
+        困難 要 4 段 → 至少 4 句
+
+    而且分派的標籤有六個,其中「取捨」與「其他」不是 STAR。任何一句掉進
+    那兩個就少一段,所以三句的回答在中等是零容錯——三句要剛好落在三個
+    不同的 STAR 段,還得包含結果段。
+
+    實測:四段各三句、內容都有情境行動結果的回答,12/12 全部追問。
+    不是 bug,是這條上限咬住了。
+
+    【只發生在分派這條路】
+    單題問法沒有上限,四段可以同時來自同一句。那條路的偏誤是**多報**
+    (T 的準確率 0.00,每次都答「有」),跟分派的少報方向相反。
+    所以同一個數字在兩條路上的嚴格程度完全不同。
+
+    走哪一條由斷句決定,見 `star_read.ASSIGNABLE_SEGMENTATION`。
+    裝置端辨識沒有標點,走單題;Whisper 有標點,走分派。
+    前端已於 2026-09 改用 Whisper,所以這條上限從此對線上資料生效。
+
+    `tests/test_star_read.py::test_an_answer_shorter_than_min_star_parts_can_never_pass`
+    釘住這件事。
+    """
 
     require_result: bool
     """是否一定要有結果段。缺結果最值得追,那是成果的唯一證據。"""
@@ -301,6 +328,106 @@ if _declared != _actual:
 
 
 # ---------------------------------------------------------------------------
+# 能力維度:派發的判準
+# ---------------------------------------------------------------------------
+
+DIM_METHOD = "方法與驗證"
+DIM_TRADEOFF = "取捨"
+DIM_STRUGGLE = "自述困難"
+
+PROBE_DIMENSIONS: tuple[str, ...] = (DIM_METHOD, DIM_TRADEOFF, DIM_STRUGGLE)
+"""派發看的能力維度。封閉集合,三個,每個由一位面試官負責。
+
+【為什麼是封閉集合而不是自由生成】
+跟 `GAP_VALUES` 同一個理由:1d 實測讓模型自由填缺口時,它列幾項取決於
+prompt 寫了幾條放行條件,不取決於答案。維度一旦可以自由生成,
+「缺哪個維度」就會變成在數 prompt 的行數。
+
+【為什麼是三個,而且剛好對上三位】
+這三個不是我分類出來的,是 panel 四次量測(`data/panel_v2`–`v5.json`)
+讀出來的三位實際守備範圍:技術主管問方法怎麼站得住、用人主管問為什麼
+選這個不選那個、HR 問他自己卡在哪。前兩個 STAR 缺口算得出來,第三個算不出來。
+
+【為什麼不用 JD 技能當維度】
+那要發明一套「技能屬於 HR 還是技術主管」的對應,而那個對應沒有唯一正確
+答案(這一段原本就寫在 `cares_about` 的 docstring 裡)。而且 JD 抽取失敗或
+使用者沒填時全部落空——`has_jd()` 存在就是為了那個情況。維度不依賴 JD。
+"""
+
+DIMENSION_OWNER: dict[str, str] = {
+    DIM_METHOD: "tech",
+    DIM_TRADEOFF: "hiring",
+    DIM_STRUGGLE: "hr",
+}
+"""維度 → 負責的槽位 id(對齊 `PersonaSpec.id`)。
+
+一個維度只有一個負責人。兩個人都能問的維度等於沒有維度,
+那就回到「三位問起來差不多」那個原始抱怨。
+"""
+
+STRUGGLE_FACT = "struggle"
+""" 要多讀的那一件事的鍵名。這是成員A 與派發之間的接點。
+
+接上去要動三個地方(全部在成員A 的範圍內):
+
+    app/prompts/star_read.py   FACTS 加這個鍵、FACT_NAME 加中文名、
+                               FACT_QUESTION 加問句(是非 + 抄原文)
+    app/pipeline/star_read.py  分派路徑的 asked 從 ("quantified", "tradeoff")
+                               加上這一項 —— 它跟那兩項一樣是單獨問的,
+                               不是靠句子分派得到的
+    tools/star_read_eval.py    照其他五項同樣的方式量準確率與引文落地率
+
+問句要問的是:這段回答有沒有交代他自己哪裡卡住、哪裡做得不夠好。
+不要問得更寬(例如「他的人際互動如何」)—— 1d 實測寬判斷 0.29、
+窄判斷 1.00,而這一維的用途是派發,判錯就是把回合給錯人。
+
+接上之前  一律回空字串,派發行為與現在相同,
+所以兩邊可以各自進行,中間不會有壞掉的狀態。
+"""
+
+
+STRUGGLE_FACT = "struggle"
+"""`star_read` 要多讀的那一件事的鍵名。這是成員A 與派發之間的接點。
+
+接上去要動三個地方,全部在成員A 的範圍內(逐字稿分析與校準):
+
+    app/prompts/star_read.py   FACTS 加這個鍵、FACT_NAME 加中文名、
+                               FACT_QUESTION 加問句(是非 + 抄原文)。
+                               檔尾那條一致性檢查會確認三份都加了。
+    app/pipeline/star_read.py  分派路徑的 asked 從 ("quantified", "tradeoff")
+                               加上這一項——它跟那兩項一樣要單獨問,
+                               不是靠句子分派得到的。
+    tools/star_read_eval.py    照其他五項同樣的方式量準確率與引文落地率。
+
+問句問的是:這段回答有沒有交代他自己哪裡卡住、哪裡做得不夠好。
+不要問得更寬(例如「他的人際互動如何」)——1d 實測寬判斷 0.29、
+窄判斷 1.00,而這一維的用途是派發,判錯就是把回合給錯人。
+
+接上之前 `turn_decision.struggle_dimension()` 一律回空字串,派發行為與現在
+完全相同,所以兩邊可以各自進行,中間不會有壞掉的狀態。
+"""
+
+
+GAP_DIMENSION: dict[str, str] = {
+    STAR_PART_GAP["A"]: DIM_METHOD,
+    STAR_PART_GAP["R"]: DIM_METHOD,
+    GAP_QUANTIFICATION: DIM_METHOD,
+    GAP_TRADEOFF: DIM_TRADEOFF,
+}
+"""STAR 缺口 → 能力維度。沒列到的缺口不屬於任何維度。
+
+【缺情境、缺任務 刻意不對應】
+那兩個是敘事完整度,不是某一位的守備範圍。硬塞一個負責人就是在發明
+那套「沒有唯一正確答案」的對應。這兩種缺口照舊交給語意派發。
+
+【自述困難沒有缺口來源】
+STAR 看不到那個維度——它只看情境/任務/行動/結果有沒有交代,
+一段完整漂亮的成功敘事在 STAR 眼裡是滿分,而那正是 HR 該問的時候。
+所以那一維要靠 `star_read` 多讀一件事,見 `DIM_STRUGGLE` 的接法說明。
+"""
+
+
+# ---------------------------------------------------------------------------
 # 面試官規格
 # ---------------------------------------------------------------------------
 
@@ -309,11 +436,12 @@ if _declared != _actual:
 class InterviewerSpec:
     """一位面試官。掛在槽位上,不掛在顯示名稱上。
 
-    【cares_about 為什麼不依槽位切開】
-    「這個回答有沒有缺口」跟誰在問無關,四個槽位看的是同一份職缺需求。
-    決定哪一輪輪到誰的是 persona 的 `routes_when`,那個已經存在,
-    不需要在這裡再切一次——切了就要發明一套「技能屬於 HR 還是技術主管」
-    的對應,而那個對應沒有唯一正確答案。
+    【cares_about 從「職缺要什麼」改成「這一位負責哪個維度」】
+    原本它直接放 JD 需求項目,四個槽位一模一樣,而且沒有任何消費者——
+    一份沒人讀的資料。現在它是派發的判準:缺的維度屬於誰,那一輪就歸誰。
+
+    職缺需求本身搬到 `jd_skills`,名字跟內容一致。那一欄仍然沒有消費者,
+    但它回拋給前端(`jdSkills`),所以不是死的。
     """
 
     slot_id: str
@@ -326,16 +454,27 @@ class InterviewerSpec:
     """interviewer / moderator。沿用 PersonaSpec.role。"""
 
     cares_about: tuple[str, ...]
-    """這個職缺在意什麼。直接取結構化 JD 的需求項目,不另外生成。
+    """這一位負責哪些能力維度。值域是 `PROBE_DIMENSIONS`。
+
+    派發讀這一欄:缺的維度屬於誰,那一輪就歸誰。目前每位剛好一個維度,
+    留成 tuple 是因為維度增加時一位可能負責兩個,而那時不該改型別。
+    """
+
+    jd_skills: tuple[str, ...]
+    """這個職缺需要什麼。直接取結構化 JD 的需求項目,不另外生成。
 
     JD 的順序即優先序(見 JDInput),所以這裡保持原順序不重排。
+    四個槽位拿到的是同一份——職缺要什麼跟誰在問無關。
     """
 
     accept: AcceptRule
 
     def has_jd(self) -> bool:
         """JD 抽取失敗或使用者沒填時為空。空的時候只能靠 STAR 判缺口。"""
-        return bool(self.cares_about)
+        return bool(self.jd_skills)
+
+    def owns(self, dimension: str) -> bool:
+        return dimension in self.cares_about
 
 
 def derive_specs(
@@ -353,16 +492,26 @@ def derive_specs(
 
     競爭者(role == "peer")不在這裡——他們不追問,動作空間完全不同。
     """
-    cares = tuple(jd.required_skills) if jd else ()
+    skills = tuple(jd.required_skills) if jd else ()
     rule = accept_rule_for(difficulty)
     return tuple(
         InterviewerSpec(
             slot_id=p.id,
             display_name=p.display_name,
             role=p.role,
-            cares_about=cares,
+            cares_about=dimensions_for(p.id),
+            jd_skills=skills,
             accept=rule,
         )
         for p in personas_for(mode, group_interviewers, group_size)
         if p.role != "peer"
     )
+
+
+def dimensions_for(slot_id: str) -> tuple[str, ...]:
+    """這個槽位負責哪些維度。沒有負責任何維度的槽位回空 tuple。
+
+    群面的主考官與一對一的唯一面試官都是空的:前者不追問,
+    後者沒有別人可以派,維度對它們不產生任何差別。
+    """
+    return tuple(d for d, slot in DIMENSION_OWNER.items() if slot == slot_id)

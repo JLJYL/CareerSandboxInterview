@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from app.prompts.interview_personas import PersonaSpec, personas_for
-from app.prompts.probe_rules import RESUME_PHASE, compose_probe_rules, interview_phase
+from app.prompts.probe_rules import compose_probe_rules, interview_phase
 
 # ---------------------------------------------------------------------------
 # 共用
@@ -278,6 +278,16 @@ GROUP_PEER_STANCE = """【你是同場競爭的應徵者,不是評分者】
     不要引導使用者講得更完整——那是面試官的工作,不是競爭者的
     可以反駁、可以搶功、可以提出更激進的方案
 
+【什麼時候可以講話】
+**只在輪到你的時候。** 不插話,不打斷別人講到一半的話。
+
+反駁要在**自己這一輪裡面**做完。輪次過了才回頭補一句反駁,真實群面
+不會發生——那一刻主持人已經點了下一個人。下次輪到你再講。
+
+【反駁多少由你的人格決定,不是每個人都一樣】
+有人一有不同意見就直接說,有人只挑推論的漏洞,有人幾乎不正面反駁、
+改成承接之後提自己的版本。看你自己那一段的行為描述,不要三個人都一樣。
+
 【結構判準:面試官問問題,競爭者提主張】
 每一句都要**先表態再發問**,不可以只有一個問句。
 
@@ -332,6 +342,15 @@ INTERRUPT_RULES = """產出搶話台詞。
 # ---------------------------------------------------------------------------
 
 
+#: `routes_when` 每一項之間的分隔。
+#:
+#: 【為什麼不是「、」】
+#: 守備範圍本身就含「、」(「提到團隊、合作、衝突、溝通」)。用「、」接的話
+#: 四項會黏成一句讀不出邊界的話,而派發那次呼叫就只拿到這一行當判斷依據。
+#: HR 拓寬到四項之後才踩到——在那之前每位只有一到兩項,看起來沒差。
+ROUTE_JOIN = "  /  "
+
+
 def _persona_block(personas: tuple[PersonaSpec, ...], focus: str = "") -> str:
     """把 persona 設定攤成 prompt 段落。
 
@@ -354,7 +373,7 @@ def _persona_block(personas: tuple[PersonaSpec, ...], focus: str = "") -> str:
             lines.append(f"  定位:{p.blurb}")
             lines.append(f"  行為:{p.stance}")
             if p.routes_when:
-                lines.append(f"  什麼時候輪到他:{'、'.join(p.routes_when)}")
+                lines.append(f"  什麼時候輪到他:{ROUTE_JOIN.join(p.routes_when)}")
             if p.sample_lines:
                 lines.append("  語氣示範(學語氣,不要照抄句子):")
                 for line in p.sample_lines:
@@ -402,7 +421,7 @@ def compose_dispatch_prompt(
             continue
         lines.append(f"\n{p.display_name}  {p.blurb}")
         if p.routes_when:
-            lines.append(f"  什麼時候輪到他:{'、'.join(p.routes_when)}")
+            lines.append(f"  什麼時候輪到他:{ROUTE_JOIN.join(p.routes_when)}")
     return "\n\n".join([DISPATCH_ONLY, "\n".join(lines)])
 
 
@@ -461,11 +480,9 @@ def compose_turn_prompt(
         compose_probe_rules(asked_questions, include_triggers=False, truncated=truncated)
     )
 
-    # 階段。沒有履歷的時候不講履歷那一段——材料是空的,
-    # 叫它「從他履歷上寫的經歷挑一筆」會讓它去編一筆。
-    phase = interview_phase(turn_index)
-    if phase is not RESUME_PHASE or has_resume:
-        parts.append(phase)
+    # 階段。沒有履歷時 interview_phase 會換成 NO_RESUME_PHASE,
+    # 不是不給——前兩輪完全沒有材料的話,NEXT 會退回通用問句。
+    parts.append(interview_phase(turn_index, has_resume))
 
     if mode == "single":
         parts.append(TURN_OUTPUT_SINGLE)

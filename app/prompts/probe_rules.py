@@ -256,7 +256,20 @@ JD_PHASE = """【這一段問職缺】
 前面已經問過了。回頭問會變成同一件事問兩次,而使用者會覺得你沒在聽。"""
 
 
-def interview_phase(turn_index: int) -> str:
+NO_RESUME_PHASE = """【這一段本來問履歷,但他沒有帶履歷】
+
+使用者沒有選履歷,所以沒有具體經歷可以指名問。這一段改用職缺的能力出題。
+
+換新主問題時,從上面【職位脈絡】列的能力裡挑一個這場還沒問到的,
+再用他剛剛講過的事當切入點接過去。
+
+【不要問得像你看過他的履歷】
+「你上一份工作…」「你在帶團隊的時候…」這種問法預設了沒有發生的事。
+他只能順著你的假設編,或者花時間澄清——兩種都是我們造成的。
+只問他自己講出來的東西。"""
+
+
+def interview_phase(turn_index: int, has_resume: bool = True) -> str:
     """這一輪換新主問題的話,要問哪一段。
 
     `turn_index` 是整場問到第幾輪(前端的 followUpIdx,從 0 起算)。
@@ -268,5 +281,25 @@ def interview_phase(turn_index: int) -> str:
     代價:追問會吃掉階段的額度。困難難度追三次的話,履歷那一段只問得到
     一個主問題。那是可以接受的——使用者說的是「面試官覺得有需要可以繼續
     追問」,那就表示追問優先於階段進度。
+
+    【沒有履歷時給的是另一段,不是不給】
+    原本的寫法是呼叫端判斷「這是履歷段而且沒有履歷,那就整段不要給」。
+    不叫它去編一筆經歷是對的,但那樣前兩輪就**完全沒有**換題的材料。
+
+    `data/panel_next_v1.json`(36 筆,決定全部指定成 NEXT)量到的差別:
+
+                            通用的「有沒有遇到什麼挑戰」   引用回答
+        沒有階段區塊(0-1)          12/18                1/18
+        有 JD_PHASE  (2-3)           3/18                5/18
+
+    同一句 NEXT 指令,有材料的時候照著做,沒材料的時候退回通用問句。
+    所以缺的不是指令寫得不夠好,是那兩輪手上沒有東西可挑。
+
+    【為什麼判斷搬進來】
+    「哪一段適用」原本一半在這個函式、一半在 `compose_turn_prompt` 的
+    `if phase is not RESUME_PHASE or has_resume`。拆成兩半的結果就是
+    上面那個洞:函式回了履歷段,呼叫端把它丟掉,然後沒有人補。
     """
-    return RESUME_PHASE if turn_index < RESUME_PHASE_TURNS else JD_PHASE
+    if turn_index >= RESUME_PHASE_TURNS:
+        return JD_PHASE
+    return RESUME_PHASE if has_resume else NO_RESUME_PHASE

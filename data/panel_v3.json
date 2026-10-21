@@ -1,0 +1,290 @@
+[
+  {
+    "round": 0,
+    "answer_kind": "團隊衝突",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "你當時是怎麼判斷哪些欄位是優先處理的呢?",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "團隊衝突",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你是怎麼確定那三個欄位是最重要的呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "團隊衝突",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你當時為什麼選擇先做那三個欄位?有考慮過其他選擇嗎?",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "數據分析",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "在這個過程中，你覺得自己學到了什麼最重要的技能？",
+    "is_follow_up": false
+  },
+  {
+    "round": 0,
+    "answer_kind": "數據分析",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "在這個過程中，你有沒有遇到什麼挑戰？",
+    "is_follow_up": false
+  },
+  {
+    "round": 0,
+    "answer_kind": "數據分析",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "在這個過程中，你有沒有遇到什麼挑戰？怎麼克服的？",
+    "is_follow_up": false
+  },
+  {
+    "round": 0,
+    "answer_kind": "取捨決定",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那你當下是怎麼評估這兩個需求的優先順序的呢?",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "取捨決定",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "你選擇做退貨分析的理由是什麼？怎麼評估它的優先順序？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "取捨決定",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你有考慮過行銷活動延遲會影響什麼嗎？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "泛泛而談",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那你覺得要怎麼找到這些問題呢？有沒有什麼方法或技巧？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "泛泛而談",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你能分享一個你曾經遇到的例子，說明你是怎麼確定要問什麼問題的嗎？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "泛泛而談",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你有沒有想過，當你不確定要問什麼問題時，會怎麼處理？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "團隊衝突",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那你當下是怎麼說服兩邊接受這個方案的呢?",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "團隊衝突",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你是怎麼確定那三個欄位的優先順序的？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "團隊衝突",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "這個固定流程對團隊的影響是什麼？有沒有具體的成果或數據可以分享？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "數據分析",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "在這個過程中，你有沒有遇到什麼挑戰？",
+    "is_follow_up": false
+  },
+  {
+    "round": 1,
+    "answer_kind": "數據分析",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "你在這個過程中有沒有遇到什麼挑戰？",
+    "is_follow_up": false
+  },
+  {
+    "round": 1,
+    "answer_kind": "數據分析",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "在這個過程中，你有沒有遇到什麼挑戰？",
+    "is_follow_up": false
+  },
+  {
+    "round": 1,
+    "answer_kind": "取捨決定",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "你當時是怎麼評估這兩個需求的優先順序的呢?",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "取捨決定",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "你怎麼評估選擇退貨分析的決定？有沒有考慮過其他因素？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "取捨決定",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "你當時有沒有考慮過如果行銷活動成效延遲會影響什麼？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "泛泛而談",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那你覺得要怎麼提高自己在這方面的能力呢?",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "泛泛而談",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你有沒有遇過具體的例子，讓你發現自己問錯問題了？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "泛泛而談",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你覺得在這個過程中，有沒有什麼具體的例子讓你意識到這個問題？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "團隊衝突",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "當時你是怎麼判斷哪三個欄位最重要的呢?",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "團隊衝突",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你是怎麼確定那三個欄位是最重要的呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "團隊衝突",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你當時為什麼選擇先做那三個欄位？這樣的取捨背後有什麼考量嗎？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "數據分析",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "你當時是怎麼決定要用 SQL 重寫報表的呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "數據分析",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "你是怎麼確認數字一致的？有使用什麼特定的方法嗎？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "數據分析",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你有沒有想過，如果不改寫報表，會有什麼影響嗎？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "取捨決定",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那你當時怎麼判斷選擇退貨分析是對的決定呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "取捨決定",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你是怎麼評估退貨分析的優先級，為什麼覺得這樣的取捨是對的？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "取捨決定",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你當時有沒有考慮過行銷活動的影響，為什麼還是選擇退貨分析呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "泛泛而談",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那你覺得在學習過程中，有沒有什麼特定的問題讓你印象深刻？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "泛泛而談",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你能分享一下你是怎麼確定要問哪些問題的嗎？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "泛泛而談",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你覺得在這個過程中，有沒有哪個問題是特別值得探索的？",
+    "is_follow_up": true
+  }
+]
