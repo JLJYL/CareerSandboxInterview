@@ -1320,3 +1320,34 @@ async def test_the_no_resume_block_reaches_the_prompt() -> None:
     assert "從他履歷上寫的經歷" not in system, (
         "沒有履歷卻給了履歷段,模型會去編一筆經歷"
     )
+
+
+def test_topic_labels_still_reach_the_prompt_when_no_questions_are_carried() -> None:
+    """標籤只進 prompt,不進查重 —— 這一條驗「進 prompt」那半。
+
+    前端沒帶 `askedQuestions` 的時候,列領域標籤比什麼都不列好:
+    模型至少看得到問過哪些領域。查重那一側拿標籤去比會誤判
+    (見 `next_turn` 的 asked_topics 那段),所以兩個用途分開傳。
+
+    這一條存在是因為驗紅時發現:把 prompt 那一側的退路拿掉,
+    整份測試照樣綠 —— 那表示保留退路的理由沒有人在守。
+    """
+    import asyncio
+
+    seen: dict[str, str] = {}
+
+    def spy(system: str, user: str) -> str:
+        if "決定這一輪由誰開口" in system:
+            return "HR 主管"
+        seen["system"] = system
+        return json.dumps({**TURN, "speaker": "HR 主管"}, ensure_ascii=False)
+
+    asyncio.run(
+        next_turn(
+            mode="panel", answer="我用 SQL 重寫查詢。", follow_up_idx=1,
+            asked_questions=[], asked_topics=["團隊合作", "決策評估"],
+            question="q", fallback=["備援"], llm=spy, context=CTX,
+        )
+    )
+    assert "團隊合作" in seen["system"], "沒有問句原文時,標籤要列進 prompt"
+    assert "決策評估" in seen["system"]
