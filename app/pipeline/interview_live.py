@@ -36,13 +36,15 @@ from typing import TYPE_CHECKING
 
 from app.contracts.interview_protocols import JDInput
 from app.pipeline.jd_normalize import normalize_locale
+from app.pipeline.interviewer_spec import DIMENSION_OWNER
+from app.pipeline.question_form import is_closed_question
 from app.prompts.interview_live import (
     compose_dispatch_prompt,
     compose_interrupt_prompt,
     compose_opening_prompt,
     compose_turn_prompt,
 )
-from app.prompts.turn_decision import ACTION_INSTRUCTION
+from app.prompts.turn_decision import ACTION_INSTRUCTION, DECISION_ACTIONS
 from app.prompts.interview_personas import (
     INTERRUPT_CAP,
     opening_intro,
@@ -244,6 +246,46 @@ DUP_THRESHOLD = 0.6
 """
 
 
+REPEAT_THRESHOLD = 0.9
+"""追問用的門檻。超過這個值就算「幾乎同一句」,不只是同一個話題。
+
+【為什麼追問要另一個門檻,不能沿用 DUP_THRESHOLD】
+`DUP_THRESHOLD = 0.6` 問的是「這兩題在問同一件事嗎」,那是主問題該擋的。
+追問本來就該留在同一件事上,拿 0.6 去擋會把合法的追問全殺掉:
+
+    「你當時為什麼選那個方案?」
+    「這個選擇最後帶來什麼結果?」
+
+這兩句在問同一件事,而且兩句都是合法的追問。追問該擋的只有同一句話。
+
+【0.9 不是校準出來的,是挑的】
+手上四次量測的 144 題裡,同一位對同一段回答在不同 round 的配對共 144 組,
+重疊從 1.0 連續分布到 0.5,沒有乾淨的分離帶——那些配對全部來自**同一個
+情境**,所以彼此本來就是改寫。拿它當校準集會訂出一個太鬆的門檻。
+
+實際看過的配對:0.85 以上每一組都是同一句話的改寫(「那你當時是怎麼評估
+這兩個需求的優先順序呢」vs「那你當下是怎麼評估這兩個需求的優先順序呢」
+是 0.929);0.667 那組才開始出現真的不同的問題。0.9 落在「看過的都算重複」
+的區間內,留了餘裕。
+
+要真的校準需要**同一場裡不同輪**的配對,那要等真實對話的資料。
+`DUP_THRESHOLD` 上面那張表是主問題的校準,不適用在這裡。
+
+【誤判的代價很低,所以寧可多擋】
+擋到了就重生成一次,重生成還是重複就照原樣送出。誤判成本是多一次呼叫,
+使用者看到的東西不變;漏判的成本是他看到同一句話問兩次。
+"""
+
+
+def is_verbatim_repeat(question: str, asked: Sequence[str]) -> str | None:
+    """找出與先前問題幾乎同一句的那一題。回傳那一題,沒有就 None。
+
+    跟 `is_near_duplicate` 同一套比法,只有門檻不同——那個擋「同一件事」,
+    這個擋「同一句話」。
+    """
+    return _overlapping(question, asked, REPEAT_THRESHOLD)
+
+
 def is_near_duplicate(question: str, asked: Sequence[str]) -> str | None:
     """找出與先前問題高度重疊的一題。回傳那一題,沒有就 None。
 
@@ -256,6 +298,17 @@ def is_near_duplicate(question: str, asked: Sequence[str]) -> str | None:
 
     這跟派發平衡是同一類:資訊給了,模型不可靠地執行比對。
     """
+    return _overlapping(question, asked, DUP_THRESHOLD)
+
+
+def _overlapping(
+    question: str, asked: Sequence[str], threshold: float
+) -> str | None:
+    """字面重疊超過門檻的第一題。兩個門檻共用同一套比法。
+
+    `shared >= 4` 那條是給短問句的下限:「結果呢?」去掉虛詞只剩兩三個字,
+    任何長句都可能把它包住,比例會衝到 1.0 而兩句其實不同。
+    """
     q = set(question) - _STOPWORDS
     if not q:
         return None
@@ -264,9 +317,142 @@ def is_near_duplicate(question: str, asked: Sequence[str]) -> str | None:
         if not av:
             continue
         shared = len(q & av)
-        if shared >= 4 and shared / min(len(q), len(av)) >= DUP_THRESHOLD:
+        if shared >= 4 and shared / min(len(q), len(av)) >= threshold:
             return a
     return None
+
+
+_CLARIFY = "CLARIFY"
+"""`turn_decision.CLARIFY` 的值。
+
+直接匯入 `app.pipeline.turn_decision` 會循環——它匯入本檔。所以這裡複寫一份,
+下面那條守衛負責讓兩邊不會分岔。寫 `DECISION_ACTIONS[2]` 也可以,但那是位置
+依賴:有人重排那個 tuple 的話會靜默指到別的動作。
+"""
+
+if _CLARIFY not in DECISION_ACTIONS:
+    raise RuntimeError(
+        f"{_CLARIFY} 不在 DECISION_ACTIONS {DECISION_ACTIONS} 裡。"
+        "動作名稱改過了,而追問查重那一關靠它排除 CLARIFY——"
+        "不一致的話 CLARIFY 會被當成追問去重生成,方向是錯的。"
+    )
+
+
+REGENERATE = """【剛剛產出的那一句有問題,重新問一句】
+
+{fixes}
+
+其餘照原本的指示,輸出格式不變。"""
+
+_FIX_REPEAT = (
+    "那句跟這場問過的幾乎一樣。重複的是:{repeat}\n"
+    "留在同一個話題上——這是追問,不是換題——但換一個切入點:"
+    "問他剛剛那段裡還沒講清楚的另一個部分。"
+)
+
+_FIX_CLOSED = (
+    "那句可以用「有」或「沒有」答完,他答一個字就結束了。\n"
+    "改成非得講一段才答得完的問法:問他當時實際怎麼做、哪一段最難、"
+    "為什麼那樣選。不要用「有沒有」「是不是」開頭,也不要用「嗎」結尾。"
+)
+
+
+def _question_faults(
+    question: str,
+    asked: Sequence[str],
+    *,
+    is_follow_up: bool,
+    clarify: bool,
+) -> list[tuple[str, str]]:
+    """送出前擋得住的毛病。回傳 (notice 的說法, 重生成要給的指示)。
+
+    兩種毛病一起算,因為它們共用同一次重生成——面試進行中,
+    每一次呼叫都是使用者在等,一輪擋兩種毛病不該花兩次。
+
+    【CLARIFY 兩關都不進】
+    重複:它問的是「那個詞再講一次」,辨識連續轉錯兩次的話同一句本來就該再問。
+    封閉:「你是說 Angular 嗎?」就是一個 yes/no 問句,而那正是 CLARIFY 的形狀。
+    """
+    faults: list[tuple[str, str]] = []
+    if clarify:
+        return faults
+
+    if is_follow_up:
+        repeat = is_verbatim_repeat(question, asked)
+        if repeat:
+            faults.append(
+                (
+                    f"與問過的幾乎同一句({repeat[:20]})",
+                    _FIX_REPEAT.format(repeat=repeat),
+                )
+            )
+
+    if is_closed_question(question):
+        faults.append(("只能用是/否答完", _FIX_CLOSED))
+
+    return faults
+
+
+async def _regenerate(
+    llm: LLMCall, system: str, user: str, faults: list[tuple[str, str]]
+) -> str:
+    """再問一次。回傳新問題,失敗或沒產出回空字串。
+
+    【為什麼要把毛病講出來】
+    同樣的 system 加同樣的 user 會給出同樣的輸出,溫度 0.4 也只是換幾個字。
+    不講它剛剛寫了什麼、哪裡不對,重生成就只是多花一次呼叫。
+
+    【為什麼只重生成一次】
+    面試進行中,每一次呼叫都是使用者在等。一次擋不住就照原樣送出,
+    那比讓他多等一輪好。主問題撞重複那條路選的是備援池而不是重試,
+    理由一樣;追問與封閉式沒有池可以換,所以這裡只能重試。
+    """
+    fixes = "\n\n".join(fix for _, fix in faults)
+    try:
+        raw = await asyncio.to_thread(
+            llm, system, user + "\n\n" + REGENERATE.format(fixes=fixes)
+        )
+    except Exception:  # noqa: BLE001
+        return ""
+    return normalize_locale(str(parse_obj(raw).get("nextQuestion", "")).strip())
+
+
+def dimension_speaker(mode: str, dimension: str, gi: int = 1, gs: int = 4) -> str:
+    """這個維度的負責人在這一場的顯示名稱。沒有負責人或不在場就回空字串。
+
+    一對一永遠回空字串——`display_name` 是空的,而且沒有別人可以派。
+    """
+    slot = DIMENSION_OWNER.get(dimension, "")
+    if not slot:
+        return ""
+    for p in personas_for(mode, gi, gs):
+        if p.id == slot and p.display_name:
+            return p.display_name
+    return ""
+
+
+def _dimension_yields(name: str, counts: dict[str, int], names: Sequence[str]) -> str:
+    """維度派發要不要讓位。回讓位的理由,不讓位回空字串。
+
+    【為什麼這條規則要有兩份】
+    `DISPATCH_ONLY` 那段 prompt 裡本來就寫了平衡規則,但那是寫給模型的,
+    而維度派發不問模型。沒有這一份的話,確定性路徑會讓同一位連問四輪——
+    使用者答得越一致,同一個維度就越可能連續是缺的那一個。
+
+    兩份規則用同一組門檻(未發言過的優先、三倍以上讓位),所以文字那份
+    改了這裡要跟著改。測試釘住的是行為不是數字,改門檻會紅在邊界那幾條。
+    """
+    mine = counts.get(name, 0)
+    others = {n: counts.get(n, 0) for n in names if n != name}
+    if not others:
+        return ""
+    silent = [n for n, c in others.items() if c == 0]
+    if silent and mine >= 2:
+        return f"{name}已發言 {mine} 次而{'、'.join(silent)}還沒開口"
+    top = max(others.values())
+    if top and mine >= 3 * top:
+        return f"{name}的 {mine} 次是其他人的三倍以上"
+    return ""
 
 
 async def _dispatch(
@@ -520,7 +706,12 @@ async def start_interview(
         #   ImportError 而不是功能失效,但它會讓整個服務起不來。
         from app.pipeline.peer_profile import build_peers
 
-        tasks["interrupts"] = asyncio.ensure_future(_gen_interrupts(llm, INTERRUPT_CAP))
+        # INTERRUPT_CAP 為 0 時不生成。帶著 0 去呼叫會白燒一次,
+        # 而且那次呼叫的輸出會被下面的退回邏輯接住變成寫死的台詞。
+        if INTERRUPT_CAP > 0:
+            tasks["interrupts"] = asyncio.ensure_future(
+                _gen_interrupts(llm, INTERRUPT_CAP)
+            )
         tasks["peers"] = asyncio.ensure_future(
             build_peers(
                 title=context.custom_role,
@@ -557,7 +748,9 @@ async def start_interview(
         notices.append("開場:未取得備援追問,已使用預設")
 
     interrupts: list[str] = list(results.get("interrupts") or [])
-    if mode == "group" and not interrupts:
+    # 退回預設只在搶話開著的時候才做。關掉之後還退回的話,
+    # 寫死的那三句會被裝回去——關等於沒關,而且 notices 看起來一切正常。
+    if mode == "group" and INTERRUPT_CAP > 0 and not interrupts:
         interrupts = list(DEFAULT_INTERRUPTS)
         notices.append("開場:未取得搶話台詞,已使用預設")
 
@@ -635,6 +828,7 @@ async def next_turn(
     decision: "TurnDecision | None" = None,
     jd: JDInput | None = None,
     experiences: Sequence[ExperienceDTO] = (),
+    force_speaker: str = "",
 ) -> TurnResponse:
     """一輪接話。
 
@@ -648,6 +842,15 @@ async def next_turn(
 
     傳 None 時維持舊行為:`is_follow_up` 取模型回的值,一對一沒回就預設 True。
     那是猜的,留著只是為了讓既有測試仍然測得到生成那一段。
+
+    【force_speaker】
+    指定這一輪由誰開口,跳過派發。走的是 `required_speaker` 既有的 forced
+    路徑,所以下游行為跟「輪空強制指派」那條完全一樣,不是新的分支。
+
+    生產路徑不傳這個值——誰開口由派發決定。它是給量測用的:要比較三位
+    面試官對**同一段回答**會問出什麼,就得繞過派發,否則每一位拿到的
+    回答都不同,量到的是回答的差異不是角色的差異。
+    `tools/panel_role_eval.py` 是唯一的呼叫端。
     """
     cap = turn_cap_for(mode)
     must_advance = cap is not None and follow_up_idx >= cap
@@ -680,12 +883,50 @@ async def next_turn(
     gi = context.group_interviewers if context else 1
     gs = context.group_size if context else 4
     names = speaker_names(mode, gi, gs)
-    forced = required_speaker(mode, spoken_by, follow_up_idx, answer, gi, gs)
+    # force_speaker 走的是既有的 forced 路徑,不另開分支——
+    # 派發那次呼叫一樣被跳過,下游一樣只看到一個已經決定好的說話者。
+    forced = force_speaker or required_speaker(
+        mode, spoken_by, follow_up_idx, answer, gi, gs
+    )
     counts = {n: list(spoken_by).count(n) for n in names}
 
     # 第一步:決定誰說話。強制指派時跳過這次呼叫——答案已經確定了。
     focus = forced or ""
     dispatch_note = f"本輪:指派給未發言過的「{forced}」" if forced else ""
+
+    # 缺的維度有負責人就直接給他,不問模型。語意派發是在沒有判準時用的,
+    # 有判準的時候問模型只是多一次呼叫加一次不確定。
+    #
+    # 【只有 panel 走這條】
+    # 群面場上有三位主管加三位 AI 應徵者,而 `derive_specs` 不含 peer——
+    # 維度派發永遠選不到競爭者。那會把群面的前兩輪固定給主管,
+    # 而群面的價值就在應徵者之間的互動(見 GROUP_PEER_STANCE 那一整套)。
+    #
+    # 更根本的是這在群面是範疇錯誤:群面的「誰接話」問的是討論動態
+    # (有人被淹沒、討論變成兩人對話),不是「哪個能力維度還沒問到」。
+    # 那兩件事用的是兩支不同的派發 prompt。
+    #
+    # 一對一不必擋:`dimension_speaker` 回空字串,因為一對一的
+    # display_name 是空的——前端只有一位面試官,不顯示說話者。
+    if (
+        mode == "panel"
+        and names
+        and not focus
+        and decision is not None
+        and decision.dimension
+    ):
+        owner = dimension_speaker(mode, decision.dimension, gi, gs)
+        if owner in names:
+            yielding = _dimension_yields(owner, counts, names)
+            if yielding:
+                dispatch_note = (
+                    f"本輪:缺「{decision.dimension}」本該給{owner},但{yielding},"
+                    "改回語意派發"
+                )
+            else:
+                focus = owner
+                dispatch_note = f"本輪:缺「{decision.dimension}」,派給負責的{owner}"
+
     if names and not focus:
         picked, problem = await _dispatch(llm, mode, answer, counts, gi, gs)
         if picked:
@@ -717,24 +958,24 @@ async def next_turn(
             f"{cap} 題。請問最後一題,並把 shouldAdvance 設為 true。"
         )
 
+    # system 與 user 留成變數,因為追問撞到重複時要用同一份再問一次。
+    system = compose_turn_prompt(
+        mode,
+        list(asked_questions),
+        group_interviewers=gi,
+        group_size=gs,
+        focus_speaker=focus,
+        truncated=ended_by == "timeout",
+        engine=context.transcription_engine if context else "api",
+        difficulty=context.difficulty if context else "中等",
+        group_role=context.group_role if context else "一般應徵者",
+        turn_index=follow_up_idx,
+        has_resume=bool(resume_block(experiences)),
+    )
+    user = "\n\n".join(user_parts)
+
     try:
-        raw = await asyncio.to_thread(
-            llm,
-            compose_turn_prompt(
-                mode,
-                list(asked_questions),
-                group_interviewers=gi,
-                group_size=gs,
-                focus_speaker=focus,
-                truncated=ended_by == "timeout",
-                engine=context.transcription_engine if context else "api",
-                difficulty=context.difficulty if context else "中等",
-                group_role=context.group_role if context else "一般應徵者",
-                turn_index=follow_up_idx,
-                has_resume=bool(resume_block(experiences)),
-            ),
-            "\n\n".join(user_parts),
-        )
+        raw = await asyncio.to_thread(llm, system, user)
     except Exception as exc:  # noqa: BLE001
         r = _fallback_turn(mode, fallback, follow_up_idx)
         r.notices = [f"本輪:生成失敗({type(exc).__name__}),已使用備援追問"]
@@ -810,7 +1051,10 @@ async def next_turn(
 
     # 新主問題跟問過的重複時,改用備援池裡沒用過的一題。
     # 重試會增加面試中的延遲,而備援池是開場時針對這份 JD 生成的,直接用就行。
-    # 追問不受此限——追問本來就該留在同一個話題上。
+    #
+    # 追問不走這一關:它該留在同一個話題上,所以不能用「問同一件事」當判準,
+    # 也不能換成備援題——備援題是另一個話題,那就不是追問了。
+    # 追問的重複改在下面那一關擋,判準是「同一句話」而不是「同一件事」。
     if not is_follow_up:
         dup = is_near_duplicate(nxt, asked_questions)
         if dup:
@@ -822,6 +1066,33 @@ async def next_turn(
                 notices.append(
                     f"本輪:新主問題與先前重複,但備援池已用盡。重複的是:{dup[:30]}"
                 )
+    # 送出前的形式檢查。這一關同時看兩件事(追問與問過的同一句、只能用是/否
+    # 答完),共用一次重生成。擋到的機率不低——四次量測 144 題裡封閉式佔 25%,
+    # 所以一場四題大約會多一次呼叫。
+    clarify = decision is not None and decision.action == _CLARIFY
+    faults = _question_faults(
+        nxt, asked_questions, is_follow_up=is_follow_up, clarify=clarify
+    )
+    if faults:
+        why = "、".join(label for label, _ in faults)
+        again = await _regenerate(llm, system, user, faults)
+        left = (
+            _question_faults(
+                again, asked_questions, is_follow_up=is_follow_up, clarify=clarify
+            )
+            if again
+            else [("沒有產出", "")]
+        )
+        if left:
+            # 重生成也擋不住就照原樣送出。留著一句不夠好的問題比沒有問題好,
+            # 而且 notice 查得到。
+            notices.append(
+                f"本輪:問句{why},重生成沒有改善"
+                f"({'、'.join(label for label, _ in left)}),已照原樣送出。"
+            )
+        else:
+            notices.append(f"本輪:問句{why},已重生成。原本:{nxt[:30]}")
+            nxt = again
 
     # topic 不可以留空。前端拿它累積 asked_topics,空的那一筆會讓序列斷掉,
     # 而斷掉的地方就是之後重複提問的破口。

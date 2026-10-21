@@ -1,0 +1,290 @@
+[
+  {
+    "round": 0,
+    "answer_kind": "團隊衝突",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那當時你是怎麼決定要先做那三個欄位的呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "團隊衝突",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你是怎麼確定那三個欄位是最重要的呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "團隊衝突",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你當時為什麼選擇先做那三個欄位?有考慮過其他選擇嗎?",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "數據分析",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那你當下實際說了什麼? 有沒有遇到什麼挑戰?",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "數據分析",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "你是怎麼比對舊報表的數字，確保它們一致的？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "數據分析",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你當時為什麼選擇用 SQL 重寫報表，而不是其他方法呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "取捨決定",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那你當下怎麼評估這兩個需求的優先順序呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "取捨決定",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "你怎麼評估退貨分析的優先級？這個決定的依據是什麼？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "取捨決定",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "你當初怎麼評估這兩個需求的優先順序？有沒有考慮過其他因素？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "泛泛而談",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那你覺得在這個過程中，有沒有什麼方法可以幫助你更清楚地知道該問什麼問題呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "泛泛而談",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你通常是怎麼決定要問哪些問題的呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 0,
+    "answer_kind": "泛泛而談",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你覺得在這個過程中，有沒有什麼具體的挑戰讓你特別印象深刻?",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "團隊衝突",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "你當下實際說了什麼來幫助兩邊溝通呢?",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "團隊衝突",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你是怎麼判斷哪些欄位是重疊的呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "團隊衝突",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "這樣的取捨當時是怎麼決定的？你有考慮過其他選擇嗎？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "數據分析",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那你在比對舊報表的時候，有遇到什麼挑戰嗎？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "數據分析",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "你是怎麼確保重寫後的查詢能夠正確反映數據的？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "數據分析",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "這樣的改進讓你節省了時間，但你有考慮過這樣做的風險嗎？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "取捨決定",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "你當下是怎麼決定選擇退貨分析的呢？有沒有考量其他因素？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "取捨決定",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "你怎麼決定退貨分析的優先級？有沒有考慮過其他因素？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "取捨決定",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "你當時有沒有考慮過如果選擇另一個需求，會帶來什麼影響？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "泛泛而談",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那你覺得在這個過程中，有沒有什麼方法能幫助你釐清要問的問題呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "泛泛而談",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你在學習的過程中，有沒有遇到特別困難的問題？",
+    "is_follow_up": true
+  },
+  {
+    "round": 1,
+    "answer_kind": "泛泛而談",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你覺得在這個過程中，有沒有特別的例子讓你意識到這個問題的重要性？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "團隊衝突",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那當時你是怎麼說服兩邊接受這個方案的呢?",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "團隊衝突",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你是怎麼確定那三個欄位是最重要的呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "團隊衝突",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你當時為什麼選擇先做那三個欄位?有考量到什麼風險嗎?",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "數據分析",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "很棒的改進！那你在比對舊報表的時候，有沒有遇到什麼挑戰？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "數據分析",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "你是怎麼確保重寫的查詢不會影響到報表的準確性？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "數據分析",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你當時為什麼選擇重寫查詢，而不是其他方式來處理報表呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "取捨決定",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "你當下是怎麼評估這兩個需求的優先順序的呢？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "取捨決定",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你怎麼決定退貨分析的重點？有沒有依據或數據支持這個選擇？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "取捨決定",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "你當時怎麼評估行銷活動的延遲影響？有考慮過其他選擇嗎？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "泛泛而談",
+    "role": "HR 主管",
+    "spoke": "HR 主管",
+    "question": "那你在學習的過程中，有沒有遇到什麼具體的挑戰？",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "泛泛而談",
+    "role": "技術主管",
+    "spoke": "技術主管",
+    "question": "那你有沒有遇過什麼情境,讓你意識到需要問對的問題呢?",
+    "is_follow_up": true
+  },
+  {
+    "round": 2,
+    "answer_kind": "泛泛而談",
+    "role": "用人主管",
+    "spoke": "用人主管",
+    "question": "那你在思考要問什麼問題的時候，會怎麼決定優先順序呢？",
+    "is_follow_up": true
+  }
+]

@@ -18,6 +18,7 @@ import pytest
 
 from app.contracts.interview_protocols import JDInput
 from app.pipeline.interviewer_spec import (
+    PROBE_DIMENSIONS,
     ACCEPT_RULES,
     DEFAULT_DIFFICULTY,
     GAP_QUANTIFICATION,
@@ -47,18 +48,74 @@ def test_same_input_gives_same_specs():
     assert a == b
 
 
-def test_cares_about_keeps_jd_order():
-    """JD 的順序即優先序,不可重排。"""
+def test_jd_skills_keep_jd_order():
+    """JD 的順序即優先序,不可重排。
+
+    這一欄原本叫 `cares_about`。改名是因為那個名字後來給了派發用的能力
+    維度——「職缺要什麼」跟「這一位在意什麼」是兩件事,四個槽位的前者
+    一模一樣、後者各不相同。
+    """
     spec = derive_specs("single", jd=JD)[0]
-    assert spec.cares_about == ("Python", "資料分析", "跨部門溝通")
+    assert spec.jd_skills == ("Python", "資料分析", "跨部門溝通")
 
 
 def test_no_jd_is_not_an_error():
-    """JD 抽取失敗或使用者沒填時照常推導,只是沒有 cares_about。"""
+    """JD 抽取失敗或使用者沒填時照常推導,只是沒有 jd_skills。"""
     spec = derive_specs("single", jd=None)[0]
-    assert spec.cares_about == ()
+    assert spec.jd_skills == ()
     assert not spec.has_jd()
     assert spec.accept is accept_rule_for(DEFAULT_DIFFICULTY)
+
+
+def test_the_dimensions_do_not_depend_on_the_jd():
+    """沒有 JD 時維度照樣成立,這是不用 JD 技能當維度的理由之一。
+
+    JD 抽取失敗或使用者沒填的時候,拿 JD 技能當派發判準會整個落空,
+    而那個情況是常態不是例外(`has_jd()` 存在就是為了它)。
+    """
+    with_jd = {s.slot_id: s.cares_about for s in derive_specs("panel", jd=JD)}
+    without = {s.slot_id: s.cares_about for s in derive_specs("panel", jd=None)}
+    assert with_jd == without
+    assert all(without.values()), "panel 三位都該有維度"
+
+
+def test_panel_slots_and_dimensions_are_a_bijection():
+    """三位對三個維度,一對一,兩個方向都要成立。
+
+    維度少一個 → 那一位永遠靠語意派發,等於沒接上。
+    一位兼兩個維度 → 另一位就空手,那就回到「三位問起來差不多」那個
+    原始抱怨,而那正是功能 MD 抱怨的事。
+
+    【第一版的這兩條都抓不到後者】
+    一條寫成「每個維度剛好一個負責人」,但 `DIMENSION_OWNER` 是 dict,
+    一個鍵本來就只能有一個值——那條恆真。另一條只比對「三個維度都有人
+    認領」,所以技術主管同時拿方法與取捨、用人主管空手的時候照樣綠。
+    驗紅的時候把 `DIM_TRADEOFF` 的負責人改成 tech 才發現。
+    """
+    specs = [s for s in derive_specs("panel", jd=JD) if s.role == "interviewer"]
+    owned = [d for s in specs for d in s.cares_about]
+
+    # 方向一:每個維度都有人認領,而且沒有重複認領。
+    assert sorted(owned) == sorted(PROBE_DIMENSIONS)
+
+    # 方向二:每一位剛好一個。這一條才是上面漏掉的那半。
+    per_slot = {s.slot_id: len(s.cares_about) for s in specs}
+    assert set(per_slot.values()) == {1}, (
+        f"每位應該剛好負責一個維度,實際是 {per_slot}"
+    )
+
+
+def test_slots_with_no_dimension_get_an_empty_tuple():
+    """一對一與群面主考官沒有維度,而那是對的。
+
+    一對一沒有別人可以派;主考官不追問。給它們維度會讓派發以為有選擇。
+    """
+    assert derive_specs("single", jd=JD)[0].cares_about == ()
+    mod = next(
+        s for s in derive_specs("group", jd=JD, group_interviewers=1)
+        if s.role == "moderator"
+    )
+    assert mod.cares_about == ()
 
 
 # ---------------------------------------------------------------------------

@@ -149,17 +149,77 @@ async def test_start_degrades_on_failure() -> None:
 
 
 @pytest.mark.asyncio
-async def test_group_gets_interrupt_lines() -> None:
-    """搶話在開場一次生成完——interruptLine(index) 是同步呼叫,
-    那個時機發 HTTP 會卡住 UI。"""
+async def test_interrupts_are_off_and_nothing_puts_them_back() -> None:
+    """AI 應徵者只在輪到自己時發言,不插話。產品決定。
+
+    這一條擋的是**悄悄裝回去**:退回預設那段原本是
+    「group 而且沒拿到台詞 → 用寫死的三句」,關掉之後它會照樣觸發,
+    於是 interruptLines 裡又有三句,而 notices 看起來一切正常。
+
+    模型這裡回了三句,也不可以被採用。
+    """
     def call(system: str, user: str) -> str:
         if "搶節奏" in system:
             return json.dumps(["我先說。", "我插一個快的。", "我補一句。"], ensure_ascii=False)
         return json.dumps(OPENING, ensure_ascii=False)
 
     r = await start_interview(mode="group", context=CTX, llm=call)
-    assert len(r.interrupt_lines) == 3
-    assert r.interrupt_cap == 3
+    assert r.interrupt_lines == []
+    assert r.interrupt_cap == 0
+    assert not any("搶話台詞" in n for n in r.notices), "沒有生成不是降級,不要報"
+
+
+def test_the_assertive_peer_no_longer_says_it_interrupts() -> None:
+    """只關常數不夠。
+
+    人格描述裡的「你會打斷,而且不覺得那是失禮」會讓模型在自己的回合
+    寫出「我打斷一下」開頭的台詞——那是人格帶出來的,不是搶話機制帶出來的。
+    """
+    from app.prompts.interview_personas import INTERRUPT_PERSONA_ID, personas_for
+
+    from app.prompts.interview_live import GROUP_PEER_STANCE
+
+    p = next(x for x in personas_for("group") if x.id == INTERRUPT_PERSONA_ID)
+
+    # 比對原本那句指示,不是「打斷」兩個字——禁令本身就含那兩個字,
+    # 第一版就是這樣寫錯的。
+    assert "你會打斷" not in p.stance
+    assert "不覺得那是失禮" not in p.stance
+    assert all(not line.startswith("我打斷") for line in p.sample_lines)
+    # 其餘人格要留著——關掉的是插話,不是這個人的風格
+    assert "搶節奏" in p.stance
+
+    # 時機規則是**全體**的,放在共用區塊,不掛在單一 persona 上。
+    # 掛在一位身上的話另外兩位沒有這條規則,而那很難從輸出看出來。
+    assert "只在輪到你的時候" in GROUP_PEER_STANCE
+    assert "不插話" in GROUP_PEER_STANCE
+
+
+def test_each_peer_rebuts_differently() -> None:
+    """反駁是允許的,但三個人不該用同一種方式。
+
+    自己回合裡反駁本來就開著(`GROUP_PEER_STANCE` 寫了「可以反駁」),
+    關掉的只有插話與輪次過後回頭補。缺的是**依個性區分**——
+    三個人都寫「可以反駁」的話,輸出就會三個人都一樣。
+    """
+    from app.prompts.interview_live import GROUP_PEER_STANCE
+    from app.prompts.interview_personas import personas_for
+
+    peers = [p for p in personas_for("group") if p.role == "peer"]
+    assert len(peers) >= 3
+
+    described = {p.display_name: p.stance.split("反駁:", 1)[1]
+                 for p in peers if "反駁:" in p.stance}
+    assert len(described) == len(peers), "每一位都要寫明自己怎麼反駁"
+    assert len(set(described.values())) == len(described), "三份不可以一樣"
+
+    assert "最直接" in described["AI-強勢"]
+    assert "不反駁立場" in described["AI-邏輯"]
+    assert "最少正面反駁" in described["AI-親切"]
+
+    # 共用區塊要說這件事因人而異,否則三份人格描述會被那句統一的
+    # 「可以反駁」蓋過去
+    assert "由你的人格決定" in GROUP_PEER_STANCE
 
 
 @pytest.mark.asyncio
@@ -940,3 +1000,323 @@ async def test_normal_end_does_not_trigger_the_rule() -> None:
         question="q", fallback=[], llm=spy, ended_by="user",
     )
     assert "還沒講完的部分" not in seen["system"]
+
+
+@pytest.mark.asyncio
+async def test_force_speaker_pins_who_talks_and_skips_dispatch() -> None:
+    """指定說話者時跳過派發,而且回的就是指定那一位。
+
+    生產路徑不傳這個值——誰開口由派發決定。它存在是為了量測:
+    要比較三位面試官對**同一段回答**會問什麼,就得繞過派發,
+    否則每一位拿到的回答都不同,量到的是回答的差異不是角色的差異。
+
+    第一版的 panel 量測就是栽在這裡:五場的派發順序一模一樣,
+    於是「同角色」等於「同一段回答」,那份數字答不了原本的問題。
+    """
+    dispatched = []
+
+    def spy(system: str, user: str) -> str:
+        if "決定這一輪由誰開口" in system:
+            dispatched.append(system)
+            return "HR 主管"
+        return json.dumps({**TURN, "speaker": "技術主管"}, ensure_ascii=False)
+
+    r = await next_turn(
+        mode="panel", answer="我用 SQL 重寫查詢。", follow_up_idx=0,
+        asked_questions=[], question="請自我介紹", fallback=["備援"],
+        llm=spy, context=CTX, force_speaker="用人主管",
+    )
+
+    assert r.speaker == "用人主管", "指定了誰就是誰,模型回別人也不算"
+    assert not dispatched, "指定之後不該再問模型誰開口"
+
+
+# ---------------------------------------------------------------------------
+# HR 的守備範圍
+# ---------------------------------------------------------------------------
+
+
+def _hr() -> object:
+    from app.prompts.interview_personas import PANEL_PERSONAS
+
+    return next(p for p in PANEL_PERSONAS if p.id == "hr")
+
+
+def test_hr_stance_carries_literal_question_shapes() -> None:
+    """HR 的 stance 裡要有字面問句,不是描述題材也不是規則。
+
+    三次量測的依據(`app/prompts/interview_personas.py` 上方那段註解):
+    v3 給四個題材、v4 給一條主詞規則,兩次都沒移動角色效果,而且各被繞過
+    一次。唯一問到人的那一題是照抄語氣示範來的,字元重疊 100%。
+
+    一直穩的另外兩位,stance 裡本來就是字面問句:「那個結論怎麼來的」、
+    「代價是什麼」、「為什麼選這個而不是那個」。這條把 HR 釘在同一個形狀。
+    """
+    import re
+
+    stance = _hr().stance
+    quoted = re.findall(r"「([^」]+)」", stance)
+    assert len(quoted) >= 2, f"stance 裡只有 {len(quoted)} 個字面問句,至少要兩個"
+    for shape in ("最難的是哪一段", "怎麼知道自己那次做得好"):
+        assert any(shape in q for q in quoted), (
+            f"「{shape}」要包在引號裡當字面問句,"
+            f"描述成題材的版本量過沒用。目前引號裡是:{quoted}"
+        )
+
+
+def test_hr_stance_stays_in_the_same_size_class_as_the_two_that_work() -> None:
+    """規則越加越多就是 v3 與 v4 的失敗路徑,這條擋住它。
+
+    `_persona_block` 的註解記過 prompt 一長人格就塌。實際長度:
+    技術主管 65 字、用人主管 47 字,兩位都穩;v4 的 HR 膨脹到三百多字,
+    裡面有過濾規則、四個題材、一句禁令,一個都沒生效。
+
+    HR 比另外兩位長是可以的——它多一個接住答不出來的人的職責,
+    那是功能不是人格。但不該長成另一個數量級。
+    """
+    from app.prompts.interview_personas import PANEL_PERSONAS
+
+    hr = _hr()
+    others = [len(p.stance) for p in PANEL_PERSONAS if p.id != "hr"]
+    assert len(hr.stance) <= max(others) * 2.5, (
+        f"HR 的 stance {len(hr.stance)} 字,另外兩位 {others}。"
+        "又在往裡面加規則了——先看註解裡那三次量測。"
+    )
+
+
+def test_hr_names_what_is_not_its_question() -> None:
+    """界線要寫出來,但是一句話,不是一條規則。
+
+    v4 的主詞規則被繞過了(「你當時是怎麼決定優先做那三個欄位的呢」——
+    「你」是主詞,規則形式上過關)。所以這裡不再試圖讓模型自己檢查,
+    只留一句話說那兩種問題是誰的,剩下交給上面那兩個字面問句去帶。
+    """
+    stance = _hr().stance
+    assert "技術主管" in stance and "用人主管" in stance, "沒說那兩種問題是誰的"
+    assert "主詞" not in stance, (
+        "主詞規則量過會被繞過(十二題裡六題),不要再放回來"
+    )
+
+
+def test_hr_still_catches_the_candidate_who_cannot_answer() -> None:
+    """接住答不出來的人是 HR 原本就有的功能,不能被改角度弄掉。
+
+    這條跟評分那邊的 ADMITS_UNKNOWN 是一對:誠實說不會會拿最低錨點
+    而不是不評分,所以場上也要有人把話接下去。
+    """
+    hr = _hr()
+    assert "答不出來" in hr.stance
+    assert "不是扣分項" in hr.stance
+    assert any("答不出來" in r or "不確定" in r for r in hr.routes_when)
+
+
+def test_hr_gets_routed_the_answers_nobody_else_can_use() -> None:
+    """派發只讀 blurb 與 routes_when,不讀 stance。
+
+    所以改 stance 而不動 routes_when 的話,生產路徑裡 HR 還是只會拿到
+    講衝突的回答,新的切法永遠不會被用到——量測是用 force_speaker
+    繞過派發的,它看不到這個漏洞。
+
+    「沒有方法也沒有取捨可問」那一段就是泛泛而談,而泛泛而談正是技術與
+    用人兩位一起漂掉的那一段。
+    """
+    routes = _hr().routes_when
+    assert any("沒有方法" in r and "取捨" in r for r in routes), (
+        "泛泛而談沒有歸屬,派發只能硬塞給技術或用人"
+    )
+    assert len(routes) > 2, "切法改了就要拓寬守備範圍,否則派發不會送過來"
+
+
+def test_hr_blurb_stays_short_enough_for_the_frontend_roster() -> None:
+    """blurb 會進開場回應的 roster,前端一行一個人顯示。
+
+    `app/prompts/peer_profile.py` 量過既有 blurb 最長 14 個字。
+    切法與過濾規則寫進 blurb 會爆掉那一行,所以細節留在 stance——
+    stance 只進 prompt,不進回應。
+    """
+    hr = _hr()
+    assert len(hr.blurb) <= 14, f"blurb {len(hr.blurb)} 字,roster 那一行放不下"
+    assert "挫折" in hr.blurb, "派發讀 blurb,兩個切法要在裡面看得到"
+
+
+@pytest.mark.asyncio
+async def test_hr_angles_reach_the_prompt_the_model_actually_sees() -> None:
+    """上面幾條驗的是常數,這一條驗那些字真的組進了 HR 開口那一輪的 prompt。
+
+    `_persona_block` 只展開 focus 那一位,其餘只留名字與定位。
+    改了常數卻沒進 prompt 的話,前面六條全綠而行為不變。
+    """
+    seen: dict[str, str] = {}
+
+    def spy(system: str, user: str) -> str:
+        if "決定這一輪由誰開口" in system:
+            return "HR 主管"
+        seen["system"] = system
+        return json.dumps({**TURN, "speaker": "HR 主管"}, ensure_ascii=False)
+
+    await next_turn(
+        mode="panel", answer="我覺得做分析最難的是知道該問什麼問題。",
+        follow_up_idx=0, asked_questions=[], question="請自我介紹",
+        fallback=["備援"], llm=spy, context=CTX,
+    )
+
+    system = seen["system"]
+    assert "最難的是哪一段" in system, "字面問句沒進 prompt"
+    assert "怎麼知道自己那次做得好" in system, "字面問句沒進 prompt"
+    assert "那一段裡最讓你卡住的是什麼?" in system, "語氣示範沒進 prompt"
+
+
+def test_the_dispatcher_sees_hrs_new_territory() -> None:
+    """派發 prompt 是另一次呼叫,組的是另一段文字。
+
+    `compose_dispatch_prompt` 只放 display_name + blurb + routes_when。
+    routes_when 改了但那個函式漏掉某一項的話,派發的判斷依據就跟
+    persona 設定不一致,而那個錯是靜默的。
+    """
+    from app.prompts.interview_live import compose_dispatch_prompt
+
+    prompt = compose_dispatch_prompt("panel")
+    assert "挫折" in prompt, "blurb 沒進派發 prompt"
+    for route in _hr().routes_when:
+        assert route in prompt, f"守備範圍「{route}」沒進派發 prompt"
+
+
+def test_route_conditions_stay_separable_when_they_contain_commas() -> None:
+    """守備範圍含「、」,所以項與項之間不能也用「、」接。
+
+    派發是獨立一次呼叫,判斷依據只有那一行。HR 拓寬到四項之後,
+    用「、」接會變成讀不出邊界的一長串:
+
+        提到團隊、合作、衝突、溝通、提到為什麼選這個、哪裡難…
+
+    「溝通」與「提到為什麼選這個」之間那個「、」跟前面幾個長得一樣。
+    """
+    from app.prompts.interview_live import ROUTE_JOIN, compose_dispatch_prompt
+
+    assert "、" not in ROUTE_JOIN, "分隔符跟守備範圍內部的標點撞了"
+
+    hr = _hr()
+    assert len(hr.routes_when) >= 4, "這條測的是多項的情況"
+    line = next(
+        ln for ln in compose_dispatch_prompt("panel").splitlines()
+        if "什麼時候輪到他" in ln and hr.routes_when[0] in ln
+    )
+    assert line.count(ROUTE_JOIN) == len(hr.routes_when) - 1, (
+        "項數與分隔數對不上,有一項被黏進別項裡了"
+    )
+
+def test_hrs_routing_hooks_do_not_land_in_another_interviewers_frame() -> None:
+    """派發的鉤子不能用另外兩位的招牌問句。
+
+    兩支 prompt 是兩次獨立呼叫:派發只讀 routes_when,生成只讀 stance。
+    鉤子用了用人主管的招牌句時,HR 會被派到一段它接著不准照角度問的回答,
+    然後只能借別人的框架——那正是 v3 十二題裡的七題。
+
+    第二版實際發生的事:routes_when 寫「提到為什麼選這個」,而用人主管的
+    stance 寫「為什麼選這個而不是那個才重要」。HR 在取捨那一段三次都問了
+    優先順序怎麼評估。
+
+    【這條只抓得到四個字以上的片段】
+    招牌句是從另外兩位的 stance 比對出來的,所以「合作」「卡住」這種兩三
+    個字的鉤子過不了這個篩子——它們本來也不會跟招牌句撞。
+    """
+    from app.prompts.interview_personas import PANEL_PERSONAS
+
+    hr = _hr()
+    others = " ".join(p.stance for p in PANEL_PERSONAS if p.id != "hr")
+    checked = 0
+    for route in hr.routes_when:
+        for frag in route.replace("提到", "").split("、"):
+            if len(frag) < 4:
+                continue
+            checked += 1
+            assert frag not in others, (
+                f"守備範圍的「{frag}」是另一位 stance 裡的招牌句:"
+                "派發會送來這種回答,而 HR 照角度問不了"
+            )
+    assert checked, "沒有一個片段長到可以比對,這條測不到東西"
+
+
+# ---------------------------------------------------------------------------
+# 沒有履歷的前兩輪也要有換題的材料
+# ---------------------------------------------------------------------------
+
+
+def test_no_resume_early_turns_still_get_a_phase_block() -> None:
+    """沒有履歷不等於那兩輪沒有階段。
+
+    舊寫法是呼叫端判斷「履歷段而且沒履歷就整段不給」。不叫它編一筆經歷
+    是對的,但那樣前兩輪完全沒有換題的材料。
+
+    `data/panel_next_v1.json`(36 筆,決定全部指定成 NEXT):
+
+                            通用的「有沒有遇到什麼挑戰」   引用回答
+        沒有階段區塊(0-1)          12/18                1/18
+        有 JD_PHASE  (2-3)           3/18                5/18
+
+    同一句 NEXT 指令,有材料就照做,沒材料就退回通用問句。
+    """
+    from app.prompts.probe_rules import (
+        JD_PHASE,
+        NO_RESUME_PHASE,
+        RESUME_PHASE,
+        interview_phase,
+    )
+
+    assert interview_phase(0, has_resume=True) is RESUME_PHASE
+    assert interview_phase(0, has_resume=False) is NO_RESUME_PHASE
+    assert interview_phase(1, has_resume=False) is NO_RESUME_PHASE
+    # 職缺那一段本來就不看履歷。
+    assert interview_phase(2, has_resume=False) is JD_PHASE
+    assert interview_phase(3, has_resume=True) is JD_PHASE
+
+
+def test_the_no_resume_block_points_at_material_that_exists() -> None:
+    """它指的東西必須真的在同一則訊息裡。
+
+    `context_block` 一定會印【職位脈絡】,沒有 JD 時那裡仍然有職稱、產業、
+    面試類型。所以指過去永遠有東西可讀——這跟指向一份不存在的履歷不同。
+    """
+    from app.prompts.probe_rules import NO_RESUME_PHASE
+
+    assert "【職位脈絡】" in NO_RESUME_PHASE
+    for pick_from_resume in ("從他履歷", "履歷上寫的", "履歷裡挑"):
+        assert pick_from_resume not in NO_RESUME_PHASE, (
+            f"還是叫它從履歷挑(「{pick_from_resume}」),而這一段的前提就是沒有履歷"
+        )
+
+
+def test_the_no_resume_block_still_forbids_inventing_experience() -> None:
+    """補材料不能把原本那條保護弄掉。
+
+    RESUME_PHASE 擋的是「問得像他做過某件事」。沒有履歷的時候那個風險更大,
+    因為模型手上一筆經歷都沒有。
+    """
+    from app.prompts.probe_rules import NO_RESUME_PHASE
+
+    assert "預設了沒有發生的事" in NO_RESUME_PHASE
+    assert "只問他自己講出來的東西" in NO_RESUME_PHASE
+
+
+@pytest.mark.asyncio
+async def test_the_no_resume_block_reaches_the_prompt() -> None:
+    """上面三條驗常數,這一條驗它真的組進了沒有履歷那一輪的 prompt。"""
+    seen: dict[str, str] = {}
+
+    def spy(system: str, user: str) -> str:
+        if "決定這一輪由誰開口" in system:
+            return "HR 主管"
+        seen["system"] = system
+        return json.dumps({**TURN, "speaker": "HR 主管"}, ensure_ascii=False)
+
+    await next_turn(
+        mode="panel", answer="我用 SQL 重寫了每週報表的查詢。", follow_up_idx=0,
+        asked_questions=[], question="請自我介紹", fallback=["備援"],
+        llm=spy, context=CTX,
+    )
+
+    system = seen["system"]
+    assert "他沒有帶履歷" in system, "沒有履歷的階段區塊沒進 prompt"
+    assert "從他履歷上寫的經歷" not in system, (
+        "沒有履歷卻給了履歷段,模型會去編一筆經歷"
+    )
