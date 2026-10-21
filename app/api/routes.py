@@ -165,7 +165,10 @@ async def submit_turn(req: TurnRequest, session_id: str = SESSION_ID) -> TurnRes
         decision=decision,
         answer=req.answer,
         follow_up_idx=req.follow_up_idx,
-        asked_questions=_asked_questions(req),
+        # 問句原文只給查重,領域標籤只給 prompt。兩者混在一起會讓查重
+        # 誤判——見 `next_turn` 的 asked_topics 那段說明。
+        asked_questions=[q for q in req.asked_questions if str(q or '').strip()],
+        asked_topics=[t for t in req.asked_topics if str(t or '').strip()],
         spoken_by=req.spoken_by,
         question=req.question,
         prev_topic=req.asked_topics[-1] if req.asked_topics else "",
@@ -182,8 +185,17 @@ async def submit_turn(req: TurnRequest, session_id: str = SESSION_ID) -> TurnRes
     # 與 followUpIdx 同一個模式。前端不解讀這兩個值,原樣送回就好。
     resp.probe_gap, resp.probe_depth = _next_probe(req, decision)
 
-    # 退回標籤的時候要講出來。這一道失效過一次而且沒有人發現,
-    # 原因就是它失效的方式是沉默的——比對照樣跑,只是永遠回 None。
+    # 前端沒帶問句原文的時候要講出來。
+    #
+    # 【這條接線錯過一次,而且錯了兩種方式】
+    # 原本是 `asked_questions=req.asked_topics`——領域標籤不是問句原文,
+    # 而 `compose_probe_rules` 的註解早就寫明傳的該是原文。兩個欄位都是
+    # list[str],所以接錯沒有任何東西擋得住。
+    #
+    # 修第一次的時候以為降級是「查重形同關閉」,所以留了退回標籤那條路。
+    # 那個判斷也是錯的:標籤被問句整個包住時 `_overlapping` 的比例衝到 1.0,
+    # 是**誤判**不是失效,模型的新主問題會被換成通用的備援題。
+    # 所以現在標籤只進 prompt,不進查重,降級才真的是關閉。
     if req.asked_topics and not any(str(q or "").strip() for q in req.asked_questions):
         resp.notices.append(
             "本輪:前端未帶 askedQuestions,防重複改用領域標籤比對,"
@@ -239,27 +251,6 @@ async def _decide(req: TurnRequest, mode: str):
         ended_by=req.ended_by,
         transcription_engine=req.context.transcription_engine,
     )
-
-
-def _asked_questions(req: TurnRequest) -> list[str]:
-    """防重複的比對鍵:已經問過的問題原文。
-
-    【這裡原本接錯了】
-    原本是 `asked_questions=req.asked_topics`。那是領域標籤,不是問句原文,
-    而 `compose_probe_rules` 的註解早就寫明「傳的是已問過的問題原文,
-    不是領域標籤」——標籤是模型自己填的,拿它當比對鍵等於讓它自己出考卷。
-
-    兩個欄位都是 `list[str]`,所以接錯沒有任何東西擋得住,而且兩個症狀
-    都是沉默的:prompt 標題寫「本場已經問過的問題」底下列四個字的標籤,
-    `is_near_duplicate` 拿問句去比標籤永遠回 None。
-
-    【退回標籤時要講】
-    前端還沒帶 `asked_questions` 之前,退回用標籤——比沒有清單好,
-    至少模型看得到問過哪些領域。但防重複那一道形同關閉,所以要記進
-    notices,不要讓它繼續沉默地不生效。
-    """
-    asked = [q for q in req.asked_questions if str(q or "").strip()]
-    return asked or [t for t in req.asked_topics if str(t or "").strip()]
 
 
 def _turn_jd(req: TurnRequest) -> JDInput | None:

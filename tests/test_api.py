@@ -219,10 +219,14 @@ def test_start_returns_session_and_question(client) -> None:
     assert d["openingTopic"]
 
 
-def test_start_group_gets_interrupt_lines(client) -> None:
+def test_start_group_sends_no_interrupt_lines(client) -> None:
+    """搶話關掉了:AI 應徵者只在輪到自己時發言。
+
+    欄位留著沒刪,因為前端還在讀,而且產品可能改回來。
+    """
     d = client.post("/interviews", json={"mode": "group", "context": CTX}).json()
-    assert d["interruptLines"]
-    assert d["interruptCap"] == len(d["interruptLines"])
+    assert d["interruptLines"] == []
+    assert d["interruptCap"] == 0
     assert {p["displayName"] for p in d["personas"]} >= {"主考官", "AI-邏輯"}
 
 
@@ -1184,19 +1188,43 @@ def test_a_rephrased_main_question_is_swapped_for_a_fallback(client, monkeypatch
 
 
 def test_topic_labels_cannot_stand_in_for_the_asked_questions(client, monkeypatch) -> None:
-    """只帶領域標籤時擋不下來,而且要講出來。
+    """只帶領域標籤時查重是**關掉**,不是誤判,而且要講出來。
 
-    這是原本的線上行為:routes 把 `asked_topics` 塞進一個叫
-    `asked_questions` 的參數。兩邊都是 list[str],接錯沒有東西擋得住。
+    【這一條原本的理由是錯的】
+    原本寫「交集只有『資料』兩個字,而 `is_near_duplicate` 要求至少四個字,
+    所以永遠回 None」。那只對這一個 fixture 成立。標籤有四個字以上而且被
+    問句整個包住的時候,`_overlapping` 的分母是較短那一邊,比例直接衝到
+    1.0——那是誤判不是失效,後果是模型的新主問題被換成通用的備援題。
 
-    「資料分析」跟那句問句的交集只有「資料」兩個字,而 `is_near_duplicate`
-    要求至少四個字,所以永遠回 None——失效的方式是沉默的,
-    比對照樣跑,只是從來不命中。
+    所以現在標籤只進 prompt,不進查重。下面第二組就是原本會誤判的那種。
     """
     d = _repeating_turn(client, monkeypatch, askedTopics=["資料分析"])
-
     assert d["nextQuestion"] == REPEAT_Q, "標籤擋不下來,這是已知的降級"
     assert any("askedQuestions" in n for n in d["notices"]), "降級一定要講"
+
+
+def test_a_topic_label_contained_in_the_question_does_not_trigger_the_swap(
+    client, monkeypatch
+) -> None:
+    """標籤被問句整個包住時不可以判成重複。
+
+    這一組原本會誤判:「資料清理經驗」四個以上的字全部出現在
+    「你過去如何處理資料清理的經驗」裡,比例 1.0,於是模型產出的問題被
+    丟掉、換成開場就生好的備援題。而備援題一場只生一次、內容通用,
+    使用者看到的就是「問題差不多」。
+
+    實跑確認過這條路徑,不是推論。
+    """
+    from app.pipeline.interview_live import DUP_THRESHOLD, _overlapping
+
+    label = "資料清理經驗"
+    assert _overlapping(REPEAT_Q, [label], DUP_THRESHOLD) == label, (
+        "fixture 要是原本會誤判的那種,否則這一條測不到東西"
+    )
+
+    d = _repeating_turn(client, monkeypatch, askedTopics=[label])
+    assert d["nextQuestion"] == REPEAT_Q, "標籤不該把模型的問題換成備援題"
+    assert not any("與先前重複" in n for n in d["notices"])
 
 
 def test_the_prompt_lists_questions_not_labels(client, monkeypatch) -> None:

@@ -818,6 +818,7 @@ async def next_turn(
     answer: str,
     follow_up_idx: int,
     asked_questions: Sequence[str],
+    asked_topics: Sequence[str] = (),
     spoken_by: Sequence[str] = (),
     question: str = "",
     prev_topic: str = "",
@@ -834,6 +835,21 @@ async def next_turn(
 
     follow_up_idx 達到上限時強制推進,不問模型——
     「這是第幾次追問」是確定性事實,交給模型判斷會讓它有時多追一次。
+
+    【asked_questions 與 asked_topics 分開傳,因為兩個用途不同】
+    prompt 要的是「本場問過哪些」給模型參考,沒有問句原文時列領域標籤
+    也比什麼都沒有好。機械查重要的是比對鍵,而標籤拿來比會**誤判**:
+    `_overlapping` 的分母是較短那一邊,標籤只有四到十一個字,被一句問題
+    整個包住的時候比例衝到 1.0。
+
+        「那你在團隊合作上最不順的是哪一段?」vs 標籤「團隊合作」  1.000
+
+    後果是模型產出的新主問題被判成重複,換成開場就生好的備援題——
+    而備援題是通用的、一場只生一次,使用者看到的就是「問題差不多」。
+
+    所以標籤只進 prompt,不進 `is_near_duplicate` 與 `is_verbatim_repeat`。
+    前端沒帶 `askedQuestions` 的時候,那兩道是**關掉**而不是誤判,
+    那才是 `routes._asked_questions` 的註解原本宣稱的行為。
 
     【decision】
     這一輪要做什麼(NEXT / FOLLOW_UP / CLARIFY),由 `turn_decision` 先決定好再傳進來。
@@ -961,7 +977,7 @@ async def next_turn(
     # system 與 user 留成變數,因為追問撞到重複時要用同一份再問一次。
     system = compose_turn_prompt(
         mode,
-        list(asked_questions),
+        list(asked_questions) or list(asked_topics),
         group_interviewers=gi,
         group_size=gs,
         focus_speaker=focus,
