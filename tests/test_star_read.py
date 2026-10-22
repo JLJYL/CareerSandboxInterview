@@ -20,6 +20,7 @@ import pytest
 
 from app.pipeline.star_read import (
     ASSIGN,
+    CORE_FACTS,
     ASSIGN_MIN_SENTENCES,
     FAILED,
     QUESTION,
@@ -31,7 +32,8 @@ from app.pipeline.star_read import (
     read_facts,
     read_one,
 )
-from app.pipeline.interviewer_spec import ACCEPT_RULES, STAR_PART_KEYS
+from app.pipeline.interviewer_spec import ACCEPT_RULES, DIM_STRUGGLE, STAR_PART_KEYS, STRUGGLE_FACT
+from app.pipeline.turn_decision import struggle_dimension
 from app.pipeline.transcript import SEGMENTATION_SOURCES, SEGMENT_LEVELS, segment_text
 from app.prompts.star_read import (
     ASSIGN_SYSTEM,
@@ -416,3 +418,126 @@ def test_an_unknown_level_is_refused():
     """認不得的 level 要炸,不要默默回子句——那會讓分派拿到半句話。"""
     with pytest.raises(ValueError):
         segment_text(ANSWER, level="sentences")
+
+
+# ---------------------------------------------------------------------------
+# 第七項:自述困難
+# ---------------------------------------------------------------------------
+
+
+def test_struggle_is_declared_once_and_shared_with_dispatch():
+    """鍵名只有一個來源。派發端讀的是 `STRUGGLE_FACT`,這邊用同一個常數。
+
+    兩邊各寫一份字串的後果是:改了一邊,派發靜默回到休眠狀態,沒有任何錯誤。
+    """
+    assert FACTS[-1] == STRUGGLE_FACT
+    assert FACT_NAME[STRUGGLE_FACT] == DIM_STRUGGLE
+    assert STRUGGLE_FACT in FACT_QUESTION
+    assert STRUGGLE_FACT not in CORE_FACTS
+    assert set(CORE_FACTS) | {STRUGGLE_FACT} == set(FACTS)
+
+
+def test_struggle_question_rules_out_the_two_easy_misreads():
+    """問句要窄。成功敘事與「別人造成的困難」是最容易被讀成「有」的兩種,問句裡直接排除。"""
+    q = FACT_QUESTION[STRUGGLE_FACT]
+    assert "只算他明講" in q
+    assert "別人或外部條件" in q
+    assert "只講做成了什麼不算" in q
+
+
+def test_struggle_is_asked_alone_even_on_the_assignment_path():
+    """它不是 S/T/A/R 四段裡的一段,沒有標籤可掛,所以分派路徑也要單問。"""
+    calls: list = []
+    facts = asyncio.run(
+        read_facts(
+            answer=ANSWER,
+            llm=llm_of(
+                {"分派": assign_all("A"), "只判斷一件事": obj(present=False, quote="")},
+                calls=calls,
+            ),
+        )
+    )
+    assert len(calls) == 4  # 一次分派 + 量化 + 取捨 + 自述困難
+    assert facts.read_by[STRUGGLE_FACT] == QUESTION
+    assert facts.read_by["T"] == ASSIGN
+
+
+def test_a_failed_struggle_call_does_not_void_the_accept_decision():
+    """輔助訊號掛了,放行判斷照舊能用。
+
+    自述困難只決定派給誰,不進 accepts()。它的呼叫失敗如果讓 `complete` 變 False,
+    整個決定會退回模型——為一個輔助訊號丟掉原本算得出來的結果。
+    """
+
+    def call(system: str, user: str) -> str:
+        if FACT_QUESTION[STRUGGLE_FACT] in system:
+            raise RuntimeError("timeout")
+        if "分派" in system:
+            return assign_all("A")
+        return obj(present=False, quote="")
+
+    facts = asyncio.run(read_facts(answer=ANSWER, llm=call))
+    assert facts.failed == (STRUGGLE_FACT,)
+    assert facts.complete
+    # 讀失敗不能被當成「他沒講」:派發端要看得出來沒讀到。
+    assert struggle_dimension(facts) == ""
+
+
+def test_old_labels_without_struggle_leave_it_unread():
+    """舊標註沒有這一欄,不能補成 False——那等於宣稱「讀過,他沒講」。
+
+    補了的後果:每個用 from_label 組出來的事實都會讓派發把回合給 HR。
+    """
+    facts = AnswerFacts.from_label(
+        {"star_parts": ["S", "A", "R"], "quantified": True, "tradeoff": True}
+    )
+    assert STRUGGLE_FACT not in facts.read_by
+    assert facts.complete
+    assert struggle_dimension(facts) == ""
+
+
+def test_labeled_struggle_drives_the_dispatch_hint():
+    base = {"star_parts": ["S", "T", "A", "R"], "quantified": True, "tradeoff": True}
+    said = AnswerFacts.from_label({**base, STRUGGLE_FACT: True})
+    silent = AnswerFacts.from_label({**base, STRUGGLE_FACT: False})
+    assert said.struggle and struggle_dimension(said) == ""
+    assert not silent.struggle and struggle_dimension(silent) == DIM_STRUGGLE
+
+
+def test_struggle_never_changes_the_accept_decision():
+    """第七項不進 accepts():同一份標註,有沒有它,放行與缺口都一樣。"""
+    base = {"star_parts": ["S", "A", "R"], "quantified": False, "tradeoff": False}
+    for rule in ACCEPT_RULES.values():
+        without = AnswerFacts.from_label(base)
+        for flag in (True, False):
+            with_it = AnswerFacts.from_label({**base, STRUGGLE_FACT: flag})
+            assert with_it.accepted_by(rule) == without.accepted_by(rule)
+            assert with_it.gap_for(rule) == without.gap_for(rule)
+
+
+STRUGGLE_SET = Path("fixtures/golden/decision/answers_struggle_v1.json")
+
+
+def test_struggle_gold_set_has_both_classes_and_hard_negatives():
+    """沒有正例的標註集,準確率沒有意義:永遠答「沒有」就是 1.00。
+
+    這份檔案要同時有正例與反例,而且反例裡要有「外部困難」與「只講成就」
+    這兩種最容易被誤判成正例的,否則窄定義沒被量到。
+    """
+    data = json.loads(STRUGGLE_SET.read_text(encoding="utf-8"))
+    labels = {a["answer_id"]: a["label"][STRUGGLE_FACT] for a in data["answers"]}
+    assert sum(labels.values()) >= 2
+    assert sum(not v for v in labels.values()) >= 3
+    for a in data["answers"]:
+        assert STRUGGLE_FACT in a["label"], a["answer_id"]
+
+
+def test_struggle_gold_set_only_changes_the_last_sentence():
+    """六筆共用同一段本文,差異只來自最後一句;否則量到的不是 struggle。"""
+    data = json.loads(STRUGGLE_SET.read_text(encoding="utf-8"))
+    bodies = {a["text"].split("。")[:-2].__str__() for a in data["answers"]}
+    assert len(bodies) == 1
+    for a in data["answers"]:
+        lab = a["label"]
+        assert lab["star_parts"] == ["S", "T", "A", "R"]
+        assert lab["quantified"] is True and lab["tradeoff"] is False

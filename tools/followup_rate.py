@@ -244,7 +244,7 @@ def fake_facts_reply(label: dict, answer: str, system: str) -> str | None:
             has = (
                 fact in label["star_parts"]
                 if fact in ("S", "T", "A", "R")
-                else bool(label[fact])
+                else bool(label.get(fact))
             )
             return json.dumps(
                 {"present": has, "quote": answer[:12] if has else ""}, ensure_ascii=False

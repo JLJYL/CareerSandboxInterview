@@ -1,4 +1,4 @@
-"""讀一段回答裡有哪些事實:STAR 四段、結果有沒有數字、有沒有取捨。
+"""讀一段回答裡有哪些事實:STAR 四段、結果有沒有數字、有沒有取捨、有沒有自述困難。
 
 【這個檔只負責「有什麼」,不負責「夠不夠」】
 夠不夠是 `AcceptRule` 的事,而那是程式算的。1d 實測的結論是放行條件
@@ -32,11 +32,15 @@
 
 from __future__ import annotations
 
-from app.pipeline.interviewer_spec import STAR_PART_KEYS
+from app.pipeline.interviewer_spec import STAR_PART_KEYS, STRUGGLE_FACT
 
-FACTS: tuple[str, ...] = STAR_PART_KEYS + ("quantified", "tradeoff")
-"""要判讀的六件事。前四個直接取 `STAR_PART_KEYS`,不另寫一份。"""
+FACTS: tuple[str, ...] = STAR_PART_KEYS + ("quantified", "tradeoff", STRUGGLE_FACT)
+"""要判讀的七件事。前四個直接取 `STAR_PART_KEYS`,不另寫一份。
 
+第七項的鍵名取 `interviewer_spec.STRUGGLE_FACT`,不在這裡再寫一次字串:
+那個鍵是派發端(`turn_decision.struggle_dimension`)讀的,兩邊寫兩份,
+哪天只改了一邊,派發會靜默退回休眠狀態而不是報錯。
+"""
 FACT_NAME: dict[str, str] = {
     "S": "情境",
     "T": "任務",
@@ -44,6 +48,7 @@ FACT_NAME: dict[str, str] = {
     "R": "結果",
     "quantified": "量化",
     "tradeoff": "取捨",
+    STRUGGLE_FACT: "自述困難",
 }
 """報表與 log 用的中文名。鍵必須與 FACTS 一致,檔尾有檢查。"""
 
@@ -68,6 +73,16 @@ FACT_QUESTION: dict[str, str] = {
     "R": "這段回答有沒有交代最後怎麼樣——這件事的結果?",
     "quantified": "這段回答講的結果裡,有沒有可查證的數字?",
     "tradeoff": "這段回答有沒有交代他放棄了什麼,以及當時的判斷依據?",
+    # 這一項只有單題問法可用:它不是 S/T/A/R 四段裡的一段,是整段回答的性質,
+    # 句子分派沒有標籤可以掛。T 那一項的前車之鑑是——寬問句、單題、是非加抄原文,
+    # 三樣湊在一起會一律答「有」。所以問句寫窄:只算他明講的那一句,
+    # 並且把兩種最容易被誤讀成「有」的情況在問句裡直接排除。
+    STRUGGLE_FACT: (
+        "他有沒有**說出**他自己哪裡做不好、哪裡卡住、或哪個部分還不夠?"
+        "只算他明講的那一句。"
+        "只講做成了什麼不算;講別人或外部條件造成的困難也不算——"
+        "那是情境,不是他自己的不足。"
+    ),
 }
 
 
@@ -191,7 +206,7 @@ _bad_facts = set(FACTS) ^ set(FACT_NAME) | set(FACTS) ^ set(FACT_QUESTION)
 if _bad_facts:
     raise RuntimeError(
         f"FACTS 與名稱/問句對不上:{sorted(_bad_facts)}。"
-        "六件事的清單、中文名、問句是同一件事,只能有一份來源。"
+        "七件事的清單、中文名、問句是同一件事,只能有一份來源。"
     )
 
 _bad_labels = set(STAR_LABELS) ^ set(LABEL_MEANING)

@@ -78,7 +78,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.pipeline.interview_live import parse_obj  # noqa: E402
-from app.pipeline.interviewer_spec import ACCEPT_RULES  # noqa: E402
+from app.pipeline.interviewer_spec import ACCEPT_RULES, STRUGGLE_FACT  # noqa: E402
 from app.pipeline.star_read import (  # noqa: E402
     AnswerFacts,
     FactRead,
@@ -109,7 +109,21 @@ DIFFICULTIES = ("新手", "中等", "困難")
 def truth(label: dict, fact: str) -> bool:
     if fact in ("quantified", "tradeoff"):
         return bool(label[fact])
+    if fact == STRUGGLE_FACT:
+        # 沒標的時候是 False,但那不是答案——呼叫端要先問 `has_truth`。
+        # 這一行以前會落到下面的 star_parts 判斷,靜默回 False,
+        # 於是「沒有人標過」被量成「標記為沒有」,準確率看起來是真的。
+        return bool(label.get(STRUGGLE_FACT))
     return fact in label["star_parts"]
+
+
+def has_truth(label: dict, fact: str) -> bool:
+    """這一筆標註有沒有這一項的人工答案。
+
+    自述困難是後加的第七項,`answers_v1.json` 目前沒有這一欄。沒標的筆
+    不計分,不當成「沒有」——否則兩種完全不同的事會量成同一個數字。
+    """
+    return fact != STRUGGLE_FACT or STRUGGLE_FACT in label
 
 
 # ---------------------------------------------------------------------------
@@ -117,20 +131,20 @@ def truth(label: dict, fact: str) -> bool:
 # ---------------------------------------------------------------------------
 
 def compose_bundled() -> str:
-    """一次問六題。只有這支留在工具裡——它是對照組,不會上線。
+    """一次問七題。只有這支留在工具裡——它是對照組,不會上線。
 
     問句與抄原文規則都從 `app.prompts.star_read` 來,所以對照組與上線那組
-    問的是同一件事,差別只在包成一次還是拆成六次。
+    問的是同一件事,差別只在包成一次還是拆成七次。
     """
     asked = "\n".join(f"    {f}　{FACT_QUESTION[f]}" for f in FACTS)
     shape = ",\n ".join(f'"{f}": {{"present": false, "quote": ""}}' for f in FACTS)
     return "\n\n".join(
         [
             FACT_RULES,
-            f"【要判斷的六件事】\n\n{asked}",
+            f"【要判斷的七件事】\n\n{asked}",
             f"""【輸出格式】
 
-只回這個 JSON,六個鍵都要在,不要加任何說明文字:
+只回這個 JSON,七個鍵都要在,不要加任何說明文字:
 
 {{{shape}}}""",
         ]
@@ -243,7 +257,7 @@ def throttled(llm, limit: int):
 
 
 async def run_split(answer: dict, llm) -> dict[str, FactRead]:
-    """六次,各問一題。對照組。"""
+    """七次,各問一題。對照組。"""
 
     async def one(fact: str):
         raw = await asyncio.to_thread(
@@ -255,7 +269,7 @@ async def run_split(answer: dict, llm) -> dict[str, FactRead]:
 
 
 async def run_bundled(answer: dict, llm) -> dict[str, FactRead]:
-    """一次,問六題。對照組。"""
+    """一次,問七題。對照組。"""
     raw = await asyncio.to_thread(
         llm, compose_bundled(), fact_user_message(answer["text"])
     )
@@ -263,7 +277,7 @@ async def run_bundled(answer: dict, llm) -> dict[str, FactRead]:
 
 
 async def run_assign(answer: dict, llm) -> dict[str, FactRead]:
-    """句子分派加兩次單題——直接呼叫上線那一支。
+    """句子分派加三次單題——直接呼叫上線那一支。
 
     這裡刻意不自己組那三次呼叫:組法只要跟 `read_facts()` 差一點,
     量到的數字就不是對線上行為的描述。要改判讀就去改 app,這支會跟著動。
@@ -279,26 +293,48 @@ async def run_assign(answer: dict, llm) -> dict[str, FactRead]:
 
 def print_facts(name: str, reads: dict[str, list[dict]], answers) -> dict[str, float]:
     print(f"\n【{name}:每一項事實的準確率】\n")
-    print(pad("答案", 6, False) + "".join(pad(FACT_NAME[f], 7) for f in FACTS) + pad("整列", 7))
+    print(pad("答案", 6, False) + "".join(pad(FACT_NAME[f], 9) for f in FACTS) + pad("整列", 7))
     per_fact: dict[str, list[float]] = {f: [] for f in FACTS}
+    no_struggle: list[float] = []  # 人工標記為「沒有自述困難」的那些筆
     for a in answers:
         row = pad(a["id"], 6, False)
+        scored = [f for f in FACTS if has_truth(a["label"], f)]
         for f in FACTS:
+            if f not in scored:
+                row += pad("—", 9)
+                continue
             want = truth(a["label"], f)
             hits = [1.0 if r[f][0] == want else 0.0 for r in reads[a["id"]]]
             per_fact[f] += hits
-            row += pad(f"{statistics.mean(hits):.2f}", 7)
+            if f == STRUGGLE_FACT and not want:
+                no_struggle += hits
+            row += pad(f"{statistics.mean(hits):.2f}", 9)
         whole = [
-            1.0 if all(r[f][0] == truth(a["label"], f) for f in FACTS) else 0.0
+            1.0 if all(r[f][0] == truth(a["label"], f) for f in scored) else 0.0
             for r in reads[a["id"]]
         ]
         row += pad(f"{statistics.mean(whole):.2f}", 7)
         print(row)
 
     print("\n" + pad("合計", 6, False) + "".join(
-        pad(f"{statistics.mean(per_fact[f]):.2f}", 7) for f in FACTS
+        pad(f"{statistics.mean(per_fact[f]):.2f}" if per_fact[f] else "—", 9)
+        for f in FACTS
     ))
-    return {f: statistics.mean(per_fact[f]) for f in FACTS}
+    if per_fact[STRUGGLE_FACT]:
+        n_labeled = sum(1 for a in answers if has_truth(a["label"], STRUGGLE_FACT))
+        print(f"\n  {FACT_NAME[STRUGGLE_FACT]}:有人工標記 {n_labeled}/{len(answers)} 筆"
+              f"(判讀 {len(per_fact[STRUGGLE_FACT])} 次)")
+        if no_struggle:
+            # 派發只在「沒有」的時候觸發:誤判成「有」讓 HR 拿不到回合(退回現況),
+            # 誤判成「沒有」讓 HR 拿到不該拿的回合。兩種錯的代價不對稱,所以分開看。
+            print(f"  └ 標記為沒有自述困難的那些筆上的準確率:"
+                  f"{statistics.mean(no_struggle):.2f}(判讀 {len(no_struggle)} 次)")
+        else:
+            print("  └ 沒有任何一筆標記為「沒有自述困難」,這個數字量不出來。")
+    else:
+        print(f"\n  {FACT_NAME[STRUGGLE_FACT]}:標準答案裡沒有這一欄,不計分。"
+              f"引文落地率照量(見下)。")
+    return {f: statistics.mean(per_fact[f]) for f in FACTS if per_fact[f]}
 
 
 def print_quotes(name: str, reads: dict[str, list[dict]], answers) -> float:
@@ -425,6 +461,8 @@ def main() -> int:
         print("=" * 74)
         print(compose_fact_prompt("T"))
         print("\n" + "=" * 74)
+        print(compose_fact_prompt(STRUGGLE_FACT))
+        print("\n" + "=" * 74)
         print(compose_bundled())
         print("\n" + "=" * 74)
         print(ASSIGN_SYSTEM)
@@ -449,7 +487,7 @@ def main() -> int:
 
     runs = 1 if args.fake else args.runs
     conditions = ("split", "bundled", "assign") if args.condition == "all" else (args.condition,)
-    _calls = {"split": len(FACTS), "bundled": 1, "assign": 3}
+    _calls = {"split": len(FACTS), "bundled": 1, "assign": 4}
     n = sum(_calls[c] for c in conditions) * runs * len(answers)
     print(f"條件 {'+'.join(conditions)} × 回合 {runs} × 答案 {len(answers)} "
           f"= {n} 次呼叫(temp={args.temp})")
@@ -477,7 +515,9 @@ def main() -> int:
                             {
                                 "條件": cond, "回合": i, "答案": a["id"],
                                 "事實": FACT_NAME[f],
-                                "判讀": int(ok), "標準": int(truth(a["label"], f)),
+                                "判讀": int(ok),
+                                "標準": (int(truth(a["label"], f))
+                                         if has_truth(a["label"], f) else ""),
                                 "引文落地": int(g), "引文": quote,
                             }
                         )
