@@ -210,7 +210,7 @@ def facts_llm(label: dict, answer: str = RICH_ANSWER):
 
 
 async def test_facts_path_asks_only_about_facts():
-    """三次呼叫,全部是在問「這段話裡有什麼」,沒有一次在問「要不要追問」。
+    """四次呼叫(一次分派、三題單問),全部是在問「這段話裡有什麼」,沒有一次在問「要不要追問」。
 
     這是 2c 的重點:放行條件不再進 prompt。1d 實測它進了也沒生效。
     """
@@ -222,7 +222,8 @@ async def test_facts_path_asks_only_about_facts():
         return facts_llm(LADDER[4])(system, user)
 
     d = await decide_turn(spec=spec_of(), answer=RICH_ANSWER, llm=spy)
-    assert len(llm_calls) == 3
+    # 分派 + 量化 + 取捨 + 自述困難。第四次是第七項事實加進來之後多的。
+    assert len(llm_calls) == 4
     assert not any("什麼時候算講完了" in s for s in llm_calls)
     assert not any(a in s for s in llm_calls for a in ("NEXT", "FOLLOW_UP"))
     assert d.source == "facts"

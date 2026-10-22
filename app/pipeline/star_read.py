@@ -35,7 +35,7 @@ from dataclasses import dataclass, field
 from typing import NamedTuple
 
 from app.pipeline.interview_live import LLMCall, parse_obj
-from app.pipeline.interviewer_spec import STAR_PART_KEYS, AcceptRule
+from app.pipeline.interviewer_spec import STAR_PART_KEYS, STRUGGLE_FACT, AcceptRule
 from app.pipeline.transcript import segment_text
 from app.prompts.star_read import (
     ASSIGN_SYSTEM,
@@ -45,6 +45,9 @@ from app.prompts.star_read import (
     compose_fact_prompt,
     fact_user_message,
 )
+
+CORE_FACTS: tuple[str, ...] = tuple(f for f in FACTS if f != STRUGGLE_FACT)
+"""進 `accepts()` 的六項。自述困難不在內:它只決定派給誰,不決定放不放行。"""
 
 STAR_READ_SOURCES: tuple[str, ...] = ("assign", "question", "failed")
 ASSIGN, QUESTION, FAILED = STAR_READ_SOURCES
@@ -229,6 +232,11 @@ class AnswerFacts:
         return self.read("tradeoff").present
 
     @property
+    def struggle(self) -> bool:
+        """他有沒有講自己哪裡卡住。沒讀到時也是 False——要分辨看 `read_by`。"""
+        return self.read(STRUGGLE_FACT).present
+
+    @property
     def quotes(self) -> dict[str, str]:
         """每一項的證據原文。報告要引用、人工標注要查,都靠這個。"""
         return {f: r.quote for f, r in self.reads.items() if r.quote}
@@ -240,8 +248,14 @@ class AnswerFacts:
 
     @property
     def complete(self) -> bool:
-        """六項都讀到了。沒讀到的時候不該讓程式直接下判斷。"""
-        return all(self.read_by.get(f) in (ASSIGN, QUESTION) for f in FACTS)
+        """放行判斷要的六項都讀到了。沒讀到的時候不該讓程式直接下判斷。
+
+        只看 `CORE_FACTS`,不看自述困難。那一項只用在派發給誰,不進 `accepts()`;
+        如果它的呼叫失敗就讓整個放行判斷退回模型,等於為了一個輔助訊號
+        把原本算得出來的決定丟掉。它有沒有讀到由 `struggle_dimension()` 自己看
+        `read_by`,沒讀到就回空字串。
+        """
+        return all(self.read_by.get(f) in (ASSIGN, QUESTION) for f in CORE_FACTS)
 
     @property
     def task_reliable(self) -> bool:
@@ -297,9 +311,13 @@ class AnswerFacts:
             "quantified": bool(label.get("quantified")),
             "tradeoff": bool(label.get("tradeoff")),
         }
+        # 自述困難只在標註裡真的有這一欄時才當作讀過。舊的標註沒有它,
+        # 補成 False 等於宣稱「讀過,他沒講」,派發端會因此把每一輪都給 HR。
+        if STRUGGLE_FACT in label:
+            flags[STRUGGLE_FACT] = bool(label[STRUGGLE_FACT])
         return cls(
-            reads={f: FactRead(flags[f], "", True) for f in FACTS},
-            read_by={f: read_by for f in FACTS},
+            reads={f: FactRead(flags[f], "", True) for f in flags},
+            read_by={f: read_by for f in flags},
             segmentation="punctuation",
         )
 
@@ -320,7 +338,7 @@ async def read_facts(*, answer: str, llm: LLMCall) -> AnswerFacts:
     use_assign = (
         segmentation in ASSIGNABLE_SEGMENTATION and len(sentences) >= ASSIGN_MIN_SENTENCES
     )
-    asked = ("quantified", "tradeoff") if use_assign else FACTS
+    asked = ("quantified", "tradeoff", STRUGGLE_FACT) if use_assign else FACTS
 
     async def one(fact: str) -> tuple[str, FactRead | None]:
         try:
