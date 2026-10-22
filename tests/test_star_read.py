@@ -513,3 +513,31 @@ def test_struggle_never_changes_the_accept_decision():
             with_it = AnswerFacts.from_label({**base, STRUGGLE_FACT: flag})
             assert with_it.accepted_by(rule) == without.accepted_by(rule)
             assert with_it.gap_for(rule) == without.gap_for(rule)
+
+
+STRUGGLE_SET = Path("fixtures/golden/decision/answers_struggle_v1.json")
+
+
+def test_struggle_gold_set_has_both_classes_and_hard_negatives():
+    """沒有正例的標註集,準確率沒有意義:永遠答「沒有」就是 1.00。
+
+    這份檔案要同時有正例與反例,而且反例裡要有「外部困難」與「只講成就」
+    這兩種最容易被誤判成正例的,否則窄定義沒被量到。
+    """
+    data = json.loads(STRUGGLE_SET.read_text(encoding="utf-8"))
+    labels = {a["answer_id"]: a["label"][STRUGGLE_FACT] for a in data["answers"]}
+    assert sum(labels.values()) >= 2
+    assert sum(not v for v in labels.values()) >= 3
+    for a in data["answers"]:
+        assert STRUGGLE_FACT in a["label"], a["answer_id"]
+
+
+def test_struggle_gold_set_only_changes_the_last_sentence():
+    """六筆共用同一段本文,差異只來自最後一句;否則量到的不是 struggle。"""
+    data = json.loads(STRUGGLE_SET.read_text(encoding="utf-8"))
+    bodies = {a["text"].split("。")[:-2].__str__() for a in data["answers"]}
+    assert len(bodies) == 1
+    for a in data["answers"]:
+        lab = a["label"]
+        assert lab["star_parts"] == ["S", "T", "A", "R"]
+        assert lab["quantified"] is True and lab["tradeoff"] is False
