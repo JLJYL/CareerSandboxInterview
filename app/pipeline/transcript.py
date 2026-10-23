@@ -267,13 +267,54 @@ _PUNCT_RE = re.compile(r"[。！？；，、\n\.!\?;]+")
 #: 真標點,不含換行。換行是我們自己接多段時加的,不是使用者說話的產物。
 _REAL_PUNCT_RE = re.compile(r"[。！？；，、\.!\?;]")
 _ARABIC_QUANT_RE = re.compile(
-    r"\d+(?:\.\d+)?\s*(?:%|％|倍|成|萬|千|百|人|個|次|天|週|周|月|年|小時|分鐘|元|k|m)",
+    r"(?P<num>\d+(?:\.\d+)?)\s*"
+    r"(?P<unit>%|％|倍|成|萬|千|百|人|個|次|天|週|周|月|年|小時|分鐘|元|k|m)",
     re.IGNORECASE,
 )
 _CHINESE_QUANT_RE = re.compile(
-    r"[一二兩三四五六七八九十百千萬]+\s*(?:%|％|倍|成|人|個|次|天|週|周|月|年|小時|分鐘|倍數)"
+    r"(?P<num>[一二兩三四五六七八九十百千萬]+)\s*"
+    r"(?P<unit>%|％|倍|成|人|個|次|天|週|周|月|年|小時|分鐘|倍數)"
 )
 _PURE_PERCENT_RE = re.compile(r"\d+(?:\.\d+)?\s*(?:%|％)")
+
+#: 單獨的「一」或「1」接這三個量詞時是冠詞:「做了一個專題」「有一次」
+#: 「一個人負責」。口語裡幾乎沒有例外,所以不算數字。
+_ARTICLE_UNITS = frozenset({"個", "次", "人"})
+#: 「一個」後面接這些是時長(一個月、一個小時),照算。
+_DURATION_AFTER_GE = ("月", "禮拜", "星期", "小時", "鐘頭", "學期", "暑假", "季度")
+#: 序數(第一次、第二個)是順序不是數量。
+_ORDINAL_PREFIX = "第"
+
+
+def _is_article_use(text: str, m: re.Match[str]) -> bool:
+    """這一處「一個」「一次」是不是冠詞或序數,而不是在講一個量。
+
+    只看單獨的一(或 1):十一個、一百個、1.5個 的數字部分都不是「一」,
+    照算。一週、一年、一成、一倍 不在 `_ARTICLE_UNITS` 裡,也照算。
+    """
+    if m.start() > 0 and text[m.start() - 1] == _ORDINAL_PREFIX:
+        return True
+    if m.group("num") not in ("一", "1") or m.group("unit") not in _ARTICLE_UNITS:
+        return False
+    if m.group("unit") == "個" and text.startswith(_DURATION_AFTER_GE, m.end()):
+        return False
+    return True
+
+
+def count_quantifiers(text: str) -> int:
+    """數字與量化詞處數。確定性,不載模型,所以測試可以直接呼叫。
+
+    `text_stats` 與 `tools/refresh_answer_levels.py` 都走這一支:
+    計數只能有一個來源。
+    """
+    spans: set[tuple[int, int]] = set()
+    for pattern in (_ARABIC_QUANT_RE, _CHINESE_QUANT_RE):
+        for m in pattern.finditer(text or ""):
+            if not _is_article_use(text, m):
+                spans.add((m.start(), m.end()))
+    for m in _PURE_PERCENT_RE.finditer(text or ""):
+        spans.add((m.start(), m.end()))
+    return len(_merge_spans(spans))
 
 
 # ---------------------------------------------------------------- 外部接口
@@ -809,11 +850,7 @@ class TranscriptAnalyzer:
                 causal[w] = n
         causal_n = sum(causal.values())
 
-        quant_spans: set[tuple[int, int]] = set()
-        for pattern in (_ARABIC_QUANT_RE, _CHINESE_QUANT_RE, _PURE_PERCENT_RE):
-            for m in pattern.finditer(text):
-                quant_spans.add((m.start(), m.end()))
-        quantifier_count = len(_merge_spans(quant_spans))
+        quantifier_count = count_quantifiers(text)
 
         segments, mode = self._segment(text)
         seg_lengths = [len(re.sub(r"\s+", "", s)) for s in segments if s.strip()]

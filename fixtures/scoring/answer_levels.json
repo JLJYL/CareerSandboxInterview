@@ -110,7 +110,7 @@
           "star": 4,
           "text": "專題討論要用哪個模型,我主張用簡單的邏輯迴歸,另一位組員想用深度學習,討論兩次都沒結論。我提議用同一份驗證資料各跑一次,以 F1 和訓練時間當標準。結果邏輯迴歸只差 0.02,但快了十倍,大家就採用了。之後我們把這個做法訂成固定的決策流程。",
           "char_count": 117,
-          "quantifier_count": 3
+          "quantifier_count": 2
         },
         "fair": {
           "source": "written",
@@ -144,7 +144,7 @@
           "_star_note": "有背景、能力、可驗證成果,但沒有一個明確的任務段。",
           "text": "我是資管系三年級,修過統計、資料庫和機器學習。去年做過一個專題,用銷售資料預測下個月庫存,誤差比原本的人工估算低了約 15%。平常用 Python 和 SQL,也在社團負責過活動報名資料的整理。這次想應徵資料分析實習,希望把分析做到能讓團隊直接用來決策。",
           "char_count": 123,
-          "quantifier_count": 3
+          "quantifier_count": 2
         },
         "fair": {
           "source": "written",
@@ -205,7 +205,7 @@
   ],
   "_stats_provenance": {
     "produced_by": "app.pipeline.transcript.TranscriptAnalyzer.text_stats",
-    "produced_at": "2026-10-19",
+    "produced_at": "2026-10-24",
     "regenerate": "python3 tools/refresh_answer_levels.py",
     "_why_baked_in": "測試不要自己重算。第一版在測試裡用正則重寫了一份計數,題目 2 的「好」算出 8 處而正式是 3 處——測試量的跟上線的不是同一件事,而那個差距會讓分數看起來比實際高。計數的唯一來源是 text_stats。"
   }
