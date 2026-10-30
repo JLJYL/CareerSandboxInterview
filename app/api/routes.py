@@ -237,7 +237,7 @@ async def _decide(req: TurnRequest, mode: str):
     # 群面不做這個決定。它判的是「這段回答的 STAR 缺什麼、要不要追問」,
     # 那是面試官評估一個人的問法;群面的接話者多半是同場的競爭者。
     # 決定一旦傳下去,生成端會收到「接著他剛剛那段追問」,蓋過競爭者
-    # 「先表態再發問」的人格——group-1(10/29)就是這樣變成三位追問者。
+    # 的人格——group-1(10/29)就是這樣變成三位追問者。
     # 群面的接話規則見 GROUP_TURN_RULES。順帶省下每輪讀事實的三到六次呼叫。
     if mode == "group":
         return None
@@ -258,6 +258,10 @@ async def _decide(req: TurnRequest, mode: str):
         depth=req.probe_depth,
         ended_by=req.ended_by,
         transcription_engine=req.context.transcription_engine,
+        # 每場至少問到一題履歷、一題職缺,見 `turn_decision.phase_switch`。
+        # 有沒有履歷跟生成端用同一個判斷:`resume_block` 組得出東西才算。
+        turn_index=req.follow_up_idx,
+        has_resume=bool(resume_block(req.experiences)),
     )
 
 

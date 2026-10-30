@@ -32,9 +32,12 @@ from app.pipeline.turn_decision import (
     NEXT,
     TurnDecision,
     decide_from_facts,
+    TO_JD,
+    TO_RESUME,
     decide_turn,
     fallback_decision,
     forced_decision,
+    phase_switch,
 )
 
 JD = JDInput(required_skills=["Python", "資料分析"], description="…")
@@ -331,3 +334,67 @@ def test_an_uncertain_phrase_inside_a_real_answer_does_not_force_a_topic_change(
     assert forced_decision(spec=spec_of(), answer=long_answer) is None
     short = forced_decision(spec=spec_of(), answer="這個我不確定耶。")
     assert short is not None and short.action == "NEXT", "短的明確承認照舊換題"
+
+
+# ---------------------------------------------------------------------------
+# 每場至少問到一題履歷、一題職缺(10/30 定案)
+#
+# 10/29 前端錄的一對一場次,開場之後四輪都繞著自我介紹講的那件事,
+# 選了履歷也沒問到履歷上的其他經歷,職缺題一題都沒有。
+# ---------------------------------------------------------------------------
+
+
+def test_the_last_resume_turn_switches_when_still_probing() -> None:
+    d = phase_switch(1, depth=1, has_resume=True)
+    assert (d.action, d.source, d.phase_switch) == (NEXT, "code", TO_RESUME)
+
+
+def test_the_last_turn_switches_to_the_jd_when_still_probing() -> None:
+    assert phase_switch(3, depth=2, has_resume=True).phase_switch == TO_JD
+
+
+def test_a_switch_already_made_in_the_phase_leaves_the_turn_alone() -> None:
+    """上一輪換過題,probe_depth 歸零,這一段的題已經出現。照常判讀,要追就追。"""
+    assert phase_switch(1, depth=0, has_resume=True) is None
+    assert phase_switch(3, depth=0, has_resume=True) is None
+
+
+def test_without_a_resume_only_the_jd_turn_is_guaranteed() -> None:
+    """沒有履歷時那一段改問職缺的能力,沒有「該問到的履歷」。"""
+    assert phase_switch(1, depth=2, has_resume=False) is None
+    assert phase_switch(3, depth=2, has_resume=False).phase_switch == TO_JD
+
+
+def test_the_other_turns_are_never_forced() -> None:
+    for turn in (0, 2):
+        assert phase_switch(turn, depth=3, has_resume=True) is None
+
+
+def test_no_turn_index_means_no_phase_rule() -> None:
+    """量測工具不帶輪次,行為要跟以前一樣。"""
+    assert phase_switch(None, depth=2, has_resume=True) is None
+
+
+def test_being_cut_off_beats_the_phase_switch() -> None:
+    """最後一輪被切斷,還是先讓他把話講完。"""
+    d = forced_decision(
+        spec=spec_of(), answer=GOOD_ANSWER, depth=1, ended_by="timeout",
+        turn_index=3, has_resume=True,
+    )
+    assert d.action == FOLLOW_UP
+
+
+async def test_the_decision_path_applies_the_phase_switch_before_reading() -> None:
+    """換段是程式就能決定的事,不用花三次判讀。"""
+    calls: list = []
+
+    def llm(system: str, user: str) -> str:
+        calls.append(system)
+        return "{}"
+
+    d = await decide_turn(
+        spec=spec_of(), answer=GOOD_ANSWER, llm=llm, depth=1,
+        turn_index=1, has_resume=True,
+    )
+    assert d.phase_switch == TO_RESUME
+    assert calls == []

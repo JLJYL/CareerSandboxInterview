@@ -114,9 +114,33 @@ HR 人格那邊量過同型的禁令:有禁令的 2/24,沒禁令的 3/44,沒有�
 `topic` 沒換就表示模型其實在追問,那時 NEXT 這個標籤才是錯的。
 """
 
+PHASE_SWITCHES: tuple[str, ...] = ("resume", "jd")
+"""程式強制換段時換到哪一段。值域見 `turn_decision.phase_switch`。"""
+
+PHASE_SWITCH_INSTRUCTION: dict[str, str] = {
+    "resume": (
+        "前面幾輪都在追問同一件事。這一題換到他履歷上的經歷;"
+        "履歷上還有別筆的話,挑前面還沒談到的那一筆。"
+    ),
+    "jd": "前面幾輪都在追問同一件事。這一題換到這個職缺本身,不要再接著前面那件事。",
+}
+"""強制換段那一輪,接在動作說明後面的一句。
+
+【為什麼 NEXT 的說明不夠】
+NEXT 叫模型從他剛剛講的內容切進去,而履歷段又把「他自我介紹時提過的那一筆」
+排在第二順位。前面幾輪追問的正是那一筆的話,換題之後很可能還在同一件事上,
+使用者看不出有換。所以強制換段那一輪要明講:換到前面還沒談到的。
+"""
+
 _missing_instruction = set(DECISION_ACTIONS) - set(ACTION_INSTRUCTION)
 if _missing_instruction:
     raise RuntimeError(
         f"這些動作沒有告訴生成端要做什麼:{sorted(_missing_instruction)}。"
         "少一個的話那個動作會生出跟決定不符的問句,而 is_follow_up 跟著錯。"
+    )
+
+if set(PHASE_SWITCHES) != set(PHASE_SWITCH_INSTRUCTION):
+    raise RuntimeError(
+        "PHASE_SWITCHES 與 PHASE_SWITCH_INSTRUCTION 對不上。"
+        "強制換段那一輪少了說明的話,模型會照 NEXT 的說法接著剛剛那件事問。"
     )
