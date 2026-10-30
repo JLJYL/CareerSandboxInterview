@@ -133,9 +133,28 @@ ADMITS_UNKNOWN_MAX_CHARS = 20
 32 字,是誠實的答不出來,但會被判成 SCORABLE 照常評分。要收掉這一類
 得看語意而不是長度,跟 OFF_TOPIC 同一個前提。
 
-`turn_emotion` 用同一組字面而不設上限,那是因為情緒標錯的代價小。
-分數不一樣,所以這裡自己設界,不去改共用的那一組字面。
+【三處共用這個上限】
+原本只有這裡設上限,`turn_emotion` 與 `turn_decision.forced_decision` 用同一組
+字面而不設界,理由是「情緒標錯的代價小」。前端 10/29 的「自我貶低」錄音推翻了這個
+判斷:第 1 題「我講得不太好……但我也不確定做得對不對,應該沒有很厲害」
+(59 字)命中「不確定」,情緒被程式直接標成卡住,而且蓋過模型的判讀——
+那一題要測的正是過度自責。同一句在面試中也會讓決策直接換題,
+「他明確表示答不出來」,而他其實講了一段。
+
+所以判斷收成一支 `admitted_phrase`,三處都呼叫它。長的誠實承認仍然交給模型:
+情緒那邊模型還是可以標卡住(要抄得到原文),只是程式不再替它下判斷。
 """
+
+
+def admitted_phrase(answer: str) -> str | None:
+    """他有沒有明確說答不出來。有的話回命中的字面,沒有回 None。
+
+    字面命中而且整段夠短才算。理由見 `ADMITS_UNKNOWN_MAX_CHARS`。
+    """
+    text = (answer or "").strip()
+    if len(text) > ADMITS_UNKNOWN_MAX_CHARS:
+        return None
+    return next((k for k in _ADMITS_UNKNOWN if k in text), None)
 
 LOWEST_ANCHOR = LEVEL_TO_SCORE[1]
 """最低錨點。取協作四維 BARS 的等第 1。
@@ -167,9 +186,9 @@ def classify(answer: str) -> Verdict:
     判成 `TOO_SHORT` 會讓他的報告少一項,而不是拿到一個誠實的低分。
     """
     text = (answer or "").strip()
-    hit = next((k for k in _ADMITS_UNKNOWN if k in text), None)
+    hit = admitted_phrase(text)
 
-    if hit and len(text) <= ADMITS_UNKNOWN_MAX_CHARS:
+    if hit:
         return Verdict(ADMITS_UNKNOWN, f"明確表示答不出來(「{hit}」)")
     if len(text) < MIN_SCORABLE_CHARS:
         return Verdict(TOO_SHORT, f"回答只有 {len(text)} 字,不足以評分")

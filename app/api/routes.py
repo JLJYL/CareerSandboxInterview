@@ -180,6 +180,7 @@ async def submit_turn(req: TurnRequest, session_id: str = SESSION_ID) -> TurnRes
         # context_block 會寫「使用者沒有提供 JD」而 _turn_jd 早就抽出來了。
         jd=_turn_jd(req),
         experiences=req.experiences,
+        group_says=req.group_says,
     )
     # 追問深度的狀態由前端保管,後端只算下一步該是多少——跟 askedTopics
     # 與 followUpIdx 同一個模式。前端不解讀這兩個值,原樣送回就好。
@@ -233,6 +234,13 @@ async def _decide(req: TurnRequest, mode: str):
     這支服務無狀態,所以跨輪的計數只能這樣走。不拿 followUpIdx 頂替——
     那是整場第幾題,跟「同一個缺口追過幾次」是不同的東西。
     """
+    # 群面不做這個決定。它判的是「這段回答的 STAR 缺什麼、要不要追問」,
+    # 那是面試官評估一個人的問法;群面的接話者多半是同場的競爭者。
+    # 決定一旦傳下去,生成端會收到「接著他剛剛那段追問」,蓋過競爭者
+    # 「先表態再發問」的人格——group-1(10/29)就是這樣變成三位追問者。
+    # 群面的接話規則見 GROUP_TURN_RULES。順帶省下每輪讀事實的三到六次呼叫。
+    if mode == "group":
+        return None
     specs = derive_specs(
         mode,
         jd=_turn_jd(req),
@@ -395,9 +403,17 @@ async def create_report(
 
     # A5:履歷為空時 GapComputer 回空清單,generate_missing_points 也不會呼叫 LLM。
     # 那是正常情況——使用者還沒建經歷,不是錯誤。
-    jd, jd_notices = _resolve_jd(req.context.custom_jd, get_llm())
-    if jd is None:
-        jd = JDInput(description=req.context.custom_jd, source="extracted")
+    #
+    # 職缺需求先用前端帶來的 jdSkills,跟面試那幾輪同一份;沒帶才從散文抽。
+    # 見 `ReportRequest.jd_skills`。
+    skills = [s for s in req.jd_skills if str(s or "").strip()]
+    if skills:
+        jd = JDInput(required_skills=skills, description=req.context.custom_jd, source="catalog")
+        jd_notices: list[str] = []
+    else:
+        jd, jd_notices = _resolve_jd(req.context.custom_jd, get_llm())
+        if jd is None:
+            jd = JDInput(description=req.context.custom_jd, source="extracted")
     # gap = 履歷 ∩ JD − 提及。提及漏掉會讓 gap 變大,
     # 系統對使用者說「你漏講了 SQL」而他在討論裡明明講了——
     # 那是假指控,不是少給建議,而且靜默:報告照樣產出、測試照樣全綠。
@@ -410,6 +426,14 @@ async def create_report(
     points, mp_notices = generate_missing_points(
         candidates, user_text, req.context.custom_jd, get_llm()
     )
+    # 履歷側只吃 tags(gap.py:履歷側寧缺勿濫)。有經歷但一筆 tags 都沒有的時候
+    # 漏講點必然是空的,而那跟「比過了、沒有漏講」在畫面上一模一樣。
+    if req.experiences and not any(
+        str(t or "").strip() for e in req.experiences for t in e.tags
+    ):
+        mp_notices = list(mp_notices) + [
+            "漏講點:履歷的經歷都沒有標籤(tags),比對不出來"
+        ]
     report.missing_points = points
     report.notices = list(report.notices) + jd_notices + mp_notices
 

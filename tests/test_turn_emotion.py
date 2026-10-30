@@ -103,14 +103,16 @@ def test_the_prompt_mark_is_in_the_prompt():
         assert EMOTION_MARK in compose_emotion_prompt(mode)
 
 
-def test_a_mixed_batch_falls_back_to_unknown():
+def test_a_mixed_batch_is_marked_mixed_not_unknown():
     """同一場裡語音辨識失敗而改打字是會發生的,而那一題的碎句程度跟其他題不可比。
 
     拿整場的模式去套,等於用「這場大多是語音」去解釋一題打字的回答。
+    原本退回 unknown,但那一段叫模型不要看停頓,而語音題的停頓照樣送進去。
     """
     assert batch_input_mode(["voice", "voice"]) == "voice"
     assert batch_input_mode(["typed"]) == "typed"
-    assert batch_input_mode(["voice", "typed"]) == "unknown"
+    assert batch_input_mode(["voice", "typed"]) == "mixed"
+    assert batch_input_mode(["voice", "unknown"]) == "unknown", "分不出來的仍然是 unknown"
     assert batch_input_mode([]) == "unknown"
     assert batch_input_mode(["", "voice"]) == "voice"
 
@@ -362,3 +364,67 @@ def test_output_is_sorted_by_turn():
         )
     )
     assert [e.turn_index for e in out] == [2, 3, 4]
+
+
+# ---------------------------------------------------------------------------
+# 字面只在短回答裡算數(前端 10/29「自我貶低」那份錄音)
+# ---------------------------------------------------------------------------
+
+SELF_DOUBT = "我講得不太好,可能沒有什麼經驗 但是我之前有參加過一個比賽 然後是跟股票相關的 但我也不確定做得對不對,應該沒有很厲害"
+
+
+def test_an_admission_phrase_inside_a_long_answer_is_not_a_code_verdict():
+    """第 1 題命中「不確定」,原本被程式直接標成卡住,而那一題要測的是過度自責。"""
+    assert not admits_unknown(SELF_DOUBT)
+    assert admits_unknown(STUCK_TEXT), "短的明確承認照算"
+
+
+def test_the_model_keeps_its_label_on_a_long_self_doubting_answer():
+    turns = [EmotionTurn("請自我介紹", SELF_DOUBT)]
+    out = asyncio.run(
+        read_emotions(
+            turns=turns,
+            llm=llm_of(reply(**{"1": {"label": NO_QUOTE_BACK, "quote": "應該沒有很厲害"}})),
+        )
+    )
+    assert [(e.label, e.source) for e in out] == [(NO_QUOTE_BACK, LLM)]
+
+
+# ---------------------------------------------------------------------------
+# 混用逐題標;雲端辨識的語音另外一段(前端 10/21 起可以改打字,9 月起用 Whisper)
+# ---------------------------------------------------------------------------
+
+
+def test_a_mixed_batch_labels_each_turn_and_keeps_the_voice_pauses():
+    seen: list = []
+
+    def call(system: str, user: str) -> str:
+        seen.append((system, user))
+        return reply(**{"1": {"label": PLAIN, "quote": ""}, "2": {"label": PLAIN, "quote": ""}})
+
+    turns = [
+        EmotionTurn("請自我介紹", CALM, "這一題的段落之間共停頓 1 次,最長一次 6.6 秒", "voice"),
+        EmotionTurn("講一個失敗的經驗", ANXIOUS, "", "typed"),
+    ]
+    asyncio.run(read_emotions(turns=turns, llm=call, input_mode=batch_input_mode(["voice", "typed"])))
+    system, user = seen[0]
+    assert "有的題是講的、有的題是打的" in system
+    assert "斷句與停頓都不可靠" not in system, "不要再叫模型忽略停頓"
+    assert "作答方式:講的" in user and "作答方式:打的" in user
+    assert "6.6 秒" in user
+
+
+def test_turns_are_not_labeled_when_the_whole_batch_is_one_mode():
+    from app.prompts.turn_emotion import emotion_user_message
+
+    msg = emotion_user_message([("q", CALM, "", "voice")])
+    assert "作答方式" not in msg
+
+
+def test_cloud_transcription_gets_its_own_voice_guidance():
+    """裝置端那一段叫模型提防「碎」是引擎造成的;Whisper 是把猶豫清乾淨。"""
+    device = compose_emotion_prompt("voice", "device")
+    cloud = compose_emotion_prompt("voice", "api")
+    assert "比他實際講的順" in cloud
+    assert "引擎的性質" in device and "引擎的性質" not in cloud
+    assert compose_emotion_prompt("typed", "api") == compose_emotion_prompt("typed", "device")

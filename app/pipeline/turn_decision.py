@@ -52,7 +52,8 @@ from app.prompts.star_read import FACT_NAME
 from app.prompts.turn_decision import DECISION_ACTIONS
 
 # 明確表示答不出來。與 interview_live 共用同一組字面,改要一起改。
-from app.pipeline.interview_live import LLMCall, _ADMITS_UNKNOWN
+from app.pipeline.interview_live import LLMCall
+from app.pipeline.scorability import admitted_phrase
 
 NEXT, FOLLOW_UP, CLARIFY = DECISION_ACTIONS
 
@@ -182,7 +183,9 @@ def forced_decision(
         return TurnDecision(
             NEXT, f"同一個缺口已追問 {depth} 次,到這個難度的上限。", source=CODE
         )
-    if any(k in text for k in _ADMITS_UNKNOWN):
+    # 整段太長的不算:「我不確定確切數字,但回訪率從 18% 拉到 26%」是在回答。
+    # 見 scorability.ADMITS_UNKNOWN_MAX_CHARS。
+    if admitted_phrase(text):
         return TurnDecision(NEXT, "他明確表示答不出來,換一個他答得出來的。", source=CODE)
     return None
 

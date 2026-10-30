@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 from app.pipeline.speech_timing import (
+    GLUED_SEGMENTS,
     MAX_REASONABLE_PAUSE_MS,
     MIN_SEGMENT_MS,
     TIMESTAMPS,
@@ -123,6 +124,28 @@ def test_an_absurd_pause_is_rejected_not_clamped():
     assert t.source == UNAVAILABLE
 
 
+def test_segments_that_all_touch_are_unavailable_not_zero_pause():
+    """首尾全部相接的時點沒有記錄靜音,不是他一次都沒停。
+
+    前端實測五題裡四題長這樣(Whisper segments 整秒、一段的結束等於下一段
+    的開始)。標成可用的話,情緒判讀會被告知「這個人沒有停頓」。
+    """
+    t = voice([0, 4000, 9000], [4000, 9000, 15000])
+    assert t.source == UNAVAILABLE, f"{GLUED_SEGMENTS}的時點要判為不可用"
+
+
+def test_one_touching_pair_among_real_gaps_is_still_measured():
+    """兩句話之間真的可以接得很緊。只有一個 0 不代表時點沒在量靜音。"""
+    t = voice([0, 4000, 9200], [4000, 8000, 15000])
+    assert t.source == TIMESTAMPS
+    assert t.pauses_ms == (0, 1200)
+
+
+def test_a_single_segment_is_not_mistaken_for_touching_segments():
+    """一段就沒有空隙可比。「全部是 0」不能把空集合也算進去。"""
+    assert voice([0], [4000]).source == TIMESTAMPS
+
+
 def test_empty_input_is_unavailable():
     assert not voice([], []).usable
     assert not measure(starts_ms=[0], ends_ms=[4000], segments=[], input_mode="voice").usable
@@ -149,6 +172,13 @@ def test_the_anchor_states_the_measured_numbers():
     assert "2 次" in note
     assert "4.5 秒" in note
     assert "實測值" in note, "沒有標成實測值的話,下游分不出它是量到的還是推論的"
+
+
+def test_a_zero_gap_is_not_counted_as_a_pause():
+    """0 毫秒的空隙是兩段接得很緊。算進次數會寫出「停頓 2 次、最長 0.0 秒」。"""
+    note = describe_pauses(voice([0, 4000, 9200], [4000, 8000, 15000]))
+    assert "共停頓 1 次" in note
+    assert "1.2 秒" in note
 
 
 def test_the_anchor_does_not_mention_rate():

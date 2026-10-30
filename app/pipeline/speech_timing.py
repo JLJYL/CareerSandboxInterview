@@ -42,6 +42,33 @@ MIN_SEGMENT_MS = 100
 而對不上的時候算出來的停頓會是負的或離譜的大。
 """
 
+GLUED_SEGMENTS = "首尾相接"
+"""段與段之間全部是 0 毫秒時,整輪判為不可用。這個常數只是給那條規則一個名字。
+
+【為什麼】
+這支只算段與段之間的空隙(`start[i+1] - end[i]`),段內的停頓看不到。
+前端回報的實測:App 測的五題裡四題的 Whisper segments 是整秒、而且一段的
+結束剛好等於下一段的開始。那樣的資料算出來每個空隙都是 0,而原本的程式
+照樣標 `timestamps`,`describe_pauses` 就產出
+
+    這一題的段落之間共停頓 2 次,最長一次 0.0 秒,合計 0.0 秒(實測值)
+
+一句自相矛盾的話,而且標著「實測值」。情緒判讀拿它當錨點,等於被告知
+「這個人沒有停頓」——專門錄來測長停頓的那幾份會被讀成最流暢的。
+
+這正是本檔開頭那句話講的:「沒有時間資料」與「量到停頓是 0」在數值上
+長得一樣。首尾全部相接的時點不是量到 0,是時點本身沒有記錄靜音。
+
+【只擋「全部」是 0,不擋「有一個」是 0】
+兩句話之間真的可以接得很緊,一個 0 不代表什麼。全部都是 0 才是
+時點沒在量靜音的特徵。
+
+【真正的修法不在這裡】
+要量得到停頓,時點得換成字級:Whisper 的 `timestamp_granularities` 加
+`word`(要搭 `verbose_json`,而且會多一點延遲)。字與字之間的空隙才是
+停頓。那是轉錄端的改動,這裡只負責在資料不夠的時候不要假裝夠。
+"""
+
 MAX_REASONABLE_PAUSE_MS = 60_000
 """長於這個長度的停頓視為不是停頓。
 
@@ -124,6 +151,11 @@ def measure(
     pauses = tuple(spans[i + 1][0] - spans[i][1] for i in range(n - 1))
     if any(p > MAX_REASONABLE_PAUSE_MS for p in pauses):
         return SpeechTiming()
+    # 段與段全部首尾相接 = 時點沒有記錄靜音,不是他一次都沒停。
+    # 見 `GLUED_SEGMENTS` 的說明——不擋的話情緒那一側會收到
+    # 「停頓 2 次,最長 0.0 秒(實測值)」,而那句話是錯的。
+    if pauses and all(p == 0 for p in pauses):
+        return SpeechTiming()
 
     return SpeechTiming(
         source=TIMESTAMPS,
@@ -151,8 +183,11 @@ def describe_pauses(timing: SpeechTiming) -> str:
         return ""
     longest = timing.longest_pause_ms / 1000
     total = timing.total_pause_ms / 1000
+    # 0 毫秒的空隙是兩段接得很緊,不是一次停頓。算進「停頓 N 次」的話
+    # 會出現「停頓 2 次、最長 0.0 秒」這種自相矛盾的句子。
+    real = sum(1 for p in timing.pauses_ms if p > 0)
     return (
-        f"這一題的段落之間共停頓 {len(timing.pauses_ms)} 次,"
+        f"這一題的段落之間共停頓 {real} 次,"
         f"最長一次 {longest:.1f} 秒,合計 {total:.1f} 秒(實測值)"
     )
 

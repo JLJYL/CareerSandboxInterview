@@ -324,6 +324,26 @@ _NUM_CN = re.compile(rf"([一二三四五六七八九十百千萬兩]+)({_MEASUR
 """
 
 
+_ARTICLE_ONE = re.compile(r"^一(個|次|人)$")
+_DURATION_AFTER_ONE_GE = ("月", "禮拜", "星期", "小時", "鐘頭", "學期", "暑假", "季度")
+"""「一個」「一次」「一人」單獨出現是冠詞,不是數量。
+
+normal-1(前端 10/29 錄的)第 1 題的 better 被清空,notice 寫「出現原回答沒有的
+數字(一個)」——改寫寫了「參加過一個理財比賽」,原回答沒有「一個」兩個字。
+那句沒有捏造任何數量,清掉它是誤攔,而誤攔是靜默的。
+
+規則跟成員A 量化詞計數定案的那一條一致:單獨的「一」接個、次、人不算;
+「一個」後面接時長(月、禮拜、星期、小時、鐘頭、學期、暑假、季度)照算。
+"""
+
+
+def _is_article(token: str, after: str) -> bool:
+    m = _ARTICLE_ONE.match(token)
+    if not m:
+        return False
+    return not (m.group(1) == "個" and after.startswith(_DURATION_AFTER_ONE_GE))
+
+
 def ungrounded_numbers(better: str, source: str) -> list[str]:
     """回傳 better 裡有、但原回答沒有的數量。
 
@@ -360,9 +380,62 @@ def ungrounded_numbers(better: str, source: str) -> list[str]:
     for m in _NUM_CN.finditer(better):
         token = m.group()          # 原文的 token,例如「三位」
         start, end = m.span()
+        if _is_article(token, better[end:]):
+            continue
         # 折疊是逐字元替換,長度不變,所以位置對得上
         if folded[start:end] not in src:
             bad.append(token)
+    return bad
+
+
+_LATIN_TERM = re.compile(r"[A-Za-z][A-Za-z0-9+#]+")
+
+_METHOD_TERMS = re.compile(
+    r"(?:線性|邏輯|多元)[回迴]歸|[回迴]歸(?:模型|分析)"
+    r"|決策樹|隨機森林|神經網路|深度學習|機器學習|時間序列|蒙地卡羅"
+    r"|假設檢定|卡方檢定|主成分|聚類|分群|夏普比率|波動率|標準差|相關係數|貝氏"
+)
+"""better 裡最常被補進去的分析方法與指標。
+
+【為什麼要這一份】
+normal-1(前端 10/29 錄的)第 2 題原回答只說「用 Model 去跑」,better 寫成
+「運用回歸模型來預測風險」。數字的機械檢查擋不到——沒有數字。使用者會把
+「回歸模型」背下來拿去講,被追問「為什麼用回歸、係數怎麼解讀」就答不出來,
+跟捏造數字是同一種傷害。
+
+【為什麼是一份清單而不是一般規則】
+中文沒有空白,一般的「新出現的名詞」判斷會把正常的換句話說一起攔掉
+(「建立模型」換掉「用 Model 去跑」不算捏造)。這份只收**具體的方法與指標**:
+出現了就是一個可以被追問的技術宣稱。「回歸」只在接模型/分析或前面有
+線性/邏輯/多元時才算,「回歸正常」不算。
+
+詞彙表(`fixtures/vocab/skills_v1.json`)沒有回歸、決策樹這類方法,
+所以這裡另外列。清單外的捏造仍然只能靠 prompt。
+"""
+
+
+def _term_key(text: str) -> str:
+    """比對用:繁簡折疊(迴與回也折成同一個字)、去掉空白、英文小寫。"""
+    return fold_variants(text).replace(" ", "").lower()
+
+
+def ungrounded_terms(better: str, source: str) -> list[str]:
+    """回傳 better 裡有、但原回答沒有的技術名詞。
+
+    兩種:英文詞(工具、縮寫,例如 Tableau、KPI)與 `_METHOD_TERMS` 裡的
+    分析方法與指標。原回答講過的照樣可以出現——這一道擋的是**新加的**。
+
+    STT 有時把英文詞轉成諧音(「加巴screen」是 JavaScript),改寫把它還原成
+    正確拼法的話會被這裡攔下。那是猜的,攔下來比讓使用者背一個猜的詞好。
+    """
+    src = _term_key(source)
+    bad: list[str] = []
+    for m in _LATIN_TERM.finditer(better):
+        if m.group().lower() not in src and m.group() not in bad:
+            bad.append(m.group())
+    for m in _METHOD_TERMS.finditer(better):
+        if _term_key(m.group()) not in src and m.group() not in bad:
+            bad.append(m.group())
     return bad
 
 
@@ -390,12 +463,55 @@ def truncated_turns(turns: Sequence[TurnDTO]) -> list[int]:
 # ---------------------------------------------------------------------------
 
 
+FACE_SCORE_FROM: dict[str, str] = {"內": "內容深度", "構": "邏輯清晰度", "達": "表達流暢度"}
+"""三維面向的分數抄自哪一項 subScores。評語與分數用同一份對照,不各寫一份。"""
+
+
+def score_band(score: int | None) -> str:
+    """分數落在哪一帶。區間跟 SUB_SCORE_RULES 的分數意義同一份。"""
+    if score is None:
+        return "未評分"
+    if score >= 85:
+        return "強項"
+    if score >= 70:
+        return "正常水準"
+    if score >= 55:
+        return "有明顯缺口"
+    return "幾乎沒有表現"
+
+
+def face_scores_text(scores: dict[str, int | None]) -> str:
+    """給三維面向評語看的分數。每個面向一行:名稱、分數、落在哪一帶。"""
+    lines = ["【系統算好的分數,verdict 要跟它一致】"]
+    for letter, name in FACE_DIMENSIONS:
+        score = scores.get(letter)
+        if score is None:
+            lines.append(f"    {name}  未評分")
+        else:
+            lines.append(f"    {name}  {score}({score_band(score)})")
+    return "\n".join(lines)
+
+
 async def gen_face(
-    llm: LLMCall, transcript: str, stats_text: str, engine: str = "api"
+    llm: LLMCall,
+    transcript: str,
+    stats_text: str,
+    engine: str = "api",
+    scores: dict[str, int | None] | None = None,
 ) -> list[FaceDimensionDTO]:
-    raw = await asyncio.to_thread(
-        llm, compose_face_prompt(engine), f"【逐字稿】\n{transcript}\n\n【逐字稿統計】\n{stats_text}"
-    )
+    """三維面向的評語與建議。
+
+    【為什麼要先拿到分數】
+    原本跟六項分數並行產生,評語寫的時候不知道分數。前端 10/29 兩份錄音都是
+    「結構 80 分,verdict:結構上缺乏清晰的邏輯」,三個面向的評語都寫成缺點——
+    評語的任務是「指出最明顯的特徵」,而它手上的材料只有一份逐字稿,
+    最容易指出的就是缺點。分數由系統先算好,評語照分數那一帶寫。
+    代價是報告多等一次呼叫:這一塊要排在 STAR 與細分分數之後。
+    """
+    user = f"【逐字稿】\n{transcript}\n\n【逐字稿統計】\n{stats_text}"
+    if scores is not None:
+        user += "\n\n" + face_scores_text(scores)
+    raw = await asyncio.to_thread(llm, compose_face_prompt(engine), user)
     out = []
     by_letter = {ltr: name for ltr, name in FACE_DIMENSIONS}
     for item in parse_array(raw):
@@ -468,9 +584,15 @@ async def gen_question_feedbacks(
         item = by_id.get(i, {})
         better = normalize_locale(str(item.get("better", "")).strip())
         bad = ungrounded_numbers(better, t.answer)
+        terms = [] if bad else ungrounded_terms(better, t.answer)
         if bad:
             notices.append(
                 f"報告:第 {i} 題的 better 出現原回答沒有的數字({'、'.join(bad)}),已清空"
+            )
+            better = ""
+        elif terms:
+            notices.append(
+                f"報告:第 {i} 題的 better 出現原回答沒有的名詞({'、'.join(terms)}),已清空"
             )
             better = ""
         out.append(
@@ -570,7 +692,9 @@ def emotion_turns(turns: Sequence[TurnDTO]) -> list[EmotionTurn]:
             segments=t.answer_segments or [t.answer],
             input_mode=t.input_mode,
         )
-        out.append(EmotionTurn(t.question, t.answer, describe_pauses(timing)))
+        out.append(
+            EmotionTurn(t.question, t.answer, describe_pauses(timing), t.input_mode)
+        )
     return out
 
 
@@ -613,19 +737,19 @@ async def generate_report(
             turns=emotion_turns(turns),
             llm=llm,
             # 逐輪的模式,不是整場那個——整場的 input_mode 是給流暢度公式用的。
-            # 混用就退回 unknown,見 batch_input_mode。
+            # 講的與打的都有時是 mixed,每一題底下標作答方式,見 batch_input_mode。
             input_mode=batch_input_mode([t.input_mode for t in turns]),
+            engine=engine,
         ),
     }
     if gate.scored:
-        blocks["face"] = gen_face(llm, transcript, stats_text, engine)
+        # 三維面向不在這一批:它的評語要照分數寫,分數要等 STAR 與細分分數。
         blocks["subs"] = gen_sub_scores(llm, transcript, stats_text, engine)
 
     results, notices = await gather_blocks(blocks)
     if not gate.scored:
         notices.append(f"報告:{gate.reason()},六項分數與三維面向本次未評分")
 
-    face = results.get("face", [])
     subs = list(results.get("subs", []))
     questions, q_notices = results.get("questions", ([], []))
     notices += q_notices
@@ -687,11 +811,19 @@ async def generate_report(
     # 來源是未評分時這裡也是未評分——抄一個 0 過來就是把 subScores 剛修好的
     # 問題在隔壁欄位重演一次。
     by_name = {s.name: s.score for s in subs}
-    pair = {"內": ("內容深度",), "構": ("邏輯清晰度",), "達": ("表達流暢度",)}
+    face_scores = {
+        letter: by_name.get(name) for letter, name in FACE_SCORE_FROM.items()
+    }
+    face: list[FaceDimensionDTO] = []
+    if gate.scored:
+        face_results, face_notices = await gather_blocks(
+            {"face": gen_face(llm, transcript, stats_text, engine, face_scores)}
+        )
+        face = face_results.get("face", [])
+        notices += face_notices
     face_scored = []
     for d in face:
-        src = pair.get(d.letter, ())
-        score = next((by_name[n] for n in src if n in by_name), None)
+        score = face_scores.get(d.letter)
         prosody = None
         if d.letter == "達" and fluency_measurable:
             prosody = [ProsodyItem(label="填充詞", value=f"共 {stats.filler_count} 次(詞彙型)")]

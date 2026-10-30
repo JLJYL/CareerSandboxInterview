@@ -58,6 +58,7 @@ from app.schemas.interview import (
     Persona,
     StartInterviewResponse,
     TurnResponse,
+    UtteranceDTO,
 )
 
 if TYPE_CHECKING:  # 執行期不匯入:turn_decision 匯入本檔,直匯會變成循環。
@@ -114,17 +115,65 @@ RESUME_MAX_CHARS = 1200
 """
 
 
+_JOINERS = re.compile(r"[\s,，。、;；:：.!！?？]+")
+
+
+def _adds_to_fields(desc: str, fields: Sequence[str]) -> bool:
+    """description 有沒有其他欄位以外的內容。
+
+    只看「description 是否被某一欄包含」擋不住拼起來的那種:「action result」
+    比任何一欄都長。所以把每一欄從 description 裡拿掉,剩下的只有空白與
+    標點的話,它就只是其他欄位拼起來的。長的欄位先拿,免得短的那欄先把
+    長的那欄切斷。
+
+    剩下有內容的話整段列進去,不只列剩下的部分——拿掉中間幾段之後的殘句
+    比重複幾個字更難讀。
+    """
+    if any(desc in f for f in fields):
+        return False
+    rest = desc
+    for f in sorted(fields, key=len, reverse=True):
+        rest = rest.replace(f, " ")
+    return bool(_JOINERS.sub("", rest))
+
+
 def resume_block(experiences: Sequence[ExperienceDTO]) -> str:
     """把經歷攤成 prompt 材料。開場與報告共用這一份。
 
     原本只有報告那條路有這個函式(`routes._resume_text`),而開場那邊
     根本沒用到履歷。兩邊各寫一份的話格式會分岔,而分岔的方向通常是
     「其中一邊忘了帶某個欄位」,然後沒有人發現。
+
+    【`description` 原本沒讀,而真實資料的內容全部在那一欄】
+    舊版只讀 title / role / action / result。黃金集十份的履歷共 19 筆經歷,
+    **19 筆都只填 description,沒有一筆填 role、action 或 result**。於是
+
+        前端送來   title=畢業專題 - 健康紀錄 App
+                   description=以 Kotlin 開發,完成期末公開展示
+        模型收到   ・畢業專題 - 健康紀錄 App(標籤:…)
+
+    面試官只看得到經歷的標題,而履歷那一段的規則是「只問履歷上寫了的事」。
+    前端的客製化履歷也是一筆經歷一段文字,形狀跟黃金集一樣。
+
+    【報告不受這一欄影響】
+    `routes._resume_text` 也呼叫這一支,但 `generate_report` 收下 `resume_text`
+    之後沒有用到——9/24 進來的時候就只用 `resume_grounded`。報告的漏講點
+    來自 `GapComputer`,它只讀 tags(`scan_resume_prose` 預設關,`deps.py` 沒開)。
+    所以讀進 description 改變的是開場與每一輪,報告的輸出不變。
+
+    【description 只是其他欄位拼起來的時候不再列一次】
+    後端 API 回給 App 的 description 是 action 與 result 用空白接起來的
+    (`careersandbox-api` 的 `routes/experiences.js` `toDto`),同時也回
+    role / action / result。App 照原樣轉送的話同一段文字會列兩次,吃掉
+    `RESUME_MAX_CHARS` 的額度,後面的經歷就被截掉。見 `_adds_to_fields`。
     """
     lines: list[str] = []
     used = 0
     for e in experiences:
         bits = [e.title, e.role, e.action, e.result]
+        desc = (e.description or "").strip()
+        if desc and _adds_to_fields(desc, [b for b in bits if b]):
+            bits.append(desc)
         tags = "、".join(t for t in e.tags if str(t or "").strip())
         line = "・" + " / ".join(b for b in bits if b) + (f"(標籤:{tags})" if tags else "")
         if line == "・":
@@ -350,6 +399,11 @@ _FIX_REPEAT = (
     "問他剛剛那段裡還沒講清楚的另一個部分。"
 )
 
+_FIX_GROUP_REPEAT = (
+    "那句跟前面講過的幾乎一樣。重複的是:{repeat}\n"
+    "換一句新的:反駁前面某個說法、補它沒講到的部分,或接著往下推一步。"
+)
+
 _FIX_CLOSED = (
     "那句可以用「有」或「沒有」答完,他答一個字就結束了。\n"
     "改成非得講一段才答得完的問法:問他當時實際怎麼做、哪一段最難、"
@@ -363,6 +417,7 @@ def _question_faults(
     *,
     is_follow_up: bool,
     clarify: bool,
+    group: bool = False,
 ) -> list[tuple[str, str]]:
     """送出前擋得住的毛病。回傳 (notice 的說法, 重生成要給的指示)。
 
@@ -372,9 +427,26 @@ def _question_faults(
     【CLARIFY 兩關都不進】
     重複:它問的是「那個詞再講一次」,辨識連續轉錯兩次的話同一句本來就該再問。
     封閉:「你是說 Angular 嗎?」就是一個 yes/no 問句,而那正是 CLARIFY 的形狀。
+
+    【群面只看重複】
+    群面的一句話不是面試官的問句:競爭者先表態再丟球,「你同意嗎?」是討論裡
+    正常的丟法。拿封閉式那一關去擋,重生成的指示會叫它「改成要對方講一段的
+    問法」——那正是面試官的形狀。群面也沒有追問與主問題之分,講過的話不管
+    哪一種都不該原樣再講一次,所以重複那一關一律檢查。
     """
     faults: list[tuple[str, str]] = []
     if clarify:
+        return faults
+
+    if group:
+        repeat = is_verbatim_repeat(question, asked)
+        if repeat:
+            faults.append(
+                (
+                    f"與前面講過的幾乎同一句({repeat[:20]})",
+                    _FIX_GROUP_REPEAT.format(repeat=repeat),
+                )
+            )
         return faults
 
     if is_follow_up:
@@ -626,6 +698,41 @@ def opening_question(ctx: InterviewContext) -> str:
 
 DEFAULT_OPENING = "先請你用一分鐘自我介紹,重點放在跟這個職位相關的經驗。"
 """`opening_question` 在沒有職稱時的輸出。測試與舊呼叫端還在用這個常數。"""
+
+GROUP_OPENING_TOPIC = "小組討論"
+"""群面開場題的領域標籤,模型沒標的時候用。"""
+
+
+def group_default_opening(ctx: InterviewContext) -> str:
+    """群面拿不到模型出的討論題時用的題目。
+
+    【為什麼群面不用自我介紹】
+    三段式那一版把開場固定成自我介紹,三種模式共用。群面用了之後,題目變成
+    使用者一個人的經歷,AI 應徵者沒有可以表態的東西,只剩追問他這一條路——
+    group-1(10/29)三位競爭者每一輪都是「你提到…能分享一下…」。
+
+    群面的題目要讓每個人都有話說,而且說法不同。這一句是退路:不需要 JD,
+    只要一個要大家做決定的情境。
+    """
+    role, firm = (ctx.custom_role or "").strip(), (ctx.custom_company or "").strip()
+    if role and firm:
+        team = f"{firm}的{role}團隊"
+    elif role or firm:
+        team = f"{role or firm}團隊"
+    else:
+        team = "一個新團隊"
+    return (
+        f"今天請大家一起討論一個情況:假設你們剛加入{team},主管只給一個月,"
+        "要你們決定第一件該先做的事。請每個人先說你的選擇和理由,再互相討論。"
+    )
+
+
+DEFAULT_GROUP_PROBES = (
+    "目前有幾種不同的做法,大家比較一下,你們會選哪一個?",
+    "還沒表態的人,你怎麼看?",
+    "時間差不多了,請大家收斂成一個結論。",
+)
+"""群面的備援句。主持人推進討論用,不是追問某個人的經歷。"""
 DEFAULT_PROBES = (
     "這個判斷你當時是依據什麼下的?",
     "如果時間只剩一半,你會先砍掉哪一段?",
@@ -685,7 +792,8 @@ async def start_interview(
     而那是群面這個模式的全部價值。
     """
     notices: list[str] = []
-    ctx_text = context_block(context, jd, experiences)
+    # 群面的題目是給全組的,不貼著使用者一個人的履歷出。
+    ctx_text = context_block(context, jd, () if mode == "group" else experiences)
     sid = session_id or f"itv_{uuid.uuid4().hex[:12]}"
 
     cfg = dict(
@@ -734,17 +842,29 @@ async def start_interview(
             results[name] = {"opening": {}, "peers": None}.get(name, [])
 
     op = results.get("opening") or {}
-    # 開場固定是自我介紹,不採用模型回的 openingQuestion——
-    # 那一句只隨職稱變動,沒有需要模型發揮的空間。見 opening_question。
-    # 那次呼叫留著是因為備援追問仍然要生成。
-    question = opening_question(context)
+    if mode == "group":
+        # 群面的開場是全組的討論題,由模型依職缺出。見 group_default_opening。
+        question = normalize_locale(str(op.get("openingQuestion", "")).strip())
+        if not question:
+            question = group_default_opening(context)
+            notices.append("開場:未取得討論題目,已使用預設")
+        topic = (
+            normalize_locale(str(op.get("openingTopic", "")).strip())
+            or GROUP_OPENING_TOPIC
+        )
+    else:
+        # 開場固定是自我介紹,不採用模型回的 openingQuestion——
+        # 那一句只隨職稱變動,沒有需要模型發揮的空間。見 opening_question。
+        # 那次呼叫留著是因為備援追問仍然要生成。
+        question = opening_question(context)
+        topic = "自我介紹"
     probes = [
         normalize_locale(str(x).strip())
         for x in (op.get("fallbackProbes") or [])
         if str(x).strip()
     ]
     if not probes:
-        probes = list(DEFAULT_PROBES)
+        probes = list(DEFAULT_GROUP_PROBES if mode == "group" else DEFAULT_PROBES)
         notices.append("開場:未取得備援追問,已使用預設")
 
     interrupts: list[str] = list(results.get("interrupts") or [])
@@ -780,8 +900,8 @@ async def start_interview(
         ),
         opening_question=question,
         opening_speaker=opening_speaker,
-        # 開場固定是自我介紹,領域標籤跟著固定,不採用模型回的。
-        opening_topic="自我介紹",
+        # 一對一與 panel 固定是自我介紹;群面是討論題,標籤由模型標。
+        opening_topic=topic,
         personas=personas,
         interrupt_lines=interrupts,
         interrupt_cap=len(interrupts),
@@ -796,9 +916,37 @@ async def start_interview(
 
 
 def _fallback_turn(
-    mode: str, fallback: Sequence[str], follow_up_idx: int
+    mode: str,
+    fallback: Sequence[str],
+    follow_up_idx: int,
+    group_interviewers: int = 1,
+    group_size: int = 4,
 ) -> TurnResponse:
-    """LLM 不可用時的降級。用前端帶來的備援池,不要臨時編。"""
+    """LLM 不可用時的降級。用前端帶來的備援池,不要臨時編。
+
+    【群面交給主持人】
+    備援句是推進討論用的,由主持人講。原本照輪次挑說話者,會讓 AI 應徵者
+    唸出一句面試官的追問。群面也沒有輪次上限,不標記推進。
+    """
+    if mode == "group":
+        host = next(
+            (
+                p.display_name
+                for p in personas_for(mode, group_interviewers, group_size)
+                if p.role != "peer" and p.display_name
+            ),
+            "",
+        )
+        pool = list(fallback) or list(DEFAULT_GROUP_PROBES)
+        return TurnResponse(
+            speaker=host,
+            next_question=pool[follow_up_idx % len(pool)],
+            reaction="",
+            is_follow_up=False,
+            should_advance=False,
+            topic="",
+            notices=[f"本輪:生成失敗,{_fallback_used(mode)}"],
+        )
     pool = list(fallback) or list(DEFAULT_PROBES)
     names = speaker_names(mode)
     return TurnResponse(
@@ -808,8 +956,54 @@ def _fallback_turn(
         is_follow_up=False,
         should_advance=True,
         topic="",
-        notices=["本輪:生成失敗,已使用備援追問"],
+        notices=[f"本輪:生成失敗,{_fallback_used(mode)}"],
     )
+
+
+def _fallback_used(mode: str) -> str:
+    """降級時 notice 的說法。群面的備援是主持人的推進句,不是追問。"""
+    return "已使用備援句" if mode == "group" else "已使用備援追問"
+
+
+GROUP_HISTORY_UTTERANCES = 8
+"""每輪帶給群面說話者的最近幾則發言。
+
+整場可能二三十則,全部攤進 prompt 會把剛剛那一句淹掉,而回應的對象主要是
+最近幾則。八則大約是兩輪:使用者一則、三位競爭者、主持人。
+"""
+
+
+def group_discussion_block(
+    group_says: Sequence[UtteranceDTO], answer: str, opening: str = ""
+) -> str:
+    """群面的討論題目與最近幾則發言,給說話者回應用。沒有資料回空字串。
+
+    題目先用 `opening`,也就是 `asked_questions` 的第一筆——合約寫明那一筆是
+    開場題。沒帶才退回第一則非使用者的發言。退回那條靠的只是資料的形狀:
+    前端照「新欄位那七題」的回覆把 `openingIntro` 顯示成獨立一則,如果也記進了
+    groupTranscript,第一則就是「你好,我是主考官……」,題目跟著錯,
+    而討論一長,真正的題目會被擠出最近那幾則,再也看不到。
+
+    最後一則如果就是使用者剛剛講的那段,不再列一次,上面已經有了。
+    使用者在前端的顯示名是「你」,這裡寫成「使用者」,跟 prompt 其他地方一致。
+    """
+    says = [u for u in group_says if (u.content or "").strip()]
+    if not says:
+        return ""
+    topic = (opening or "").strip() or next(
+        (u.content.strip() for u in says if not u.is_user), ""
+    )
+    if says[-1].is_user and says[-1].content.strip() == (answer or "").strip():
+        says = says[:-1]
+    recent = says[-GROUP_HISTORY_UTTERANCES:]
+    lines = [f"【討論題目】{topic}"] if topic else []
+    if recent:
+        lines.append("【前面的討論(最近幾則,由舊到新)】")
+        lines += [
+            f"  {'使用者' if u.is_user else u.speaker}:{u.content.strip()}"
+            for u in recent
+        ]
+    return "\n".join(lines)
 
 
 async def next_turn(
@@ -830,6 +1024,7 @@ async def next_turn(
     jd: JDInput | None = None,
     experiences: Sequence[ExperienceDTO] = (),
     force_speaker: str = "",
+    group_says: Sequence[UtteranceDTO] = (),
 ) -> TurnResponse:
     """一輪接話。
 
@@ -867,6 +1062,11 @@ async def next_turn(
     面試官對**同一段回答**會問出什麼,就得繞過派發,否則每一位拿到的
     回答都不同,量到的是回答的差異不是角色的差異。
     `tools/panel_role_eval.py` 是唯一的呼叫端。
+
+    【group_says:群面要看得到別人講過什麼】
+    沒有它,AI 應徵者只看得到使用者剛剛那一句,不可能附和、反駁或接著
+    別人的論點講。群面同時不帶履歷:同場的應徵者看不到使用者的履歷,
+    題目也是給全組的。追問判準與面試階段改用 GROUP_TURN_RULES。
     """
     cap = turn_cap_for(mode)
     must_advance = cap is not None and follow_up_idx >= cap
@@ -884,18 +1084,38 @@ async def next_turn(
     # 把回答當成補充資料:使用者講協調排程,問的是 SQL;
     # 使用者說「我沒想過」,問的還是優化查詢——連續三輪不跟著回答走。
     # gpt-4o 也一樣,所以那不是模型能力問題,是輸入順序造成的錨定。
-    user_parts = [
-        f"【他剛剛說的】\n{answer}",
-        "",
-        "你要回應的是上面這段話。下面的前一題只是脈絡,不是這次的主題。",
-        f"【前一題(脈絡)】{question or '(未提供)'}",
-    ]
+    group = mode == "group"
+    if group:
+        # 群面回應的是整場討論,不只是使用者這一句——見 group_discussion_block。
+        user_parts = [
+            f"【使用者剛剛說的】\n{answer}",
+            "",
+            "你要接的是這場討論:通常是上面這段,也可以接前面其他人講過的話。",
+        ]
+        discussion = group_discussion_block(
+            group_says, answer, asked_questions[0] if asked_questions else ""
+        )
+        if discussion:
+            user_parts.append(discussion)
+        else:
+            user_parts.append(f"【前一則(脈絡)】{question or '(未提供)'}")
+    else:
+        user_parts = [
+            f"【他剛剛說的】\n{answer}",
+            "",
+            "你要回應的是上面這段話。下面的前一題只是脈絡,不是這次的主題。",
+            f"【前一題(脈絡)】{question or '(未提供)'}",
+        ]
     if context:
         # jd 與 experiences 原本都沒傳,所以每輪的 context_block 會寫
         # 「JD:使用者沒有提供」而實際上 `_turn_jd` 早就抽出來了,
         # 履歷也同樣看不到。職缺那一段跟履歷那一段都靠這兩份材料,
         # 不帶的話階段的指示會落在空的脈絡上。
-        user_parts.append("【職位脈絡】\n" + context_block(context, jd, experiences))
+        #
+        # 群面不帶履歷:同場的應徵者看不到使用者的履歷。
+        user_parts.append(
+            "【職位脈絡】\n" + context_block(context, jd, () if group else experiences)
+        )
     gi = context.group_interviewers if context else 1
     gs = context.group_size if context else 4
     names = speaker_names(mode, gi, gs)
@@ -986,15 +1206,15 @@ async def next_turn(
         difficulty=context.difficulty if context else "中等",
         group_role=context.group_role if context else "一般應徵者",
         turn_index=follow_up_idx,
-        has_resume=bool(resume_block(experiences)),
+        has_resume=not group and bool(resume_block(experiences)),
     )
     user = "\n\n".join(user_parts)
 
     try:
         raw = await asyncio.to_thread(llm, system, user)
     except Exception as exc:  # noqa: BLE001
-        r = _fallback_turn(mode, fallback, follow_up_idx)
-        r.notices = [f"本輪:生成失敗({type(exc).__name__}),已使用備援追問"]
+        r = _fallback_turn(mode, fallback, follow_up_idx, gi, gs)
+        r.notices = [f"本輪:生成失敗({type(exc).__name__}),{_fallback_used(mode)}"]
         return r
 
     data = parse_obj(raw)
@@ -1006,11 +1226,11 @@ async def next_turn(
             nxt = normalize_locale(rescued)
             salvage_note = "本輪:模型沒有包成 JSON,已直接採用它產出的問題"
         else:
-            r = _fallback_turn(mode, fallback, follow_up_idx)
+            r = _fallback_turn(mode, fallback, follow_up_idx, gi, gs)
             # 把原始輸出的開頭留下來。沒有它就查不出是格式問題、拒答、
             # 還是模型輸出了別的欄位——三種的修法完全不同。
             snippet = (raw or "").strip().replace("\n", " ")[:120] or "(空)"
-            r.notices = [f"本輪:模型未產出問題,已使用備援追問。原始輸出:{snippet}"]
+            r.notices = [f"本輪:模型未產出問題,{_fallback_used(mode)}。原始輸出:{snippet}"]
             return r
 
     notices: list[str] = [x for x in (salvage_note, dispatch_note, decision_note) if x]
@@ -1071,7 +1291,10 @@ async def next_turn(
     # 追問不走這一關:它該留在同一個話題上,所以不能用「問同一件事」當判準,
     # 也不能換成備援題——備援題是另一個話題,那就不是追問了。
     # 追問的重複改在下面那一關擋,判準是「同一句話」而不是「同一件事」。
-    if not is_follow_up:
+    #
+    # 群面不走這一關:備援句是主持人的推進句,換進 AI 應徵者嘴裡就是
+    # 一句面試官的話。群面的重複在下面那一關擋。
+    if not is_follow_up and not group:
         dup = is_near_duplicate(nxt, asked_questions)
         if dup:
             unused = [p for p in fallback if not is_near_duplicate(p, asked_questions)]
@@ -1086,15 +1309,19 @@ async def next_turn(
     # 答完),共用一次重生成。擋到的機率不低——四次量測 144 題裡封閉式佔 25%,
     # 所以一場四題大約會多一次呼叫。
     clarify = decision is not None and decision.action == _CLARIFY
+    # 群面比對的是前面所有非使用者的發言,不只問過的問題原文。
+    said = list(asked_questions)
+    if group:
+        said += [u.content for u in group_says if not u.is_user and (u.content or "").strip()]
     faults = _question_faults(
-        nxt, asked_questions, is_follow_up=is_follow_up, clarify=clarify
+        nxt, said, is_follow_up=is_follow_up, clarify=clarify, group=group
     )
     if faults:
         why = "、".join(label for label, _ in faults)
         again = await _regenerate(llm, system, user, faults)
         left = (
             _question_faults(
-                again, asked_questions, is_follow_up=is_follow_up, clarify=clarify
+                again, said, is_follow_up=is_follow_up, clarify=clarify, group=group
             )
             if again
             else [("沒有產出", "")]
