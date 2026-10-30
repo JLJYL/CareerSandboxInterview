@@ -416,3 +416,62 @@ def test_an_unknown_level_is_refused():
     """認不得的 level 要炸,不要默默回子句——那會讓分派拿到半句話。"""
     with pytest.raises(ValueError):
         segment_text(ANSWER, level="sentences")
+
+
+# ---------------------------------------------------------------------------
+# min_star_parts 其實是最低句數
+# ---------------------------------------------------------------------------
+
+
+def test_assign_cannot_report_more_parts_than_there_are_sentences():
+    """一句只能掛一個標籤,所以段數上限等於句數。
+
+    `chosen` 是以句子編號為鍵的字典,一個編號一個標籤。模型就算宣稱四段
+    都有,超出句數的編號會被丟掉。
+    """
+    two = ["我用 SQL 重寫了查詢", "每週三小時降到二十分鐘"]
+    claims_all_four = json.dumps({"1": "S", "2": "T", "3": "A", "4": "R"})
+
+    got = parse_assign(claims_all_four, two)
+    present = [p for p in STAR_PART_KEYS if got[p].present]
+
+    assert len(present) <= len(two)
+    assert present == ["S", "T"], "第 3、4 句不存在,那兩段要被丟掉"
+
+
+def test_an_answer_shorter_than_min_star_parts_can_never_pass():
+    """句數少於 `min_star_parts` 的回答,內容再好也放行不了。
+
+    這條沒有寫在任何地方,但它決定了放行條件實際上有多嚴:
+
+        中等 要 3 段 → 至少 3 句,而且三句要落在三個不同的 STAR 段
+        困難 要 4 段 → 至少 4 句
+
+    而且六個標籤裡有兩個(取捨、其他)不是 STAR,任何一句掉進去就少一段。
+    所以三句的回答在中等是零容錯。
+
+    【只發生在分派這條路】
+    單題問法沒有這個上限 —— 四段可以同時來自同一句,那條路的偏誤是
+    **多報**(T 準確率 0.00,每次都答「有」)。兩條路的偏誤方向相反,
+    所以同一個 `min_star_parts` 在兩條路上嚴格程度完全不同。
+
+    黃金集那十份是裝置端辨識、沒有標點,走的是單題那條。但前端已經改用
+    Whisper,而 Whisper 有標點 —— 換過去之後所有真實資料都會走分派,
+    這個上限才開始對線上生效。
+    """
+    sentences = ["那一季我同時接到兩個需求,但只有兩週", "我選了退貨分析先做"]
+    got = parse_assign(json.dumps({"1": "S", "2": "A"}), sentences)
+    parts = [p for p in STAR_PART_KEYS if got[p].present]
+
+    for name in ("中等", "困難"):
+        rule = ACCEPT_RULES[name]
+        assert len(sentences) < rule.min_star_parts
+        assert not rule.accepts(star_parts=parts, quantified=True, tradeoff=True), (
+            f"{name} 要 {rule.min_star_parts} 段,但只有 {len(sentences)} 句"
+        )
+
+    # 新手只要 2 段,兩句剛好夠 —— 所以這不是「短回答一律追問」,
+    # 是「句數要跟得上 min_star_parts」。
+    easy = ACCEPT_RULES["新手"]
+    assert easy.min_star_parts <= len(sentences)
+    assert easy.accepts(star_parts=parts, quantified=False, tradeoff=False)

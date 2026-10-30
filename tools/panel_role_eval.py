@@ -55,12 +55,40 @@
 「跨部門合作的經驗」講的是同一件事,所以這個數字只是**下界**。
 判斷要看第一節那份並排,那是人的工作。
 
-【呼叫數】
-每個 round:1 次開場 + 4 段 × (3 次事實判讀 + 3 位各一次生成)= 25 次。
-預設 3 rounds 約 75 次。
+【三種模式】
 
-`--force-next` 不跑事實判讀(決定是指定的),所以每個 round 13 次,
-3 rounds 約 39 次。
+    預設            三位都問同一段回答(force_speaker)。量角色效果、腳本化、貼合度。
+    --force-next    同上,但決定一律 NEXT。量換題那條路。
+    --real-dispatch 不指定說話者,一段只送一次,讓真實派發決定。量維度派發與讓位。
+                    角色效果那幾節不印——一段一筆算不出三位之間的重疊。
+
+前兩種的列可以跟 v2–v5 比;第三種是另一種形狀,只跟自己比。
+
+【為什麼要第三種】
+前兩種用 force_speaker 繞過派發,所以**維度派發在它們眼裡不存在**。
+成員A 接上自述困難那一維之後,HR 才第一次有機制性的理由拿到回合——
+而那條路只有不指定說話者才走得到。
+
+那一維還沒進 main(在 struggle-fact 分支)。main 上 `struggle_dimension`
+一律回空字串,維度派發只來自追問輪的缺口:方法給技術主管、取捨給用人主管。
+HR 只負責自述困難,所以現在跑這個模式,HR 靠維度拿到的回合一定是 0。
+
+讀第三種的結果時注意:`SILENT_FORCE_AFTER_TURNS = 2` 讓過了兩輪還沒開口的人
+被硬塞(補位),而那一步排在維度派發**前面**。四題的場次裡維度派發實際上
+只管前兩題。假模型跑一輪就看得到:第 2、3 題都是補位。
+
+【呼叫數】
+預設          每個 round:1 次開場 + 4 段 ×(3 次事實判讀 + 3 位各一次生成)= 25 次
+--force-next  不跑事實判讀,每個 round 13 次
+--real-dispatch  每個 round:1 次開場 + 4 段 ×(3 次事實判讀 + 0–1 次派發 + 1 次生成
+                 + 0–1 次重生成)≈ 17–25 次
+
+自述困難合進 main 之後,事實判讀會變 4 次(那一項單獨問一次),
+預設變 29 次、--real-dispatch 變 21–29 次。
+
+【notices 計數,三種模式都印】
+重生成有沒有救回、維度派發有沒有觸發,全部只在 notices 裡看得到。
+假模型不會照指示改寫,所以這幾個數字只有打真 API 才有意義。
 """
 
 from __future__ import annotations
@@ -243,11 +271,163 @@ async def run_round(llm, exact, rnd: int, force_next: bool = False) -> list[dict
                 "topic": resp.topic,
                 "prev_topic": start.opening_topic,
                 "action": decision.action,
+                # 重生成有沒有救回、維度派發有沒有觸發,全部只在 notices 裡看得到。
+                # 假模型不會照指示改寫,所以這些數字只有打真 API 才有意義。
+                "notices": list(resp.notices),
+                "mode": "forced",
             })
     return out
 
 
+async def run_round_dispatch(llm, exact, rnd: int) -> list[dict]:
+    """跑一輪,**讓真實派發決定誰開口**。每段回答只送一次。
+
+    【為什麼需要第二種模式】
+    `run_round` 用 `force_speaker` 把三位都塞到同一段回答上,那是為了隔離
+    角色效果——但它因此**完全不走派發**。維度派發(缺的維度直接給負責人)
+    在那個模式裡不存在,量不到。
+
+    這個模式模擬一場四題的 panel:`spoken_by` 跨四段累積,所以讓位規則
+    (已發言兩次而有人還沒開口)也量得到。
+
+    每輪的呼叫:1 次開場 + 4 段 ×(3 次事實判讀 + 0 或 1 次派發 + 1 次生成
+    + 0 或 1 次重生成)。維度派發觸發時不問模型誰開口,所以派發那一次省下來。
+    自述困難合進來之後事實判讀是 4 次。
+
+    這個模式的列跟 `run_round` 形狀不同(一段一筆,不是一段三筆),
+    報表會分開印,不跟角色效果混在一起算。
+    """
+    start = await start_interview(
+        mode="panel", context=CTX, llm=llm, llm_exact=exact, jd=JD
+    )
+    spec = derive_specs("panel", jd=JD, difficulty=CTX.difficulty)[0]
+
+    out: list[dict] = []
+    spoken: list[str] = []
+    asked = [start.opening_question]
+    for idx, (kind, answer) in enumerate(ANSWERS):
+        decision = await decide_turn(spec=spec, answer=answer, llm=exact, depth=0)
+        resp = await next_turn(
+            mode="panel",
+            answer=answer,
+            follow_up_idx=idx,
+            asked_questions=list(asked),
+            spoken_by=list(spoken),
+            question=asked[-1],
+            prev_topic=start.opening_topic,
+            fallback=list(start.fallback_probes),
+            llm=llm,
+            context=CTX,
+            decision=decision,
+            jd=JD,
+        )
+        spoken.append(resp.speaker)
+        asked.append(resp.next_question)
+        dispatch_note = next((n for n in resp.notices if "派" in n or "指派" in n), "")
+        out.append({
+            "round": rnd,
+            "answer_kind": kind,
+            "spoke": resp.speaker,
+            "question": resp.next_question,
+            "is_follow_up": resp.is_follow_up,
+            "topic": resp.topic,
+            "action": decision.action,
+            "gap": decision.gap,
+            "dimension": decision.dimension,
+            "dispatch": (
+                "維度" if "派給負責的" in dispatch_note
+                else "讓位" if "改回語意派發" in dispatch_note
+                else "補位" if "未發言過" in dispatch_note
+                else "語意"
+            ),
+            "notices": list(resp.notices),
+            "mode": "dispatch",
+        })
+    return out
+
+
+NOTICE_KINDS: tuple[tuple[str, str], ...] = (
+    ("已重生成", "重生成救回"),
+    ("重生成沒有改善", "重生成沒救回"),
+    ("派給負責的", "維度派發"),
+    ("改回語意派發", "維度讓位"),
+    ("指派給未發言過", "補位"),
+    ("改用備援題", "主問題撞重複→備援"),
+    ("備援池已用盡", "主問題撞重複→無備援"),
+    ("前端未帶 askedQuestions", "查重關閉(沒帶問句)"),
+    ("模型未標領域", "topic 沿用"),
+)
+"""notice 的分類。順序即比對順序,第一個命中的算。
+
+沒命中的印原文,不丟——新機制加了新 notice 之後這裡會自動看到它,
+而不是被歸進「其他」然後沒人發現。
+"""
+
+
+def notice_kind(n: str) -> str:
+    for needle, label in NOTICE_KINDS:
+        if needle in n:
+            return label
+    if n.startswith("本輪:決定 "):
+        return "決定:" + n.split("決定 ", 1)[1].split("(")[0]
+    return "(其他)" + n[:40]
+
+
+def report_notices(rows: list[dict]) -> None:
+    """重生成與派發的計數。只有打真 API 的結果有意義——假模型不會照指示改寫。"""
+    from collections import Counter
+
+    c: Counter = Counter()
+    for r in rows:
+        for n in r.get("notices", []):
+            c[notice_kind(n)] += 1
+    print("\n" + "=" * 74)
+    print(f"notice 計數({len(rows)} 筆)")
+    print("=" * 74)
+    print("   重生成那兩行要一起看:救回 / (救回 + 沒救回) 是重生成的有效率。")
+    print("   兩個都是 0 代表沒有一題被擋下來——那要回頭看封閉式與重複的判準。\n")
+    for k, v in sorted(c.items(), key=lambda kv: -kv[1]):
+        print(f"  {v:4}  {k}")
+    saved = c.get("重生成救回", 0); failed = c.get("重生成沒救回", 0)
+    if saved + failed:
+        print(f"\n  重生成有效率 {saved}/{saved + failed} = {saved / (saved + failed):.0%}")
+
+
+def report_dispatch(rows: list[dict]) -> None:
+    """真實派發那一輪:誰拿到回合、是哪條路給的。"""
+    from collections import Counter
+
+    print("\n" + "=" * 74)
+    print("真實派發:誰開口、憑什麼")
+    print("=" * 74)
+    print("   維度 = 缺的維度直接給負責人,不問模型。語意 = 照舊問模型。")
+    print("   讓位 = 本該維度派發但負責人講太多次。補位 = 過兩輪還沒開口的硬塞。\n")
+    for r in rows:
+        dim = f"缺「{r['dimension']}」" if r["dimension"] else "(無維度)"
+        print(f"  r{r['round']} {r['answer_kind']:5} {r['action']:9} {dim:10} → {r['spoke']:6} [{r['dispatch']}]")
+    print()
+    who = Counter(r["spoke"] for r in rows)
+    how = Counter(r["dispatch"] for r in rows)
+    print("  開口次數  " + "  ".join(f"{k} {v}" for k, v in who.most_common()))
+    print("  派發路徑  " + "  ".join(f"{k} {v}" for k, v in how.most_common()))
+    hr_dim = [r for r in rows if r["spoke"] == "HR 主管" and r["dispatch"] == "維度"]
+    print(f"\n  HR 主管靠維度拿到的回合:{len(hr_dim)}/{len(rows)}")
+    print("  這個數字是成員A 那一維接上之後才可能大於 0 的。")
+    print("  很低的話有兩種解釋要分開:回答裡大多有自述困難(那是對的),或者")
+    print("  決定大多是 FOLLOW_UP 而缺口歸別人(那也是對的)。看上面逐筆的 action 欄。")
+
+
 def report(rows: list[dict]) -> None:
+    forced = [r for r in rows if r.get("mode", "forced") == "forced"]
+    dispatch = [r for r in rows if r.get("mode") == "dispatch"]
+    if forced:
+        report_forced(forced)
+    if dispatch:
+        report_dispatch(dispatch)
+    report_notices(rows)
+
+
+def report_forced(rows: list[dict]) -> None:
     roles = sorted({r["role"] for r in rows})
     kinds = [k for k, _ in ANSWERS]
 
@@ -373,7 +553,10 @@ async def main_async(args) -> int:
     for r in range(args.rounds):
         print(f"  第 {r + 1}/{args.rounds} 輪…", flush=True)
         try:
-            rows += await run_round(llm, exact, r, force_next=args.force_next)
+            if args.real_dispatch:
+                rows += await run_round_dispatch(llm, exact, r)
+            else:
+                rows += await run_round(llm, exact, r, force_next=args.force_next)
         except Exception as exc:  # noqa: BLE001
             print(f"    這一輪失敗,跳過:{exc}")
 
@@ -399,6 +582,9 @@ def main() -> int:
     ap.add_argument("--dump", type=Path, default=None)
     ap.add_argument("--fake", action="store_true",
                     help="不打 API,只確認管線跑得起來。不是量測。")
+    ap.add_argument("--real-dispatch", action="store_true",
+                    help="不指定說話者,讓真實派發決定。這才量得到維度派發。"
+                         "一段回答只送一次,所以角色效果那幾節不印。")
     ap.add_argument("--force-next", action="store_true",
                     help="把決定改寫成 NEXT。平常這四段回答一律判 FOLLOW_UP,"
                          "不指定就量不到換題那條路。這一輪的數字不要跟"
