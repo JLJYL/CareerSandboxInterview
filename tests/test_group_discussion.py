@@ -44,7 +44,7 @@ CTX = InterviewContext(
 )
 
 TOPIC = "假設分行要在一個月內提升年輕客群的開戶數,各位會先做哪一件事?"
-PEER_LINE = "我會先做社群活動,年輕人在那裡。你們覺得預算該放哪?"
+PEER_LINE = "我會先做社群活動,年輕人在那裡,預算也該先放那邊。"
 
 SAYS = [
     UtteranceDTO(speaker="主考官", content=TOPIC, is_user=False),
@@ -66,7 +66,7 @@ def spy(payload: dict, *, sink: list):
 
 
 TURN = {
-    "speaker": "AI-強勢", "nextQuestion": "線上流程誰都會做,我會先談跟學校合作。你怎麼看?",
+    "speaker": "AI-強勢", "nextQuestion": "線上流程誰都會做,我會先談跟學校合作。",
     "reaction": "", "isFollowUp": True, "topic": "開戶策略", "shouldAdvance": False,
 }
 
@@ -213,7 +213,7 @@ async def test_group_turn_does_not_get_the_resume() -> None:
 async def test_a_repeated_group_line_is_regenerated_not_swapped_for_a_fallback() -> None:
     """備援句是主持人的推進句,換進 AI 應徵者嘴裡就是一句面試官的話。"""
     calls: list = []
-    fresh = "社群活動太慢,我會直接跟學校簽約。你覺得呢?"
+    fresh = "社群活動太慢,我會直接跟學校簽約。"
 
     def call(system: str, user: str) -> str:
         calls.append(user)
@@ -248,21 +248,116 @@ async def test_a_group_line_that_repeats_an_asked_question_keeps_the_speakers_vo
     assert r.next_question != fallback
 
 
-async def test_a_group_line_ending_in_a_yes_no_question_is_kept() -> None:
-    """「你同意嗎?」是討論裡正常的丟法,不是面試官的封閉式問題。"""
-    calls: list = []
-    line = "我覺得先做客群分析比較穩,你同意嗎?"
+# ---------------------------------------------------------------------------
+# AI 應徵者不發問(10/30 定案):提問只有主考官和主管
+# ---------------------------------------------------------------------------
+
+
+def _scripted(*lines: str, sink: list | None = None, speaker: str = "AI-強勢"):
+    """依序回這幾句,用完之後一直回最後一句。sink 記下每次的 user 訊息。"""
+    it = iter(lines)
 
     def call(system: str, user: str) -> str:
-        calls.append(user)
-        return json.dumps({**TURN, "nextQuestion": line}, ensure_ascii=False)
+        if sink is not None:
+            sink.append(user)
+        line = next(it, lines[-1])
+        return json.dumps({**TURN, "speaker": speaker, "nextQuestion": line}, ensure_ascii=False)
 
+    return call
+
+
+async def test_a_peer_question_is_regenerated_once() -> None:
+    calls: list = []
+    clean = "社群活動太慢,我會直接跟學校簽約,開學季就看得到人數。"
     r = await next_turn(
-        mode="group", answer=ANSWER, follow_up_idx=2, asked_questions=[],
-        fallback=[], llm=call, context=CTX, force_speaker="AI-強勢", group_says=SAYS,
+        mode="group", answer=ANSWER, follow_up_idx=2, asked_questions=[TOPIC],
+        fallback=[], llm=_scripted("我覺得先做社群,你們怎麼看?", clean, sink=calls),
+        context=CTX, force_speaker="AI-強勢", group_says=SAYS,
     )
-    assert r.next_question == line
-    assert len(calls) == 1, "不該為了封閉式重生成"
+    assert r.next_question == clean
+    assert len(calls) == 2
+    assert "不發問" in calls[-1], "重生成要講清楚錯在哪"
+    assert any("是應徵者在發問" in n for n in r.notices)
+
+
+async def test_a_tag_question_left_after_regeneration_is_cut_off() -> None:
+    """重生成還是丟球的話,只切掉逗號後面那一小段,主張留著。"""
+    r = await next_turn(
+        mode="group", answer=ANSWER, follow_up_idx=2, asked_questions=[TOPIC],
+        fallback=[], llm=_scripted("我覺得先做客群分析比較穩,你同意嗎?"),
+        context=CTX, force_speaker="AI-強勢", group_says=SAYS,
+    )
+    assert r.speaker == "AI-強勢"
+    assert r.next_question == "我覺得先做客群分析比較穩。"
+    assert any("問句已刪除" in n for n in r.notices)
+
+
+async def test_a_peer_line_that_is_only_a_question_goes_to_the_host() -> None:
+    """整句都是問句就沒有主張可留。讓應徵者唸一句問句,就是回到 group-1。"""
+    host_line = "目前有兩種做法,大家比較一下?"
+    r = await next_turn(
+        mode="group", answer=ANSWER, follow_up_idx=2, asked_questions=[TOPIC],
+        fallback=[host_line], llm=_scripted("那你們的預算是怎麼估的?"),
+        context=CTX, force_speaker="AI-強勢", group_says=SAYS,
+    )
+    assert r.speaker == "主考官"
+    assert r.next_question == host_line
+    assert any("改由主持人推進" in n for n in r.notices)
+    assert r.topic, "topic 不可以留空,前端拿它累積 askedTopics"
+
+
+async def test_the_host_may_ask() -> None:
+    calls: list = []
+    q = "目前有兩種做法,大家比較一下,你們會選哪一個?"
+    r = await next_turn(
+        mode="group", answer=ANSWER, follow_up_idx=2, asked_questions=[TOPIC],
+        fallback=[], llm=_scripted(q, sink=calls, speaker="主考官"), context=CTX,
+        force_speaker="主考官", group_says=SAYS,
+    )
+    assert r.next_question == q
+    assert len(calls) == 1, "主持人的問句不該重生成"
+
+
+async def test_the_three_managers_may_ask_too() -> None:
+    ctx = CTX.model_copy(update={"group_interviewers": 3})
+    q = "這個做法要成立,前提是什麼?"
+    r = await next_turn(
+        mode="group", answer=ANSWER, follow_up_idx=2, asked_questions=[TOPIC],
+        fallback=[], llm=_scripted(q, speaker="技術主管"), context=ctx,
+        force_speaker="技術主管", group_says=SAYS,
+    )
+    assert (r.speaker, r.next_question) == ("技術主管", q)
+
+
+async def test_interviewer_modes_still_ask() -> None:
+    """一對一與 panel 的面試官本來就該發問,這條規則只管群面的應徵者。"""
+    q = "那個數字的母數是多少?"
+    r = await next_turn(
+        mode="panel", answer=ANSWER, follow_up_idx=1, asked_questions=[],
+        fallback=[], llm=_scripted(q, speaker="技術主管"), force_speaker="技術主管",
+    )
+    assert r.next_question == q
+
+
+def test_the_peer_rules_no_longer_ask_for_a_question() -> None:
+    from app.prompts.interview_live import GROUP_PEER_STANCE
+
+    assert "先表態再發問" not in GROUP_PEER_STANCE
+    assert "不發問" in GROUP_PEER_STANCE and "不發問" in GROUP_TURN_RULES
+    demo = GROUP_PEER_STANCE.split("正確的形狀")[1].split("【為什麼用不相干")[0]
+    assert "?" not in demo and "？" not in demo, "模型學的是示範的形狀,示範帶問句就白寫了"
+
+
+def test_no_peer_persona_is_shown_asking() -> None:
+    """語氣示範會被照著學。示範句帶問號,前面那條規則等於沒寫。"""
+    from app.prompts.interview_personas import personas_for
+
+    for gi in (1, 3):
+        for p in personas_for("group", gi, 5):
+            if p.role != "peer":
+                continue
+            assert not any("?" in s or "？" in s for s in p.sample_lines), p.id
+            assert "就問" not in p.stance, p.id
 
 
 async def test_a_group_failure_falls_back_to_the_moderator() -> None:
@@ -322,3 +417,11 @@ def test_group_says_reach_the_turn_prompt_through_the_api(client, monkeypatch) -
         },
     )
     assert any(f"AI-邏輯:{PEER_LINE}" in u for _, u in seen)
+
+
+def test_generated_peer_profiles_are_not_primed_to_ask() -> None:
+    """背景與說話風格會顯示在小組名單上。範例寫「會反問」,就跟不發問的規則打架。"""
+    from app.prompts.peer_profile import compose_profile_prompt
+
+    prompt = compose_profile_prompt()
+    assert "反問" not in prompt and "先問" not in prompt

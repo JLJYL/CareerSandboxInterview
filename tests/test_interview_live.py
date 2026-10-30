@@ -57,6 +57,9 @@ TURN = {
     "speaker": "技術主管", "nextQuestion": "那個數字的母數是多少?",
     "reaction": "嗯。", "isFollowUp": True, "topic": "資料分析", "shouldAdvance": False,
 }
+#: 群面 AI 應徵者的一句話。應徵者不發問(10/30 定案),帶問句的會被刪掉,
+#: 整句是問句的會改由主持人講——拿 TURN 那句當應徵者的輸出,測的就變成那條路了。
+PEER_SAYS = "這個數字沒有母數,我不敢下這個結論。"
 
 
 # ---------------------------------------------------------------------------
@@ -475,7 +478,9 @@ async def test_silent_persona_is_forced_by_code() -> None:
         mode="group", answer="先做一個版本再修比較快", follow_up_idx=3,
         asked_questions=[], spoken_by=["主考官", "AI-邏輯", "AI-親切"],
         question="q", fallback=[],
-        llm=llm_returning({**TURN, "speaker": "主考官"}, dispatch="主考官"),
+        llm=llm_returning(
+            {**TURN, "speaker": "主考官", "nextQuestion": PEER_SAYS}, dispatch="主考官"
+        ),
     )
     assert r.speaker == "AI-強勢"
     assert any("未發言過" in n for n in r.notices)
@@ -633,15 +638,15 @@ async def test_follow_up_may_stay_on_topic() -> None:
 
 
 def test_group_prompt_requires_peers_to_assert() -> None:
-    """面試官問問題,競爭者提主張。只問不說的那一句換成面試官講也成立。
+    """主管問問題,應徵者只表態。10/30 定案,取代原本的「先表態再發問」。
 
     聚焦模式下這條判準要留著——那是人格的一部分,不是派發規則。
     """
     from app.prompts.interview_live import compose_turn_prompt
 
     focused = compose_turn_prompt("group", [], focus_speaker="AI-邏輯")
-    assert "先表態再發問" in focused
-    assert "換成面試官講也完全成立" in focused
+    assert "主管問問題,應徵者只表態" in focused
+    assert "先表態再發問" not in focused
 
 
 @pytest.mark.asyncio
@@ -743,7 +748,9 @@ async def test_turn_uses_context_config() -> None:
 
     def spy(system: str, user: str) -> str:
         seen["system"] = system
-        return json.dumps({**TURN, "speaker": "AI-沉默"}, ensure_ascii=False)
+        return json.dumps(
+            {**TURN, "speaker": "AI-沉默", "nextQuestion": PEER_SAYS}, ensure_ascii=False
+        )
 
     ctx = InterviewContext(group_interviewers=3, group_size=5, difficulty="困難")
     r = await next_turn(

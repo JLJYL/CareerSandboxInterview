@@ -14,7 +14,9 @@ from app.pipeline.question_form import (
     NEUTRAL,
     OPEN,
     clause_kind,
+    drop_questions,
     is_closed_question,
+    question_sentences,
 )
 
 #: 整句只能用「有/沒有」答完。
@@ -129,3 +131,55 @@ def test_a_weak_interrogative_after_a_comma_still_opens_the_question() -> None:
     assert not is_closed_question("你有沒有做過類似的事，哪一段最花時間？")
     # 對照:逗號後面沒有疑問詞,整句還是封閉。
     assert is_closed_question("你有沒有做過類似的事,那時候是實習嗎?")
+
+
+# ---------------------------------------------------------------------------
+# 群面應徵者的問句(10/30 定案:應徵者不發問)
+#
+# 前三句是 group-1(前端 10/29 錄的那一場)裡 AI 的真實發言。
+# 丟球句那幾條是照規則編的:舊規則底下沒錄到應徵者用逗號接丟球句的輸出。
+# ---------------------------------------------------------------------------
+
+GROUP1_LINES = [
+    "你提到使用 Python 進行資料分析，那你們具體用哪些指標來評估風險呢？",
+    "你提到會避免掠奪性期刊，那在資料來源的選擇上，你會如何確保這些資料的準確性呢？",
+    "在這個驗證過程中，你能分享一下當時遇到的挑戰是什麼嗎？你是怎麼克服的？",
+]
+
+
+@pytest.mark.parametrize("line", GROUP1_LINES)
+def test_group1_peer_lines_are_questions_with_nothing_to_keep(line: str) -> None:
+    kept, dropped = drop_questions(line)
+    assert question_sentences(line)
+    assert kept == "", "整句都是問句,沒有主張可留"
+    assert "".join(dropped) == line
+
+
+def test_a_tag_question_after_a_comma_is_cut_and_the_claim_kept() -> None:
+    assert drop_questions("我覺得先做客群分析比較穩,你同意嗎?") == (
+        "我覺得先做客群分析比較穩。",
+        ["你同意嗎?"],
+    )
+
+
+def test_a_question_sentence_after_a_claim_is_dropped_whole() -> None:
+    assert drop_questions("線上流程誰都會做,我會先談跟學校合作。你怎麼看?") == (
+        "線上流程誰都會做,我會先談跟學校合作。",
+        ["你怎麼看?"],
+    )
+
+
+def test_a_conditional_question_is_not_cut_into_half_a_sentence() -> None:
+    """逗號前面是條件子句。切掉後半剩下的是半句話,所以整句都算問句。"""
+    kept, dropped = drop_questions("如果預算只夠做一件事,你們會先做哪一個?")
+    assert kept == "" and len(dropped) == 1
+
+
+def test_a_statement_is_left_alone() -> None:
+    line = "母數不夠,這個結論我不敢下。"
+    assert drop_questions(line) == (line, [])
+    assert question_sentences(line) == []
+
+
+def test_a_question_without_a_question_mark_still_counts() -> None:
+    assert question_sentences("這樣可以嗎。我覺得不行。") == ["這樣可以嗎。"]
