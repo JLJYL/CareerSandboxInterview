@@ -593,6 +593,20 @@ class TurnRequest(_Base):
     空的話履歷那一段會跳過,直接問職缺——不會假裝有履歷去編一筆。
     """
 
+    group_says: list[UtteranceDTO] = Field(default_factory=list)
+    """群面到目前為止的逐則發言,含所有發言者。僅 group 使用,其他模式忽略。
+
+    【為什麼每輪要帶】
+    沒有它,AI 應徵者只看得到使用者剛剛那一句,看不到彼此講過什麼,
+    就不可能附和、反駁或接著別人的論點講。
+
+    前端從 10/10 那份交接起就在每輪送這一欄(`InterviewSession.groupTranscript`),
+    但這份合約一直沒有宣告,pydantic 把它當未知欄位丟掉了。group-1(10/29)
+    三位 AI 應徵者每一輪都用「你提到…能分享一下…」追問使用者,彼此零互動。
+
+    元素型別跟報告請求的 `group_says` 相同,前端可以送同一份。
+    """
+
     asked_questions: list[str] = Field(default_factory=list)
     """本場已經問過的**問題原文**,前端累積 TurnResponse.next_question 後回傳。
 
@@ -679,6 +693,17 @@ class ReportRequest(_Base):
     mode: InterviewMode
     context: InterviewContext = Field(default_factory=InterviewContext)
     experiences: list[ExperienceDTO] = Field(default_factory=list)
+    jd_skills: list[str] = Field(default_factory=list)
+    """職缺需求,依重要性排序。跟 `TurnRequest.jd_skills` 同一份,原樣帶過來。
+
+    【為什麼報告也要】
+    報告的漏講點拿履歷跟職缺需求比。沒有這一欄的時候,報告只能把
+    `context.custom_jd` 再抽一次——跟面試那幾輪用的需求可能不是同一份。
+    前端 10/29 的 normal-1:開場回了五項 jdSkills,報告卻寫
+    「這份 JD 抽不出明確的能力需求」,漏講點是空的。
+
+    不帶的話照舊從 `custom_jd` 抽。
+    """
     turns: list[TurnDTO] = Field(default_factory=list)
     group_says: list[UtteranceDTO] = Field(default_factory=list)
     """群面逐則發言,含發言者與時序。僅 group 模式使用。

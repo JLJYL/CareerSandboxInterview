@@ -1469,3 +1469,200 @@ def test_the_jd_reaches_every_turn_too(client, monkeypatch) -> None:
     # 第一版就是這樣寫的,拆掉接線它照樣綠。
     assert "這份職缺需要的能力" in user
     assert "版本控制、需求訪談" in user
+
+
+# ---------------------------------------------------------------------------
+# 經歷的內容在 description
+# ---------------------------------------------------------------------------
+
+
+def test_a_description_only_experience_reaches_the_model() -> None:
+    """真實資料只填 description,那一欄要進得去。
+
+    `resume_block` 原本只讀 title / role / action / result,而黃金集十份的
+    19 筆經歷全部只填 description、沒有一筆填 role/action/result。
+    面試官只看得到經歷標題。
+
+    上面那條截斷測試用的是 role/action/result 那個形狀——真實資料不長那樣,
+    所以這個漏洞沒有任何測試看得到。
+    """
+    from app.pipeline.interview_live import resume_block
+    from app.schemas.interview import ExperienceDTO
+
+    e = ExperienceDTO(
+        id="e1", title="畢業專題 - 健康紀錄 App", category="project",
+        description="以 Kotlin 開發,完成期末公開展示",
+    )
+    assert "以 Kotlin 開發" in resume_block([e])
+
+
+def test_every_golden_experience_description_reaches_the_model() -> None:
+    """照黃金集的實際形狀檢查,不是照我想像中的形狀。
+
+    黃金集的鍵是 description 與 timeRange(後者對不上 DTO 的 period;
+    目前沒有程式讀 period,所以沒影響)。這一條拿那份原始 JSON 走一遍
+    `ExperienceDTO.model_validate`,跟上線解析的路徑相同。
+    """
+    import json
+    from pathlib import Path
+
+    from app.pipeline.interview_live import resume_block
+    from app.schemas.interview import ExperienceDTO
+
+    seen = missing = 0
+    for f in sorted(Path("fixtures/golden/interview").glob("ivw-*.json")):
+        # 明寫 encoding:Windows 的預設是 cp950,讀 UTF-8 的中文會直接炸。
+        exps = [
+            ExperienceDTO.model_validate(e)
+            for e in json.loads(f.read_text(encoding="utf-8"))["resume"]
+        ]
+        out = resume_block(exps)
+        for e in exps:
+            if not e.description:
+                continue
+            seen += 1
+            missing += e.description not in out
+    assert seen, "fixture 裡要有填 description 的經歷,否則這一條測不到東西"
+    assert missing == 0, f"{missing}/{seen} 筆經歷的內容沒進模型"
+
+
+def test_a_description_that_repeats_another_field_is_not_listed_twice() -> None:
+    """同一段文字列兩次會吃掉 RESUME_MAX_CHARS,後面的經歷就被截掉。"""
+    from app.pipeline.interview_live import resume_block
+    from app.schemas.interview import ExperienceDTO
+
+    e = ExperienceDTO(
+        id="e1", title="實習", action="用 SQL 重寫每週報表",
+        description="用 SQL 重寫每週報表",
+    )
+    assert resume_block([e]).count("用 SQL 重寫每週報表") == 1
+
+
+def test_a_description_composed_of_other_fields_is_not_listed_again() -> None:
+    """後端 API 回給 App 的 description 是 action 與 result 用空白接起來的。
+
+    `careersandbox-api` 的 `routes/experiences.js` `toDto` 同時回 role / action /
+    result 與這個拼起來的 description。App 照原樣轉送的話,只看「description
+    是否被某一欄包含」擋不住——它比任何一欄都長。
+    """
+    from app.pipeline.interview_live import resume_block
+    from app.schemas.interview import ExperienceDTO
+
+    e = ExperienceDTO(
+        id="e1", title="實習", role="資料分析實習生",
+        action="用 SQL 重寫每週報表", result="報表時間從三天縮到半天",
+        description="用 SQL 重寫每週報表 報表時間從三天縮到半天",
+    )
+    out = resume_block([e])
+    assert out.count("用 SQL 重寫每週報表") == 1
+    assert out.count("報表時間從三天縮到半天") == 1
+
+
+def test_a_description_with_content_of_its_own_is_kept() -> None:
+    """擋重複不能擋到有額外內容的 description。"""
+    from app.pipeline.interview_live import resume_block
+    from app.schemas.interview import ExperienceDTO
+
+    e = ExperienceDTO(
+        id="e1", title="實習", action="用 SQL 重寫每週報表",
+        description="用 SQL 重寫每週報表,並寫了一份交接文件給下一屆",
+    )
+    assert "交接文件" in resume_block([e])
+
+
+def test_overlapping_fields_do_not_let_a_duplicate_through() -> None:
+    """兩種部分重疊:description 比某一欄短而被它包住;短的一欄是長的一欄的一部分。
+
+    第二種要先拿長的那欄。先拿短的會把長的那欄切斷,剩下的殘字被當成
+    額外內容,description 就整段重複列進去。
+    """
+    from app.pipeline.interview_live import resume_block
+    from app.schemas.interview import ExperienceDTO
+
+    inside = ExperienceDTO(
+        id="e1", title="實習", action="用 SQL 重寫每週報表並自動寄送",
+        description="用 SQL 重寫每週報表",
+    )
+    nested = ExperienceDTO(
+        id="e2", title="專題", role="分析", action="資料分析報表",
+        description="資料分析報表 分析",
+    )
+    assert resume_block([inside]).count("用 SQL 重寫每週報表") == 1
+    assert resume_block([nested]).count("資料分析報表") == 1
+
+
+# ---------------------------------------------------------------------------
+# 漏講點:報告用面試那幾輪的 jdSkills(前端 10/29 normal-1 的漏講點是空的)
+# ---------------------------------------------------------------------------
+
+_BLURB = "從客戶需求出發，提供全方位理財規劃建議，完整的金融服務及持續求新求變的使命"
+_TAGGED = [{"id": "e1", "title": "股票競賽", "category": "競賽", "tags": ["Python"]}]
+
+
+def _recording_gap(seen: dict):
+    class RecordingGap:
+        def compute(self, resume, jd, transcript):
+            seen["jd"] = jd
+            return []
+
+    return RecordingGap()
+
+
+def test_the_report_uses_the_jd_skills_the_interview_used(client, monkeypatch) -> None:
+    """開場回了五項 jdSkills,報告卻自己再抽一次、抽不出來,漏講點就空了。"""
+    import app.api.routes as routes
+
+    seen: dict = {}
+    resolved: list = []
+    monkeypatch.setattr(routes, "get_gap", lambda: _recording_gap(seen))
+    monkeypatch.setattr(
+        routes, "_resolve_jd", lambda text, llm: (resolved.append(text), (None, []))[1]
+    )
+    client.post(
+        "/interviews/itv_x/report",
+        json={
+            "mode": "single",
+            "context": {"customJd": _BLURB},
+            "jdSkills": ["顧客關係管理", "持續學習"],
+            "experiences": _TAGGED,
+            "turns": [{"question": "q", "answer": "我用 Python 分析股票"}],
+        },
+    )
+    assert seen["jd"].required_skills == ["顧客關係管理", "持續學習"]
+    assert resolved == [], "帶了 jdSkills 就不再從散文抽一次"
+
+
+def test_the_report_still_extracts_when_no_jd_skills_are_sent(client, monkeypatch) -> None:
+    import app.api.routes as routes
+
+    resolved: list = []
+    monkeypatch.setattr(routes, "get_gap", lambda: _recording_gap({}))
+    monkeypatch.setattr(
+        routes, "_resolve_jd", lambda text, llm: (resolved.append(text), (None, []))[1]
+    )
+    client.post(
+        "/interviews/itv_x/report",
+        json={
+            "mode": "single",
+            "context": {"customJd": _BLURB},
+            "experiences": _TAGGED,
+            "turns": [{"question": "q", "answer": "我用 Python 分析股票"}],
+        },
+    )
+    assert resolved == [_BLURB]
+
+
+def test_an_untagged_resume_is_explained_not_left_silent(client) -> None:
+    """履歷側只吃 tags。一筆都沒有的時候漏講點必然是空的,要講出來。"""
+    body = {
+        "mode": "single",
+        "context": {"customJd": _BLURB},
+        "turns": [{"question": "q", "answer": "我用 Python 分析股票"}],
+    }
+    untagged = client.post(
+        "/interviews/itv_x/report",
+        json={**body, "experiences": [{"id": "e1", "title": "股票競賽", "category": "競賽"}]},
+    ).json()
+    tagged = client.post("/interviews/itv_x/report", json={**body, "experiences": _TAGGED}).json()
+    assert any("沒有標籤" in n for n in untagged["notices"])
+    assert not any("沒有標籤" in n for n in tagged["notices"])

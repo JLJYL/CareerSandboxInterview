@@ -175,8 +175,35 @@ def test_happy_path() -> None:
         [cand()], "t", "jd", llm_returning(with_ids([{"why": GOOD_WHY}]))
     )
     assert len(out) == 1
-    assert out[0].point == "SQL(sk:sql)"
+    assert out[0].point == "SQL"
     assert out[0].why == GOOD_WHY
+
+
+def test_the_point_shown_to_the_user_has_no_skill_id() -> None:
+    """display 是 log 用的 name_zh(skill_id),而前端原樣顯示 point。
+
+    這筆照真的詞彙表長相寫:normal-1(10/29)的 jdSkills 跟履歷 tags 對上時,
+    GapComputer 給的就是這個 display。
+    """
+    c = GapCandidate(
+        skill_id="sk:bf0c5da7b6",
+        display="顧客關係管理(sk:bf0c5da7b6)",
+        kind="hard",
+        resume_experience_ids=["e1"],
+        resume_evidence="顧客關係管理",
+        jd_evidence="顧客關係管理",
+        weight=0.84,
+    )
+    out, _ = generate_missing_points([c], "t", "jd", llm_returning(with_ids([{"why": GOOD_WHY}])))
+    assert [p.point for p in out] == ["顧客關係管理"]
+
+
+def test_a_dropped_point_is_still_logged_with_its_skill_id() -> None:
+    """notices 是給人查問題的,要查得回詞彙表。"""
+    _, notices = generate_missing_points(
+        [cand()], "t", "jd", llm_returning(with_ids([{"why": "太短"}]))
+    )
+    assert any("SQL(sk:sql)" in n and "已丟棄" in n for n in notices)
 
 
 def test_truncates_to_max_points() -> None:

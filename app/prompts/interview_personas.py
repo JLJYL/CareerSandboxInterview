@@ -577,7 +577,8 @@ def opening_intro(
         job = f"應徵的職缺是{post}," if post else ""
         return (
             f"你好,我是{who}。這是一場{round_name}團體面試,{job}"
-            f"今天連你在內共{_cn_count(peers + 1)}位應徵者,我會輪流請各位回答。"
+            f"今天連你在內共{_cn_count(peers + 1)}位應徵者。我會先出一個題目,"
+            "請大家一起討論。"
         )
 
     if mode == "panel":

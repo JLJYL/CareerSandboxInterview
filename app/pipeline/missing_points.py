@@ -152,6 +152,22 @@ def check_why(why: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
+def shown_point(cand: GapCandidate) -> str:
+    """漏講點給使用者看的名字:`display` 去掉尾巴的 skill_id。
+
+    `GapCandidate.display` 的格式是 name_zh(skill_id),那是 W1 為了 log 好讀訂的。
+    前端原樣顯示 `point`(`MissingPoint(it.point, it.why)`),不剝掉的話畫面上會是
+    「顧客關係管理(sk:bf0c5da7b6)」。前端 10/29 回報的兩份報告漏講點都是空的,
+    所以這個一直沒被看見;報告改吃 jdSkills 之後,第一筆就會長這樣。
+
+    notices 照舊用 display:那是給人查問題的,帶著 id 才查得回詞彙表。
+    """
+    suffix = f"({cand.skill_id})"
+    if cand.display.endswith(suffix) and len(cand.display) > len(suffix):
+        return cand.display[: -len(suffix)].strip()
+    return cand.display
+
+
 def build_user_message(
     candidates: Sequence[GapCandidate], transcript: str, jd_description: str
 ) -> str:
@@ -232,7 +248,7 @@ def generate_missing_points(
             rejected += 1
             notices.append(f"漏講點「{cand.display}」已丟棄:{problem}")
             continue
-        out.append(MissingPointDTO(point=cand.display, why=why))
+        out.append(MissingPointDTO(point=shown_point(cand), why=why))
 
     if no_reply:
         # 模型漏回。實測集中在清單後段,是注意力衰減。

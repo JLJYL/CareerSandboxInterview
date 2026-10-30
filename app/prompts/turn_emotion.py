@@ -119,9 +119,39 @@ SIGNAL_BY_MODE: dict[str, str] = {
 }
 """輸入模式決定哪些訊號可用。
 
+`voice` 那一段寫的是裝置端辨識。雲端辨識(Whisper)的失真方向相反,另外一段:
+`SIGNAL_VOICE_API`。一場裡講的與打的都有時用 `SIGNAL_MIXED`。
+
 這一段不是客套,是在擋一個已經發生過的錯誤類型:四個測量的有效性取決於
 `input_mode`,而那一欄沒被看進去的時候,打字的回答會因為標點乾淨
 拿到高流暢度。情緒這一塊的「斷得碎」「長停頓」是同一個陷阱。
+"""
+
+
+SIGNAL_VOICE_API = """【這些回答是講出來的,逐字稿由雲端語音辨識轉成】
+
+雲端辨識會補標點,也常把「嗯」「呃」這類聲音和講到一半重來的地方清掉。
+文字因此看起來比他實際講的順:「句子斷得碎、反覆改口」在這裡常常看不出來,
+文字順不代表他平穩。
+
+題目底下如果有「停頓」那一行,那是從時間點量出來的,比文字可靠。"""
+"""雲端辨識的語音。
+
+`SIGNAL_BY_MODE["voice"]` 是照裝置端寫的:會漏字、沒有標點,所以要提防
+「斷得碎」其實是引擎造成的。前端 2026-09 起改用 Whisper,失真方向反過來——
+清掉的是猶豫的痕跡,不是補上碎句。照裝置端那一段去讀,會把一段被清乾淨的
+緊張回答讀成平穩。
+"""
+
+SIGNAL_MIXED = """【這場有的題是講的、有的題是打的】
+
+每一題底下標了作答方式。講的題才看停頓與斷句;打的題沒有停頓資料,
+標點乾淨是必然的,只看內容:改口留下的痕跡、明確說不知道、反覆否定自己。"""
+"""一場裡兩種作答方式都有。
+
+原本這種情況整場退回 `unknown`,那一段叫模型「斷句與停頓都不要用」——
+但語音那幾題的停頓那一行照樣送進去,同一份 prompt 前後矛盾。前端 10/21 起
+一對一與 panel 都能改用打字,混用會是常態,所以改成逐題標方式。
 """
 
 
@@ -141,32 +171,51 @@ EMOTION_OUTPUT = """【輸出格式】
 判斷不出來就是「平穩」——那是預設,不是最後的選項。"""
 
 
-def compose_emotion_prompt(input_mode: str = "unknown") -> str:
+def compose_emotion_prompt(input_mode: str = "unknown", engine: str = "device") -> str:
     """逐題情緒的 system prompt。
 
     不帶人格也不帶職缺:這一塊問的是「他當時是什麼狀態」,
     跟誰在問、這個職位要什麼都無關。帶了只會把 prompt 撐長。
+
+    `engine` 是 `InterviewContext.transcription_engine`。只影響語音那一段:
+    裝置端與雲端辨識失真的方向相反,見 `SIGNAL_VOICE_API`。
     """
+    if input_mode == "voice" and engine == "api":
+        signal = SIGNAL_VOICE_API
+    elif input_mode == "mixed":
+        signal = SIGNAL_MIXED
+    else:
+        signal = SIGNAL_BY_MODE.get(input_mode, SIGNAL_BY_MODE["unknown"])
     return "\n\n".join(
         [
             EMOTION_TASK,
             f"【四種狀態】\n\n{render_labels()}",
-            SIGNAL_BY_MODE.get(input_mode, SIGNAL_BY_MODE["unknown"]),
+            signal,
             EMOTION_OUTPUT,
         ]
     )
 
 
-def emotion_user_message(rows: list[tuple[str, str, str]]) -> str:
-    """把逐題問答擺成 user 訊息。rows 是 (題目, 回答, 停頓那一行)。
+_MODE_SHOWN = {"voice": "講的", "typed": "打的"}
+
+
+def emotion_user_message(
+    rows: list[tuple[str, ...]], *, show_mode: bool = False
+) -> str:
+    """把逐題問答擺成 user 訊息。rows 是 (題目, 回答, 停頓那一行[, 作答方式])。
 
     停頓那一行是實測值,只有語音且前端有送段落結束時點的時候才有。
     沒有的時候整行不出現——印一行「停頓:無資料」會讓模型以為那是
     「沒有停頓」,而兩者差別很大。
+
+    `show_mode` 只在一場混用兩種作答方式時打開,見 `SIGNAL_MIXED`。
     """
     body = ["【逐題內容】"]
-    for i, (question, answer, pause_note) in enumerate(rows, 1):
+    for i, row in enumerate(rows, 1):
+        question, answer, pause_note = row[0], row[1], row[2]
         body += [f"{i}. 題目:{question}", f"   回答:{answer}"]
+        if show_mode and len(row) > 3 and row[3] in _MODE_SHOWN:
+            body.append(f"   作答方式:{_MODE_SHOWN[row[3]]}")
         if pause_note:
             body.append(f"   停頓:{pause_note}")
     return "\n".join(body)

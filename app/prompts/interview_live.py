@@ -12,7 +12,7 @@
 from __future__ import annotations
 
 from app.prompts.interview_personas import PersonaSpec, personas_for
-from app.prompts.probe_rules import compose_probe_rules, interview_phase
+from app.prompts.probe_rules import TRUNCATED_ANSWER, compose_probe_rules, interview_phase
 
 # ---------------------------------------------------------------------------
 # 共用
@@ -187,6 +187,38 @@ openingTopic 描述開場題在問什麼,例如「自我介紹」「資料分析
 不要有其他文字或 markdown 標記。"""
 
 
+GROUP_OPENING_RULES = """產出這場小組討論的題目,由主持人對全組提出。
+
+【這不是個人面試的開場】
+群面評的是使用者在一群人之間怎麼討論:表態、回應別人、處理分歧、推進結論。
+題目要讓每個人都有話說,而且說法會不一樣。所以不問任何人的個人經歷,
+也不是自我介紹——那會讓其他應徵者只剩下追問他經歷這一條路。
+
+【題目的要求】
+    一個這個職位真的會遇到的情境,有取捨、沒有唯一正確答案
+    要大家做出一個決定或排出優先順序,不是解釋名詞
+    一到兩句講完背景與要決定的事,主持人唸得出來
+    不需要專業知識也能參與;職稱與產業只用來挑情境
+
+【材料】
+使用者在設定頁填的職位脈絡,JD 可能是空的。空的時候只用職稱與產業挑情境。
+
+【也要產出一組備援句】
+主持人在討論卡住時說的推進句,三到五句,每句獨立:請大家比較目前提出的
+做法、請還沒表態的人說說看、請大家收斂成一個結論。不問任何人的個人經歷。"""
+
+
+GROUP_OPENING_OUTPUT = """輸出一個 JSON 物件:
+
+    {
+      "openingQuestion": "主持人對全組提出的討論題目",
+      "openingTopic": "這題討論什麼,四到八字",
+      "fallbackProbes": ["推進句一", "推進句二", "推進句三"]
+    }
+
+不要有其他文字或 markdown 標記。"""
+
+
 # ---------------------------------------------------------------------------
 # 每輪追問
 # ---------------------------------------------------------------------------
@@ -268,6 +300,30 @@ AI 應徵者是**同場競爭者**,不是評分者。他們的目標是讓評審
 只有 AI-邏輯 一直質疑數據,那就退化成一對一的技術面試了。
 
 實測依據:未提供發言次數時,四輪裡 AI-強勢 與 AI-親切 完全沒出現。"""
+
+
+GROUP_TURN_RULES = """【這是小組討論,不是面試官提問】
+
+每一句都要接在這場討論的實際內容上。可以回應使用者,也可以回應前面其他
+應徵者講過的話:附和之後往前推一步、指出哪裡不同意、或把兩個說法放在一起比。
+只回應使用者一個人,討論就變成一對一面試。
+
+要問也是問對方的主張,不問他的經歷。追問一個人當時怎麼做、遇到什麼困難,
+是面試官評估他的方式,同場的應徵者不會這樣問彼此。
+
+前面有人講過的論點不要原樣再講一次:反駁它、補它沒講到的、或接著推下一步。
+
+主持人只在討論卡住、離題、或使用者明確說不會時開口:請大家比較目前的做法、
+請還沒表態的人說說看、或請大家收斂。主持人不評價,也不追問個人經歷。"""
+"""群面每一輪的規則,取代一對一與 panel 用的追問判準與面試階段。
+
+【為什麼不能共用追問那一套】
+`compose_probe_rules` 與 `interview_phase` 是面試官評估一個人的規則:
+追問他沒講完的 STAR、換題時問他的履歷或職缺。群面原本也收到這兩段,
+外加 `ACTION_INSTRUCTION` 的「接著他剛剛那段追問」,而 GROUP_PEER_STANCE
+同時要求競爭者「先表態再發問」。兩邊打架的時候,具體的那一邊贏:
+group-1(10/29)三位 AI 應徵者每一輪都是「你提到…能分享一下…」。
+"""
 
 
 GROUP_PEER_STANCE = """【你是同場競爭的應徵者,不是評分者】
@@ -436,8 +492,15 @@ def compose_opening_prompt(
         _persona_block(personas_for(mode, group_interviewers, group_size)),
     ]
     if mode == "group":
-        parts += [GROUP_ROLE_RULES, f"使用者的定位:{group_role}"]
-    parts += [opening_rules(has_resume), OPENING_OUTPUT]
+        # 群面的開場是全組的討論題,不是請使用者自我介紹。見 GROUP_OPENING_RULES。
+        parts += [
+            GROUP_ROLE_RULES,
+            f"使用者的定位:{group_role}",
+            GROUP_OPENING_RULES,
+            GROUP_OPENING_OUTPUT,
+        ]
+    else:
+        parts += [opening_rules(has_resume), OPENING_OUTPUT]
     return "\n\n".join(parts)
 
 
@@ -476,13 +539,19 @@ def compose_turn_prompt(
     elif mode == "group":
         parts.append(GROUP_PEER_STANCE)
 
-    parts.append(
-        compose_probe_rules(asked_questions, include_triggers=False, truncated=truncated)
-    )
-
-    # 階段。沒有履歷時 interview_phase 會換成 NO_RESUME_PHASE,
-    # 不是不給——前兩輪完全沒有材料的話,NEXT 會退回通用問句。
-    parts.append(interview_phase(turn_index, has_resume))
+    if mode == "group":
+        # 群面不接追問判準與面試階段,那是評估一個人的規則。見 GROUP_TURN_RULES。
+        # 被切斷那一條留著:誰接話都該先讓他把話講完。
+        if truncated:
+            parts.append(TRUNCATED_ANSWER)
+        parts.append(GROUP_TURN_RULES)
+    else:
+        parts.append(
+            compose_probe_rules(asked_questions, include_triggers=False, truncated=truncated)
+        )
+        # 階段。沒有履歷時 interview_phase 會換成 NO_RESUME_PHASE,
+        # 不是不給——前兩輪完全沒有材料的話,NEXT 會退回通用問句。
+        parts.append(interview_phase(turn_index, has_resume))
 
     if mode == "single":
         parts.append(TURN_OUTPUT_SINGLE)

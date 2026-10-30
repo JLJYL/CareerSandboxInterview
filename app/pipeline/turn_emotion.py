@@ -25,7 +25,8 @@ import asyncio
 from dataclasses import dataclass
 from typing import Sequence
 
-from app.pipeline.interview_live import LLMCall, _ADMITS_UNKNOWN, parse_obj
+from app.pipeline.interview_live import LLMCall, parse_obj
+from app.pipeline.scorability import admitted_phrase
 from app.pipeline.star_read import grounded
 from app.prompts.turn_emotion import (
     EMOTION_LABELS,
@@ -74,6 +75,9 @@ class EmotionTurn:
     影響一樣:「長停頓」這個訊號不可用。所以不分開表達。
     """
 
+    input_mode: str = "unknown"
+    """這一題怎麼作答的。一場混用兩種方式時逐題標出來,見 `SIGNAL_MIXED`。"""
+
 
 @dataclass(frozen=True)
 class TurnEmotion:
@@ -105,21 +109,26 @@ class TurnEmotion:
 
 
 def batch_input_mode(modes: Sequence[str]) -> str:
-    """一批回答共用的輸入模式。不一致就回 "unknown"。
+    """一批回答共用的輸入模式。講的與打的都有時回 "mixed",其餘不一致回 "unknown"。
 
     一次呼叫問所有題,而 prompt 會按模式告訴模型哪些訊號可用
     (打字沒有停頓資料、語音的碎句可能是引擎造成的)。
-    混用的時候兩個分支都不對,所以退回 unknown——那一支明寫
-    「斷句與停頓都不可靠,只從內容判斷」。
 
     這不是理論上的情況:同一場裡語音辨識失敗而改打字是會發生的,
     而那一題的碎句程度跟其他題不可比。拿整場的模式去套,
     等於用「這場大多是語音」去解釋一題打字的回答。
 
+    【混用原本退回 unknown,現在逐題標】
+    unknown 那一段叫模型「斷句與停頓都不要用」,但語音那幾題的停頓那一行
+    照樣送進去,同一份 prompt 前後矛盾。前端 10/21 起一對一與 panel 都能
+    改用打字,混用會是常態。"mixed" 時每一題底下標作答方式,見 `SIGNAL_MIXED`。
+
     `generate_report` 另外有一個整場的 `input_mode`,那是給流暢度公式用的,
     跟這裡問的不是同一件事,所以不共用。
     """
     seen = {m for m in modes if m}
+    if seen == {"voice", "typed"}:
+        return "mixed"
     return seen.pop() if len(seen) == 1 else "unknown"
 
 
@@ -129,8 +138,11 @@ def admits_unknown(answer: str) -> bool:
     共用是刻意的:決策那邊靠它決定不要追問,報告這邊靠它標卡住,
     兩邊說的是同一件事。各自列一份就會出現「決策覺得他答不出來、
     報告覺得他還好」這種自相矛盾的輸出。
+
+    整段太長的不算,理由見 `scorability.ADMITS_UNKNOWN_MAX_CHARS`——
+    「我也不確定做得對不對」藏在一段自嘲裡,程式標卡住會蓋掉過度自責。
     """
-    return any(k in (answer or "") for k in _ADMITS_UNKNOWN)
+    return admitted_phrase(answer) is not None
 
 
 def parse_emotions(raw: str, turns: Sequence[EmotionTurn]) -> dict[int, TurnEmotion]:
@@ -172,6 +184,7 @@ async def read_emotions(
     turns: Sequence[EmotionTurn],
     llm: LLMCall,
     input_mode: str = "unknown",
+    engine: str = "device",
 ) -> list[TurnEmotion]:
     """逐題情緒。回傳要標註的那幾題,照題號排序。
 
@@ -193,8 +206,11 @@ async def read_emotions(
     try:
         raw = await asyncio.to_thread(
             llm,
-            compose_emotion_prompt(input_mode),
-            emotion_user_message([(t.question, t.answer, t.pause_note) for t in turns]),
+            compose_emotion_prompt(input_mode, engine),
+            emotion_user_message(
+                [(t.question, t.answer, t.pause_note, t.input_mode) for t in turns],
+                show_mode=input_mode == "mixed",
+            ),
         )
     except Exception:  # noqa: BLE001
         return [by_code[i] for i in sorted(by_code)]

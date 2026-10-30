@@ -319,3 +319,15 @@ def test_is_follow_up_covers_clarify():
     assert TurnDecision(FOLLOW_UP).is_follow_up
     assert TurnDecision(CLARIFY).is_follow_up
     assert not TurnDecision(NEXT).is_follow_up
+
+
+def test_an_uncertain_phrase_inside_a_real_answer_does_not_force_a_topic_change() -> None:
+    """「我不確定確切數字,但回訪率從 18% 拉到 26%」是在回答,不是答不出來。
+
+    字面原本不設長度,命中就直接換題,理由寫「他明確表示答不出來」。
+    同一組字面在可評性那邊早就限了 20 字,這裡跟著一起限。
+    """
+    long_answer = "我不確定當時的確切數字,但那一季的回訪率從 18% 拉到 26%,主要是改了提醒的時間點。"
+    assert forced_decision(spec=spec_of(), answer=long_answer) is None
+    short = forced_decision(spec=spec_of(), answer="這個我不確定耶。")
+    assert short is not None and short.action == "NEXT", "短的明確承認照舊換題"

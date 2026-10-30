@@ -796,3 +796,168 @@ async def test_depth_rises_when_the_star_quotes_are_real() -> None:
     depth = next(s.score for s in r.sub_scores if s.name == "內容深度")
     assert depth == score_depth(VOICE_STATS, 4)[0]
     assert depth > score_depth(VOICE_STATS, 0)[0] + 30
+
+
+# ---------------------------------------------------------------------------
+# better:不可以補回答裡沒有的技術名詞(前端 10/29 錄音)
+# ---------------------------------------------------------------------------
+
+N1_Q2 = (
+    "我們在比賽當中,就是我們主要是在前期的時候會用一些分析下去進行股票的這個數據的分析, "
+    "那我們會用到一些 Python 啊,然後去用 Model 去跑它的數據分析, "
+    "然後跑一些圖表跟像是巨量資料之類的分析這樣子。"
+)
+N1_Q2_BETTER = (
+    "在比賽中，我們前期使用 Python 進行股票數據分析，運用回歸模型來預測風險，"
+    "並生成圖表來視覺化數據，這樣能更清楚地了解市場趨勢。"
+)
+
+
+@pytest.mark.asyncio
+async def test_better_inventing_a_method_is_cleared() -> None:
+    """normal-1 第 2 題:原回答只說「用 Model 去跑」,better 寫成「回歸模型」。
+
+    使用者把那句背下來,被追問「為什麼用回歸」就答不出來。
+    """
+    from app.pipeline.interview_report import ungrounded_terms
+
+    assert ungrounded_terms(N1_Q2_BETTER, N1_Q2) == ["回歸模型"]
+
+    llm = fake_llm(questions=[{"id": 1, "comment": "有提到工具", "better": N1_Q2_BETTER}])
+    r = await run(llm, turns=[TurnDTO(question="怎麼做風險控管", answer=N1_Q2, input_mode="voice")])
+    assert r.question_feedbacks[0].better == ""
+    assert any("原回答沒有的名詞" in n and "回歸模型" in n for n in r.notices)
+
+
+def test_terms_the_answer_already_used_are_allowed() -> None:
+    """Python 原回答就有;「模型」不是具體方法,換句話說不算捏造。"""
+    from app.pipeline.interview_report import ungrounded_terms
+
+    assert ungrounded_terms("我們用 Python 建立模型分析數據", N1_Q2) == []
+
+
+def test_an_english_tool_name_not_in_the_answer_is_caught() -> None:
+    from app.pipeline.interview_report import ungrounded_terms
+
+    assert ungrounded_terms("我用 Tableau 做視覺化報表", "我用試算表做圖") == ["Tableau"]
+    assert ungrounded_terms("我用 python 處理資料", "我用 Python 處理資料") == [], "大小寫不算不同"
+
+
+def test_the_same_method_in_another_spelling_is_grounded() -> None:
+    """迴歸/回歸、繁簡都是同一個詞。"""
+    from app.pipeline.interview_report import ungrounded_terms
+
+    assert ungrounded_terms("我用回歸分析找出因子", "我用迴歸分析找出因子") == []
+    assert ungrounded_terms("我用回歸分析找出因子", "我用回归分析找出因子") == []
+
+
+def test_returning_to_normal_is_not_a_regression() -> None:
+    """「回歸」只在接模型/分析或前面有線性/邏輯/多元時算方法。"""
+    from app.pipeline.interview_report import ungrounded_terms
+
+    assert ungrounded_terms("讓出貨流程回歸正常", "出貨流程亂掉了") == []
+
+
+def test_one_as_an_article_is_not_a_number() -> None:
+    """normal-1 第 1 題的 better 因為「參加過一個比賽」被清空,那句沒有捏造數量。"""
+    answer = "考官你好,我之前有參加過理財相關的這個商業比賽"
+    assert ungrounded_numbers("我參加過一個理財相關的商業比賽", answer) == []
+    assert ungrounded_numbers("我只試了一次就上線", "我直接上線") == []
+    assert ungrounded_numbers("我花了一個月準備", answer) == ["一個"], "接時長的「一個」是數量"
+    assert ungrounded_numbers("我們做了三個版本", answer) == ["三個"], "其他數字照查"
+
+
+# ---------------------------------------------------------------------------
+# 三維面向的評語要跟分數一致(前端 10/29:結構 80 分,評語卻說缺乏邏輯)
+# ---------------------------------------------------------------------------
+
+
+def _spy(base):
+    seen: list = []
+
+    def call(system: str, user: str) -> str:
+        seen.append((system, user))
+        return base(system, user)
+
+    return call, seen
+
+
+@pytest.mark.asyncio
+async def test_face_verdicts_are_written_with_the_scores_in_hand() -> None:
+    """評語原本跟分數並行產生,寫的時候不知道分數。"""
+    call, seen = _spy(fake_llm())
+    r = await run(call)
+    face_users = [u for s, u in seen if "三個面向" in s]
+    assert len(face_users) == 1
+    assert "結構  82(正常水準)" in face_users[0], "結構的分數抄自邏輯清晰度"
+    depth = next(x.score for x in r.sub_scores if x.name == "內容深度")
+    assert f"內容  {depth}(" in face_users[0], "內容的分數是系統算的內容深度"
+
+
+@pytest.mark.asyncio
+async def test_an_unscored_dimension_is_shown_as_unscored() -> None:
+    """打字作答量不到表達流暢度。評語不該被告知一個不存在的分數。"""
+    call, seen = _spy(fake_llm())
+    await run(call, stats=TYPED_STATS, input_mode="typed")
+    face_user = next(u for s, u in seen if "三個面向" in s)
+    assert "表達  未評分" in face_user
+
+
+def test_score_bands_match_the_sub_score_meanings() -> None:
+    from app.pipeline.interview_report import score_band
+
+    got = [score_band(x) for x in (95, 85, 84, 70, 69, 55, 54, None)]
+    assert got == [
+        "強項", "強項", "正常水準", "正常水準",
+        "有明顯缺口", "有明顯缺口", "幾乎沒有表現", "未評分",
+    ]
+
+
+def test_the_face_prompt_ties_verdicts_to_the_bands() -> None:
+    from app.prompts.interview_report import compose_face_prompt
+
+    prompt = compose_face_prompt("api")
+    assert "verdict 的方向跟系統給的分數一致" in prompt
+    assert "70–84" in prompt and "未評分" in prompt
+
+
+@pytest.mark.asyncio
+async def test_a_face_failure_still_leaves_the_rest_of_the_report() -> None:
+    """三維面向改成第二批之後,失敗隔離照舊。"""
+    base = fake_llm()
+
+    def call(system: str, user: str) -> str:
+        if "三個面向" in system:
+            raise RuntimeError("timeout")
+        return base(system, user)
+
+    r = await run(call)
+    assert any(s.score is not None for s in r.sub_scores), "細分分數不受影響"
+    assert any("face" in n and "失敗" in n for n in r.notices)
+
+
+@pytest.mark.asyncio
+async def test_the_emotion_block_knows_the_transcription_engine() -> None:
+    """報告的 engine 要傳到情緒那一塊,雲端辨識的語音有自己的判讀說明。"""
+    call, seen = _spy(fake_llm())
+    await run(call, engine="api")
+    emotion_systems = [s for s, u in seen if EMOTION_MARK in s]
+    assert emotion_systems and "比他實際講的順" in emotion_systems[0]
+
+
+@pytest.mark.asyncio
+async def test_a_session_that_switched_to_typing_labels_each_turn() -> None:
+    """前端 10/21 起一對一與 panel 都能改用打字。混用時情緒那一塊逐題標作答方式。"""
+    call, seen = _spy(fake_llm())
+    await run(
+        call,
+        turns=[
+            TurnDTO(question="請自我介紹", answer="我是資管系大三的學生", input_mode="voice"),
+            TurnDTO(question="講一個經驗", answer="我們辦過一場聯名活動", input_mode="typed"),
+        ],
+    )
+    emotion = [(s, u) for s, u in seen if EMOTION_MARK in s]
+    assert emotion, "情緒那一塊沒被呼叫到"
+    system, user = emotion[0]
+    assert "有的題是講的、有的題是打的" in system
+    assert "作答方式:講的" in user and "作答方式:打的" in user
