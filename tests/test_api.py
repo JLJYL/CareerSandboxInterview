@@ -1140,6 +1140,25 @@ def test_being_cut_off_does_not_count_toward_the_cap(client) -> None:
     assert d["probeGap"] == ""
 
 
+def test_the_second_turn_moves_to_the_resume_when_still_probing(client) -> None:
+    """10/30 定案:每場至少問到一題履歷。前一輪還在追問,第 2 輪就換。"""
+    d = _turn(client, followUpIdx=1, probeGap="缺任務", probeDepth=1, experiences=_TAGGED)
+    assert d["isFollowUp"] is False
+    assert d["probeDepth"] == 0
+    assert any("換到履歷" in n for n in d["notices"])
+
+
+def test_without_a_resume_the_second_turn_keeps_probing(client) -> None:
+    d = _turn(client, followUpIdx=1, probeGap="缺任務", probeDepth=1)
+    assert d["isFollowUp"] is True
+
+
+def test_the_last_turn_moves_to_the_jd_when_still_probing(client) -> None:
+    d = _turn(client, followUpIdx=3, probeGap="缺任務", probeDepth=1)
+    assert d["isFollowUp"] is False
+    assert any("換到職缺" in n for n in d["notices"])
+
+
 # ---------------------------------------------------------------------------
 # 防重複的比對鍵:已問問題原文,不是領域標籤(K)
 # ---------------------------------------------------------------------------

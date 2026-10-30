@@ -24,7 +24,7 @@ import pytest
 
 from app.pipeline.interview_live import next_turn
 from app.pipeline.interviewer_spec import derive_specs
-from app.pipeline.turn_decision import CLARIFY, FOLLOW_UP, NEXT, TurnDecision
+from app.pipeline.turn_decision import CLARIFY, CODE, FOLLOW_UP, NEXT, TO_RESUME, TurnDecision
 
 ANSWER = "我把每週三小時的人工整理改成自動產出。"
 GEN = {"nextQuestion": "那個時間是怎麼量的?", "topic": "成果", "speaker": ""}
@@ -723,3 +723,37 @@ async def test_the_owner_lookup_itself_still_works_for_group():
 
     assert dimension_speaker("group", "取捨", 3, 4) == "用人主管"
     assert dimension_speaker("panel", "取捨") == "用人主管"
+
+
+# ---------------------------------------------------------------------------
+# 強制換段那一輪要講清楚換到哪裡(10/30 定案)
+# ---------------------------------------------------------------------------
+
+
+async def _user_message_for(decision: TurnDecision) -> str:
+    seen: list = []
+
+    def llm(system: str, user: str) -> str:
+        seen.append(user)
+        return json.dumps(
+            {**GEN, "nextQuestion": "你在社團帶活動那段,當時怎麼排優先順序?"},
+            ensure_ascii=False,
+        )
+
+    await next_turn(
+        mode="single", answer=ANSWER, follow_up_idx=1, asked_questions=[],
+        question="q", fallback=[], llm=llm, decision=decision,
+    )
+    return seen[0]
+
+
+async def test_a_forced_switch_tells_the_generator_to_leave_the_old_topic() -> None:
+    """NEXT 叫它從剛剛講的切進去,履歷段又把自我介紹提過的那筆排第二。
+    不講清楚的話,換了題還是在同一件事上。"""
+    user = await _user_message_for(TurnDecision(NEXT, source=CODE, phase_switch=TO_RESUME))
+    assert "【換到哪裡】" in user and "還沒談到" in user
+
+
+async def test_an_ordinary_next_gets_no_switch_line() -> None:
+    user = await _user_message_for(TurnDecision(NEXT))
+    assert "【換到哪裡】" not in user

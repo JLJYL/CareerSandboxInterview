@@ -48,14 +48,17 @@ from app.pipeline.interviewer_spec import (
     InterviewerSpec,
 )
 from app.pipeline.star_read import ASSIGN, QUESTION, AnswerFacts, read_facts
+from app.prompts.probe_rules import MAX_TURNS_PER_SESSION, RESUME_PHASE_TURNS
 from app.prompts.star_read import FACT_NAME
-from app.prompts.turn_decision import DECISION_ACTIONS
+from app.prompts.turn_decision import DECISION_ACTIONS, PHASE_SWITCHES
 
-# 明確表示答不出來。與 interview_live 共用同一組字面,改要一起改。
 from app.pipeline.interview_live import LLMCall
+
+# 明確表示答不出來。與報告的情緒、可評性共用同一個判斷,改要一起改。
 from app.pipeline.scorability import admitted_phrase
 
 NEXT, FOLLOW_UP, CLARIFY = DECISION_ACTIONS
+TO_RESUME, TO_JD = PHASE_SWITCHES
 
 MIN_ANSWER_CHARS = 2
 """短於這個長度視為沒有內容。空的 timeout 輪會走到這裡。"""
@@ -140,10 +143,58 @@ class TurnDecision:
     位置參數的順序是合約。
     """
 
+    phase_switch: str = ""
+    """程式強制換段時換到哪一段:`TO_RESUME` 或 `TO_JD`。其他情況空字串。
+
+    生成端讀這一欄,多給一句 `PHASE_SWITCH_INSTRUCTION`。見 `phase_switch()`。
+    """
+
     @property
     def is_follow_up(self) -> bool:
         """對應 TurnResponse.is_follow_up。CLARIFY 也算追問——沒有換題。"""
         return self.action in (FOLLOW_UP, CLARIFY)
+
+
+def phase_switch(
+    turn_index: int | None, depth: int, has_resume: bool
+) -> TurnDecision | None:
+    """這一段的最後一輪而前面都在追問,就強制換題。其他情況回 None。
+
+    【10/30 定案:每場至少問到一題履歷、一題職缺】
+    原本追問優先,階段只在面試官自己決定換題時才生效。前端 10/29 錄的一對一
+    場次裡,開場之後四輪都繞著自我介紹講的那件事,選了履歷也沒有一輪問到
+    履歷上的其他經歷,職缺題一題都沒有。
+
+    兩段各有一個最後一輪:
+
+        履歷段  followUpIdx = RESUME_PHASE_TURNS - 1(1)
+        職缺段  followUpIdx = MAX_TURNS_PER_SESSION - 1(3,整場最後一輪)
+
+    到了那一輪、上一輪還在追問,就換。換到哪一段的內容由 `interview_phase`
+    照輪次給,這裡只決定「要換」,並記下換到哪一段給生成端多講一句。
+
+    【怎麼知道上一輪換過題】
+    看前端帶回來的 `depth`(probe_depth)。上一輪換題時 `routes._next_probe`
+    回 0,還在追問時至少是 1。是 0 就表示這一段的題已經出現過,這一輪照常判讀,
+    要追問就追問。上一輪是被切斷的話也是 0,這條不會觸發——少換一次題,
+    比把人從一段沒講完的話裡拉走好。
+
+    沒有履歷時履歷段不強制:那一段改問職缺的能力,沒有「該問到的履歷」。
+    `turn_index` 是 None 時不判斷:量測工具不帶輪次,行為跟以前一樣。
+    """
+    if turn_index is None or depth <= 0:
+        return None
+    if has_resume and turn_index == RESUME_PHASE_TURNS - 1:
+        return TurnDecision(
+            NEXT, "履歷那一段的最後一輪,前面都在追問,換到他履歷上的經歷。",
+            source=CODE, phase_switch=TO_RESUME,
+        )
+    if turn_index == MAX_TURNS_PER_SESSION - 1:
+        return TurnDecision(
+            NEXT, "整場最後一輪,職缺那一段還沒問到,換到職缺。",
+            source=CODE, phase_switch=TO_JD,
+        )
+    return None
 
 
 def forced_decision(
@@ -152,6 +203,8 @@ def forced_decision(
     answer: str,
     depth: int = 0,
     ended_by: str = "unknown",
+    turn_index: int | None = None,
+    has_resume: bool = False,
 ) -> TurnDecision | None:
     """程式就能決定的情況。決定不了回 None,交給模型。
 
@@ -159,12 +212,13 @@ def forced_decision(
 
     1. 沒有內容       沒東西可追。群面使用者沉默送的空輪會走到這裡。
     2. 被切斷         先讓他把話講完,其他判準這一輪不適用。
-                      這條排在深度上限前面——被打斷不是他的問題,
-                      不該因為「已經追三次了」就不讓他講完。
-    3. 到深度上限     同一個缺口追到上限就換題,不管他補完整沒有。
+                      這條排在深度上限與換段前面——被打斷不是他的問題,
+                      不該因為「已經追三次了」或「該換段了」就不讓他講完。
+    3. 該換段了       這一段的最後一輪,而前面都在追問。見 `phase_switch`。
+    4. 到深度上限     同一個缺口追到上限就換題,不管他補完整沒有。
                       追到第三次還講不出來,繼續追只是折磨,
                       而那本來就該誠實反映在報告裡。
-    4. 明確說不會     換一個他答得出來的,不要問同一件事的變體。
+    5. 明確說不會     換一個他答得出來的,不要問同一件事的變體。
     """
     text = (answer or "").strip()
     if len(text) < MIN_ANSWER_CHARS:
@@ -179,6 +233,9 @@ def forced_decision(
             "",
             CODE,
         )
+    switch = phase_switch(turn_index, depth, has_resume)
+    if switch is not None:
+        return switch
     if depth >= spec.accept.max_depth:
         return TurnDecision(
             NEXT, f"同一個缺口已追問 {depth} 次,到這個難度的上限。", source=CODE
@@ -287,6 +344,8 @@ async def decide_turn(
     depth: int = 0,
     ended_by: str = "unknown",
     transcription_engine: str = "api",
+    turn_index: int | None = None,
+    has_resume: bool = False,
 ) -> TurnDecision:
     """這一輪要做什麼。永遠回一個決定,不拋例外。
 
@@ -294,7 +353,10 @@ async def decide_turn(
     不看上一題,也不分引擎(引擎的差別在斷句,那是 `segment_text` 的事)。
     留著是因為 CLARIFY 會用到 `transcription_engine`,而呼叫端已經在傳。
     """
-    forced = forced_decision(spec=spec, answer=answer, depth=depth, ended_by=ended_by)
+    forced = forced_decision(
+        spec=spec, answer=answer, depth=depth, ended_by=ended_by,
+        turn_index=turn_index, has_resume=has_resume,
+    )
     if forced is not None:
         return forced
     facts = await read_facts(answer=answer, llm=llm)

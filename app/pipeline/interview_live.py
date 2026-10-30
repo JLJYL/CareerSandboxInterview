@@ -48,7 +48,12 @@ from app.prompts.interview_live import (
     compose_opening_prompt,
     compose_turn_prompt,
 )
-from app.prompts.turn_decision import ACTION_INSTRUCTION, DECISION_ACTIONS
+from app.prompts.turn_decision import (
+    ACTION_INSTRUCTION,
+    DECISION_ACTIONS,
+    PHASE_SWITCH_INSTRUCTION,
+    PHASE_SWITCHES,
+)
 from app.prompts.interview_personas import (
     INTERRUPT_CAP,
     opening_intro,
@@ -984,6 +989,10 @@ def _fallback_turn(
     )
 
 
+_SWITCH_NAME = dict(zip(PHASE_SWITCHES, ("履歷", "職缺")))
+"""notice 裡換段的說法。順序對齊 `PHASE_SWITCHES`。"""
+
+
 def _peer_names(mode: str, group_interviewers: int = 1, group_size: int = 4) -> frozenset[str]:
     """這一場的 AI 應徵者顯示名。主考官與三位主管不在裡面。"""
     return frozenset(
@@ -1224,6 +1233,11 @@ async def next_turn(
         if what:
             user_parts.append(f"【這一輪要做什麼】{what}")
             decision_note = f"本輪:決定 {decision.action}({decision.source})"
+            # 程式強制換段的那一輪多講一句,見 `turn_decision.phase_switch`。
+            switch = PHASE_SWITCH_INSTRUCTION.get(decision.phase_switch, "")
+            if switch:
+                user_parts.append(f"【換到哪裡】{switch}")
+                decision_note += f",換到{_SWITCH_NAME[decision.phase_switch]}"
 
     if must_advance:
         user_parts.append(
