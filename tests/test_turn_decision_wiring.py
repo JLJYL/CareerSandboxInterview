@@ -679,7 +679,12 @@ async def test_group_mode_does_not_use_dimension_dispatch():
         if "決定這一輪由誰開口" in system:
             seen["dispatched"] = True
             return "AI-邏輯"
-        return json.dumps({**GEN, "speaker": "x"}, ensure_ascii=False)
+        # 應徵者的句子不能是問句(10/30 定案),不然這一輪會改由主持人講,
+        # 而這一條要看的是派發選到了誰。
+        return json.dumps(
+            {**GEN, "speaker": "x", "nextQuestion": "這個時間沒說怎麼量,我會先定基準。"},
+            ensure_ascii=False,
+        )
 
     # 要帶 context:群面的陣容靠 group_interviewers 決定。不帶的話場上只有
     # 主考官,連用人主管都不存在,維度查表回空字串——那樣這一條測不到東西。

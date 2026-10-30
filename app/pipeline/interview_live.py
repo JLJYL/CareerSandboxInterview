@@ -37,7 +37,11 @@ from typing import TYPE_CHECKING
 from app.contracts.interview_protocols import JDInput
 from app.pipeline.jd_normalize import normalize_locale
 from app.pipeline.interviewer_spec import DIMENSION_OWNER
-from app.pipeline.question_form import is_closed_question
+from app.pipeline.question_form import (
+    drop_questions,
+    is_closed_question,
+    question_sentences,
+)
 from app.prompts.interview_live import (
     compose_dispatch_prompt,
     compose_interrupt_prompt,
@@ -404,6 +408,13 @@ _FIX_GROUP_REPEAT = (
     "換一句新的:反駁前面某個說法、補它沒講到的部分,或接著往下推一步。"
 )
 
+_FIX_PEER_QUESTION = (
+    "那句裡有問句:{question}\n"
+    "你是同場的應徵者,不發問。把問句拿掉,改成你自己的判斷或做法:"
+    "反駁前面某個說法、補它沒講到的部分,或把兩個說法整合成你的版本。"
+    "整句不要出現問號。"
+)
+
 _FIX_CLOSED = (
     "那句可以用「有」或「沒有」答完,他答一個字就結束了。\n"
     "改成非得講一段才答得完的問法:問他當時實際怎麼做、哪一段最難、"
@@ -418,6 +429,7 @@ def _question_faults(
     is_follow_up: bool,
     clarify: bool,
     group: bool = False,
+    peer: bool = False,
 ) -> list[tuple[str, str]]:
     """送出前擋得住的毛病。回傳 (notice 的說法, 重生成要給的指示)。
 
@@ -428,17 +440,29 @@ def _question_faults(
     重複:它問的是「那個詞再講一次」,辨識連續轉錯兩次的話同一句本來就該再問。
     封閉:「你是說 Angular 嗎?」就是一個 yes/no 問句,而那正是 CLARIFY 的形狀。
 
-    【群面只看重複】
-    群面的一句話不是面試官的問句:競爭者先表態再丟球,「你同意嗎?」是討論裡
-    正常的丟法。拿封閉式那一關去擋,重生成的指示會叫它「改成要對方講一段的
-    問法」——那正是面試官的形狀。群面也沒有追問與主問題之分,講過的話不管
-    哪一種都不該原樣再講一次,所以重複那一關一律檢查。
+    【群面:重複一律看,應徵者另外看問句】
+    10/30 定案:群面只有主考官和主管問問題,AI 應徵者只表態。所以 `peer`
+    為真時,那一句只要帶問句就重生成一次;重生成還有的話,`next_turn`
+    最後會把問句刪掉。主持人的句子不看這一條,也不看封閉式——
+    「大家同意這個方向嗎?」是主持人推進討論的正常問法。
+
+    群面沒有追問與主問題之分,講過的話不管哪一種都不該原樣再講一次,
+    所以重複那一關一律檢查。
     """
     faults: list[tuple[str, str]] = []
     if clarify:
         return faults
 
     if group:
+        if peer:
+            qs = question_sentences(question)
+            if qs:
+                faults.append(
+                    (
+                        f"是應徵者在發問({qs[0][:20]})",
+                        _FIX_PEER_QUESTION.format(question=qs[0]),
+                    )
+                )
         repeat = is_verbatim_repeat(question, asked)
         if repeat:
             faults.append(
@@ -960,6 +984,15 @@ def _fallback_turn(
     )
 
 
+def _peer_names(mode: str, group_interviewers: int = 1, group_size: int = 4) -> frozenset[str]:
+    """這一場的 AI 應徵者顯示名。主考官與三位主管不在裡面。"""
+    return frozenset(
+        p.display_name
+        for p in personas_for(mode, group_interviewers, group_size)
+        if p.role == "peer" and p.display_name
+    )
+
+
 def _fallback_used(mode: str) -> str:
     """降級時 notice 的說法。群面的備援是主持人的推進句,不是追問。"""
     return "已使用備援句" if mode == "group" else "已使用備援追問"
@@ -1067,6 +1100,10 @@ async def next_turn(
     沒有它,AI 應徵者只看得到使用者剛剛那一句,不可能附和、反駁或接著
     別人的論點講。群面同時不帶履歷:同場的應徵者看不到使用者的履歷,
     題目也是給全組的。追問判準與面試階段改用 GROUP_TURN_RULES。
+
+    【群面的 AI 應徵者不發問】
+    10/30 定案。prompt 寫了,重生成擋一次,最後程式把問句刪掉;整句都是
+    問句的話,這一輪改由主持人推進。三道的理由見 `question_form` 檔尾。
     """
     cap = turn_cap_for(mode)
     must_advance = cap is not None and follow_up_idx >= cap
@@ -1246,6 +1283,7 @@ async def next_turn(
         # 裡 AI-強勢 掛零,即使它的路由條件明確命中。
         notices.append(f"本輪:模型指派給「{speaker}」,已改為未發言過的「{forced}」")
         speaker = forced
+    peer = group and speaker in _peer_names(mode, gi, gs)
 
     # isFollowUp:一對一的輸出格式拿掉了這一欄(欄位越少越可能被遵守),
     # 群面與 panel 仍然會回,有回就用它的。
@@ -1314,27 +1352,30 @@ async def next_turn(
     if group:
         said += [u.content for u in group_says if not u.is_user and (u.content or "").strip()]
     faults = _question_faults(
-        nxt, said, is_follow_up=is_follow_up, clarify=clarify, group=group
+        nxt, said, is_follow_up=is_follow_up, clarify=clarify, group=group, peer=peer
     )
+    # 群面那一句不一定是問句,notice 的主詞跟著換。
+    head = "這句" if group else "問句"
     if faults:
         why = "、".join(label for label, _ in faults)
         again = await _regenerate(llm, system, user, faults)
         left = (
             _question_faults(
-                again, said, is_follow_up=is_follow_up, clarify=clarify, group=group
+                again, said, is_follow_up=is_follow_up, clarify=clarify,
+                group=group, peer=peer,
             )
             if again
             else [("沒有產出", "")]
         )
         if left:
             # 重生成也擋不住就照原樣送出。留著一句不夠好的問題比沒有問題好,
-            # 而且 notice 查得到。
+            # 而且 notice 查得到。應徵者的問句例外,下面會刪掉。
             notices.append(
-                f"本輪:問句{why},重生成沒有改善"
+                f"本輪:{head}{why},重生成沒有改善"
                 f"({'、'.join(label for label, _ in left)}),已照原樣送出。"
             )
         else:
-            notices.append(f"本輪:問句{why},已重生成。原本:{nxt[:30]}")
+            notices.append(f"本輪:{head}{why},已重生成。原本:{nxt[:30]}")
             nxt = again
 
     # topic 不可以留空。前端拿它累積 asked_topics,空的那一筆會讓序列斷掉,
@@ -1345,6 +1386,26 @@ async def next_turn(
     if not topic:
         topic = prev_topic or "延續上一題"
         notices.append(f"本輪:模型未標領域,已沿用「{topic}」")
+
+    # 應徵者的問句重生成也擋不住時,程式刪掉。整句都是問句就沒有東西可留,
+    # 這一輪改由主持人推進——讓應徵者唸一句問句,就是又回到 group-1 那樣。
+    if peer:
+        kept, dropped = drop_questions(nxt)
+        if dropped and kept:
+            notices.append(f"本輪:{speaker}的問句已刪除({'、'.join(d[:20] for d in dropped)})")
+            nxt = kept
+        elif dropped:
+            host = _fallback_turn(mode, fallback, follow_up_idx, gi, gs)
+            notices.append(f"本輪:{speaker}整句都是問句,改由主持人推進。原本:{nxt[:30]}")
+            return TurnResponse(
+                speaker=host.speaker,
+                next_question=host.next_question,
+                reaction="",
+                is_follow_up=False,
+                should_advance=should_advance,
+                topic=topic,
+                notices=notices,
+            )
 
     return TurnResponse(
         speaker=speaker,
