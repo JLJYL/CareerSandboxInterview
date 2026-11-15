@@ -826,7 +826,7 @@ async def test_better_inventing_a_method_is_cleared() -> None:
     llm = fake_llm(questions=[{"id": 1, "comment": "有提到工具", "better": N1_Q2_BETTER}])
     r = await run(llm, turns=[TurnDTO(question="怎麼做風險控管", answer=N1_Q2, input_mode="voice")])
     assert r.question_feedbacks[0].better == ""
-    assert any("原回答沒有的名詞" in n and "回歸模型" in n for n in r.notices)
+    assert any("整場回答都沒有的名詞" in n and "回歸模型" in n for n in r.notices)
 
 
 def test_terms_the_answer_already_used_are_allowed() -> None:
@@ -856,6 +856,107 @@ def test_returning_to_normal_is_not_a_regression() -> None:
     from app.pipeline.interview_report import ungrounded_terms
 
     assert ungrounded_terms("讓出貨流程回歸正常", "出貨流程亂掉了") == []
+
+
+# ---------------------------------------------------------------------------
+# better:名詞比整場的回答,縮寫與全名算同一個詞(前端 11/01 錄音 longpause-1)
+#
+# 那場第 4、5 題的 better 都被清空:第 4 題提到第 3 題講過的 SQL,
+# 第 5 題把使用者說的 FB、IG 寫成全名。回答照錄,better 是照那兩題的情況寫的。
+# ---------------------------------------------------------------------------
+
+LP1_TURNS = [
+    TurnDTO(
+        question="在資料分析實習中，你是怎麼學習使用 SQL 和 Excel 的？遇到什麼困難？",
+        answer=(
+            "呃，我主要是使用 SQL 和 Excel 去呃，學習的話是會去像是一些平臺啊，或者是 YouTube，"
+            "然後去看有沒有影片教學。然後會遇到的困難就是，可能因為這些教的都是比較大方向的東西，"
+            "但如果我可能自己卡住的小問題的話，要解決就需要自己去可能摸索研究這樣。"
+        ),
+        input_mode="voice",
+    ),
+    TurnDTO(
+        question="當時你是怎麼摸索解決那些小問題的？有沒有特別的例子可以分享？",
+        answer=(
+            "我會先上網搜尋有沒有人遇到相關的問題，然後發一些文章。例子的話，就是我之前有看到有人"
+            "剛好遇到跟我一樣的問題，然後他有解決的辦法，然後我就是照著他的方法做，也有很順利的解決。"
+        ),
+        input_mode="voice",
+    ),
+    TurnDTO(
+        question="你覺得在這個職位中，遇到問題時還會有哪些資源可以利用呢？",
+        answer=(
+            "那我覺得除了可以上網直接Google一些文章或平臺以外應該也是可以去像一些Threads"
+            "或者是FB或者是IG的一些平臺看有沒有人去分享說他們的一些遇到的問題跟想法跟建議"
+        ),
+        input_mode="voice",
+    ),
+]
+LP1_BETTER = [
+    "我主要用 SQL 和 Excel 處理資料,先看 YouTube 的教學影片打基礎,細節卡住時再自己研究。",
+    "我遇到 SQL 的小問題時,會先搜尋有沒有人遇過一樣的狀況,照著別人的解法一步步試,最後順利解決。",
+    "除了用 Google 找文章,我也會到 Threads、Facebook 和 Instagram 看別人分享的經驗和建議。",
+]
+
+
+@pytest.mark.asyncio
+async def test_a_tool_said_earlier_in_the_interview_is_not_invented() -> None:
+    """第 4 題接著第 3 題追問,better 提到第 3 題講過的 SQL,不算捏造。"""
+    llm = fake_llm(questions=[
+        {"id": i, "comment": "可以更具體", "better": b} for i, b in enumerate(LP1_BETTER, 1)
+    ])
+    r = await run(llm, turns=LP1_TURNS)
+    assert [q.better for q in r.question_feedbacks] == LP1_BETTER
+    assert not any("名詞" in n for n in r.notices)
+
+
+def test_an_abbreviation_and_its_full_name_are_one_term() -> None:
+    from app.pipeline.interview_report import ungrounded_terms
+
+    a5 = LP1_TURNS[2].answer
+    assert ungrounded_terms("我會到 Facebook 和 Instagram 找人問", a5) == []
+    assert ungrounded_terms("我會到 FB 社團問", "我會到 Facebook 社團問") == [], "反過來也一樣"
+    assert ungrounded_terms("我會到 Facebook 社團問", "我會去臉書社團問") == []
+    assert ungrounded_terms("我把報告做成 PowerPoint", "我用 PPT 報告") == []
+
+
+def test_a_short_abbreviation_must_stand_alone() -> None:
+    """IG 只有兩個字母。「design」裡面有 ig,不能因此算他講過 Instagram。"""
+    from app.pipeline.interview_report import ungrounded_terms
+
+    assert ungrounded_terms("我會在 Instagram 找靈感", "我做過 design 作品集") == ["Instagram"]
+    assert ungrounded_terms("我會在 Instagram 找靈感", "我會去 FB IG 找") == [], "空白隔開的縮寫要比得到"
+
+
+@pytest.mark.asyncio
+async def test_a_tool_never_said_in_the_interview_is_still_cleared() -> None:
+    better = "我遇到小問題時,會用 Tableau 把資料畫出來找出錯在哪裡。"
+    llm = fake_llm(questions=[
+        {"id": 1, "comment": "x", "better": LP1_BETTER[0]},
+        {"id": 2, "comment": "x", "better": better},
+        {"id": 3, "comment": "x", "better": LP1_BETTER[2]},
+    ])
+    r = await run(llm, turns=LP1_TURNS)
+    assert r.question_feedbacks[1].better == ""
+    assert any("第 2 題" in n and "整場回答都沒有的名詞" in n and "Tableau" in n for n in r.notices)
+    assert r.question_feedbacks[0].better and r.question_feedbacks[2].better
+
+
+@pytest.mark.asyncio
+async def test_numbers_are_still_checked_against_their_own_answer() -> None:
+    """數字屬於某一段經歷。A 題的「三個月」搬進 B 題的 better,一樣是替他編事實。"""
+    turns = [
+        TurnDTO(question="講一個比賽經驗", answer="我們花了三個月準備商業競賽", input_mode="voice"),
+        TurnDTO(question="遇到小問題怎麼辦", answer="我會照著網路上的方法做", input_mode="voice"),
+    ]
+    llm = fake_llm(questions=[
+        {"id": 1, "comment": "x", "better": "我們花了三個月準備商業競賽,負責資料分析。"},
+        {"id": 2, "comment": "x", "better": "我花了三個月照著網路上的方法做,最後解決。"},
+    ])
+    r = await run(llm, turns=turns)
+    assert r.question_feedbacks[0].better
+    assert r.question_feedbacks[1].better == ""
+    assert any("第 2 題" in n and "原回答沒有的數字" in n for n in r.notices)
 
 
 def test_one_as_an_article_is_not_a_number() -> None:

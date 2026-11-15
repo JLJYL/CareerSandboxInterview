@@ -8,6 +8,11 @@
 三者的輸入輸出形狀相同,差別只在 persona 設定與派發規則。
 合併成一套管線是三週期程能成立的主因——不必蓋三次。
 
+【群面有兩種流程】
+    round       一題一輪(11/15 起 API 的預設):主持方出題,每人各答一次,
+                全部答完才換題。誰先答、要等多久見 `group_round`
+    discussion  自由討論:每輪由派發決定誰接話,同儕互相回應
+
 【兩個端點】
     POST /interviews              開場:主問題 + 備援追問 + 搶話台詞(群面)
     POST /interviews/{id}/turns   每輪:接話
@@ -35,6 +40,14 @@ from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
 from app.contracts.interview_protocols import JDInput
+from app.pipeline.group_round import (
+    DISCUSSION,
+    ROUND,
+    RoundState,
+    RoundStep,
+    next_step,
+    round_state,
+)
 from app.pipeline.jd_normalize import normalize_locale
 from app.pipeline.interviewer_spec import DIMENSION_OWNER
 from app.pipeline.question_form import (
@@ -426,6 +439,32 @@ _FIX_CLOSED = (
     "為什麼那樣選。不要用「有沒有」「是不是」開頭,也不要用「嗎」結尾。"
 )
 
+_USER_LABEL = re.compile(
+    r"使用者(?=剛剛|剛才|一開始|前面|先前|提到|提出|說|講|認為|覺得"
+    r"|的(?:看法|觀點|想法|說法|意見|做法|版本|建議|回答|論點|立場|顧慮))"
+    r"|(?:同意|贊成|呼應|附和|反駁|不同意)使用者"
+)
+"""群面裡把真人應徵者叫成「使用者」的說法。
+
+【為什麼會出現】
+`group_discussion_block` 把真人的發言標成「使用者」(prompt 其他地方都這樣叫他),
+模型引述他的話時會照抄標籤。group-1(11/01)AI-親切:「使用者提到的流程和
+等待時間確實會影響優先順序」——場上沒有人會這樣叫同場的人。
+
+【為什麼只重生成,不機械替換】
+「使用者」也是產品職缺的日常用語:「使用者說操作太複雜」講的是產品的使用者,
+換成「你」意思就錯了。所以這裡只觸發一次重生成,怎麼改交給模型。
+誤中產品用語的代價只是多一次呼叫,不會把句子改壞。
+樣式只收引述人的說法(提到、說、的看法),「使用者體驗」「使用者需求」不在裡面。
+"""
+
+_FIX_USER_LABEL = (
+    "那句把坐在對面的真人應徵者叫成「使用者」:{hit}\n"
+    "「使用者」是討論紀錄的標籤,場上沒有人這樣叫他。對他說話用「你」"
+    "(例如「你剛剛提到的流程」),提到他用「剛剛那位同學」。"
+    "講的如果是產品或服務的使用者,那就不用改。"
+)
+
 
 def _question_faults(
     question: str,
@@ -452,7 +491,8 @@ def _question_faults(
     「大家同意這個方向嗎?」是主持人推進討論的正常問法。
 
     群面沒有追問與主問題之分,講過的話不管哪一種都不該原樣再講一次,
-    所以重複那一關一律檢查。
+    所以重複那一關一律檢查。「使用者」這個標籤有沒有被說出口也一律看,
+    主持人一樣——見 `_USER_LABEL`。
     """
     faults: list[tuple[str, str]] = []
     if clarify:
@@ -468,6 +508,15 @@ def _question_faults(
                         _FIX_PEER_QUESTION.format(question=qs[0]),
                     )
                 )
+        label = _USER_LABEL.search(question)
+        if label:
+            hit = question[max(0, label.start() - 6) : label.end() + 8]
+            faults.append(
+                (
+                    f"把真人應徵者叫成「使用者」({hit[:20]})",
+                    _FIX_USER_LABEL.format(hit=hit),
+                )
+            )
         repeat = is_verbatim_repeat(question, asked)
         if repeat:
             faults.append(
@@ -659,6 +708,121 @@ def required_speaker(
     return silent[0] if silent else None
 
 
+MODERATOR_MAX_TURNS = 2
+"""群面的主持方(主考官,或三位主管的任一位)一場最多開口幾次,含開場那一句。
+
+【為什麼由程式擋】
+派發 prompt 早就寫了「主考官已經講了兩次以上 → 換 AI 應徵者」,
+group-1(11/01)主考官還是開口了五次,其中第 16、18 則連著問使用者,
+而第 18 則前面是使用者一段完整的回答——沒有卡住,也沒有說不會。
+主持方一直發問,使用者感受到的就是「面試官一直追問」:10/29 抱怨的是
+AI 應徵者,這次換成主考官,體感是同一件事。跟 `SILENT_FORCE_AFTER_TURNS`
+同一個道理,計數交給程式。
+
+前端的 spokenBy 含開場那一句(InterviewLiveGroupScreen 進場時就加進去),
+所以 2 的意思是:開場之外,這一位只能再自己開口一次。
+使用者說不會的時候不受這個限制,見 `moderator_blocked`。
+"""
+
+
+def _hosts(mode: str, group_interviewers: int = 1, group_size: int = 4) -> frozenset[str]:
+    """群面的主持方顯示名:主考官,或三位主管。"""
+    return frozenset(
+        p.display_name
+        for p in personas_for(mode, group_interviewers, group_size)
+        if p.role == "moderator" and p.display_name
+    )
+
+
+def last_ai_speaker(
+    spoken_by: Sequence[str], group_says: Sequence[UtteranceDTO] = ()
+) -> str:
+    """上一位開口的 AI 應徵者或主持方。沒有就回空字串。
+
+    先看 groupSays:前端請求失敗、改用本機 mock 的那一輪不會進 spokenBy,
+    但會記進 groupTranscript。沒帶 groupSays 才退回 spokenBy 的最後一位。
+    """
+    for u in reversed(list(group_says)):
+        if not u.is_user and (u.content or "").strip():
+            return u.speaker
+    return spoken_by[-1] if spoken_by else ""
+
+
+def moderator_blocked(
+    mode: str,
+    speaker: str,
+    answer: str,
+    spoken_by: Sequence[str],
+    group_says: Sequence[UtteranceDTO] = (),
+    group_interviewers: int = 1,
+    group_size: int = 4,
+) -> str:
+    """派發給群面主持方、但這一輪不該由他開口時,回理由;可以開口就回空字串。
+
+    兩條,照順序看:
+      上一位開口的就是主持方    不連著講,這一輪先讓 AI 應徵者回應
+      這一位已經講到上限        見 `MODERATOR_MAX_TURNS`
+
+    使用者說不會(`_ADMITS_UNKNOWN`)時一律放行:接住答不出來的人正是
+    主持方的工作,`required_speaker` 也是在這種時候讓開。
+    """
+    if mode != "group" or any(k in answer for k in _ADMITS_UNKNOWN):
+        return ""
+    hosts = _hosts(mode, group_interviewers, group_size)
+    if speaker not in hosts:
+        return ""
+    if last_ai_speaker(spoken_by, group_says) in hosts:
+        return "主持方上一輪才講過"
+    n = list(spoken_by).count(speaker)
+    if n >= MODERATOR_MAX_TURNS:
+        return f"他已經講了 {n} 次"
+    return ""
+
+
+#: 點名時接在名字後面的稱呼。group-1(11/01)使用者說的是「強勢這位同學」「邏輯這位先生」。
+_NAMED_BY = ("這位", "那位", "同學", "先生", "小姐")
+
+
+def addressed_speaker(
+    mode: str,
+    answer: str,
+    spoken_by: Sequence[str],
+    group_says: Sequence[UtteranceDTO] = (),
+    group_interviewers: int = 1,
+    group_size: int = 4,
+) -> str | None:
+    """使用者當面問某一位的時候,這一輪由那一位接話。沒有就回 None。
+
+    【為什麼要有】
+    group-1(11/01)第 13 則,使用者回 AI-強勢:「但是你說的專案會延遲……
+    那你會先選擇處理哪一個?」接話的卻是 AI-邏輯。派發那一步只看得到
+    使用者這段話和發言次數,不知道他在跟誰講話;上一位是誰,程式這邊看得到。
+
+    【判準只看問句】(問號收尾,或句尾是「嗎」,同 `question_sentences`)
+      問句裡點了某一位(「邏輯這位同學」)   → 那一位
+      問句裡有「你」                       → 上一位開口的人
+    表態不算:「我同意邏輯這位先生說的」不是在等他回話,照常派發。
+    問的是主持方也由他回,這時不受 `moderator_blocked` 限制——
+    被問的人不回答,比主持方多講一次更奇怪。
+    """
+    if mode != "group":
+        return None
+    asks = question_sentences(answer)
+    if not asks:
+        return None
+    names = speaker_names(mode, group_interviewers, group_size)
+    for q in asks:
+        for n in names:
+            short = n.split("-", 1)[-1]
+            if n in q or any(short + m in q for m in _NAMED_BY):
+                return n
+    if any("你" in q for q in asks):
+        last = last_ai_speaker(spoken_by, group_says)
+        if last in names:
+            return last
+    return None
+
+
 def repair_speaker(
     raw: str, mode: str, group_interviewers: int = 1, group_size: int = 4
 ) -> tuple[str, str | None]:
@@ -732,8 +896,10 @@ GROUP_OPENING_TOPIC = "小組討論"
 """群面開場題的領域標籤,模型沒標的時候用。"""
 
 
-def group_default_opening(ctx: InterviewContext) -> str:
+def group_default_opening(ctx: InterviewContext, group_flow: str = DISCUSSION) -> str:
     """群面拿不到模型出的討論題時用的題目。
+
+    一題一輪時結尾改成「輪流說」,不叫大家互相討論——那一題沒有討論的環節。
 
     【為什麼群面不用自我介紹】
     三段式那一版把開場固定成自我介紹,三種模式共用。群面用了之後,題目變成
@@ -750,10 +916,12 @@ def group_default_opening(ctx: InterviewContext) -> str:
         team = f"{role or firm}團隊"
     else:
         team = "一個新團隊"
-    return (
-        f"今天請大家一起討論一個情況:假設你們剛加入{team},主管只給一個月,"
-        "要你們決定第一件該先做的事。請每個人先說你的選擇和理由,再互相討論。"
+    situation = (
+        f"假設你們剛加入{team},主管只給一個月,要你們決定第一件該先做的事。"
     )
+    if group_flow == ROUND:
+        return f"第一題:{situation}請每個人輪流說你的選擇和理由。"
+    return f"今天請大家一起討論一個情況:{situation}請每個人先說你的選擇和理由,再互相討論。"
 
 
 DEFAULT_GROUP_PROBES = (
@@ -762,6 +930,34 @@ DEFAULT_GROUP_PROBES = (
     "時間差不多了,請大家收斂成一個結論。",
 )
 """群面的備援句。主持人推進討論用,不是追問某個人的經歷。"""
+
+DEFAULT_GROUP_ROUND_QUESTIONS = (
+    "如果你們加入後第一個月,同時有兩件緊急的事進來,你會先處理哪一件,理由是什麼?",
+    "如果主管給的時程明顯不夠,你會怎麼跟主管談?",
+    "請每位說一次跟團隊意見不同的經驗,你最後怎麼處理。",
+)
+"""群面一題一輪的備援題。主持方出下一題失敗,開場也沒帶回備援題時用。
+
+一題一輪的備援是完整的下一題,不是自由討論用的推進句——全部答完之後
+主持方說「還沒表態的人,你怎麼看?」,場上沒有人可以接。
+"""
+
+DEFAULT_ROUND_PEER_LINES = (
+    "我會先把目標講清楚,再排先後順序,做的過程中每週檢查一次方向。",
+    "我會先找最熟悉這件事的人確認現況,資訊不夠就先小範圍試做,再決定要不要擴大。",
+    "我比較在意時間,會先處理影響最多人的那一塊,其他的排進下一週。",
+)
+"""AI 應徵者這一題生成失敗時的退路。
+
+沒有內容可接,只能講一句不針對任何人的做法。比起把這一輪交給主持方,
+這樣至少不會讓「每題每人答一次」斷掉——主持方在大家還沒答完時開口出題,
+整個順序就亂了。
+"""
+
+_FIX_ROUND_REPEAT = (
+    "那一題跟本場問過的題目太像:{repeat}\n"
+    "換一題:換一個情境,或換一個要大家回答的面向,一次只問一件事。"
+)
 DEFAULT_PROBES = (
     "這個判斷你當時是依據什麼下的?",
     "如果時間只剩一半,你會先砍掉哪一段?",
@@ -825,6 +1021,8 @@ async def start_interview(
     ctx_text = context_block(context, jd, () if mode == "group" else experiences)
     sid = session_id or f"itv_{uuid.uuid4().hex[:12]}"
 
+    # 群面的流程。一題一輪時開場題要能輪流答,備援的是下一題,見 group_round。
+    group_flow = ROUND if context.group_flow != DISCUSSION else DISCUSSION
     cfg = dict(
         group_interviewers=context.group_interviewers,
         group_size=context.group_size,
@@ -833,6 +1031,7 @@ async def start_interview(
         # 有履歷的時候要換掉「不預設對方有什麼經歷」那一條,
         # 否則 prompt 一邊列出他的經歷、一邊叫模型不要假設他做過什麼。
         has_resume=bool(resume_block(experiences)),
+        group_flow=group_flow,
     )
     tasks: dict[str, asyncio.Task] = {
         "opening": asyncio.ensure_future(_gen_opening(llm, mode, ctx_text, cfg))
@@ -875,7 +1074,7 @@ async def start_interview(
         # 群面的開場是全組的討論題,由模型依職缺出。見 group_default_opening。
         question = normalize_locale(str(op.get("openingQuestion", "")).strip())
         if not question:
-            question = group_default_opening(context)
+            question = group_default_opening(context, group_flow)
             notices.append("開場:未取得討論題目,已使用預設")
         topic = (
             normalize_locale(str(op.get("openingTopic", "")).strip())
@@ -893,7 +1092,12 @@ async def start_interview(
         if str(x).strip()
     ]
     if not probes:
-        probes = list(DEFAULT_GROUP_PROBES if mode == "group" else DEFAULT_PROBES)
+        if mode != "group":
+            probes = list(DEFAULT_PROBES)
+        elif group_flow == ROUND:
+            probes = list(DEFAULT_GROUP_ROUND_QUESTIONS)
+        else:
+            probes = list(DEFAULT_GROUP_PROBES)
         notices.append("開場:未取得備援追問,已使用預設")
 
     interrupts: list[str] = list(results.get("interrupts") or [])
@@ -926,6 +1130,7 @@ async def start_interview(
             round_name=context.round,
             group_interviewers=context.group_interviewers,
             group_size=context.group_size,
+            group_flow=group_flow,
         ),
         opening_question=question,
         opening_speaker=opening_speaker,
@@ -1014,6 +1219,17 @@ GROUP_HISTORY_UTTERANCES = 8
 最近幾則。八則大約是兩輪:使用者一則、三位競爭者、主持人。
 """
 
+USER_LABEL_NOTE = (
+    "(標成「使用者」的是坐在你對面的真人應徵者。對他說話用「你」,"
+    "提到他用「剛剛那位同學」;「使用者」只是這份紀錄的標籤,不要說出口。)"
+)
+"""緊接在討論紀錄後面的一行。紀錄裡出現「使用者:」才附。
+
+模型引述別人的話時會沿用紀錄的標籤,group-1(11/01)就出現「使用者提到的流程」。
+標籤本身不改,prompt 其他地方都叫他使用者,改一處會對不上。
+說出口的漏網之魚由 `_USER_LABEL` 擋下重生成。
+"""
+
 
 def group_discussion_block(
     group_says: Sequence[UtteranceDTO], answer: str, opening: str = ""
@@ -1027,7 +1243,8 @@ def group_discussion_block(
     而討論一長,真正的題目會被擠出最近那幾則,再也看不到。
 
     最後一則如果就是使用者剛剛講的那段,不再列一次,上面已經有了。
-    使用者在前端的顯示名是「你」,這裡寫成「使用者」,跟 prompt 其他地方一致。
+    使用者在前端的顯示名是「你」,這裡寫成「使用者」,跟 prompt 其他地方一致,
+    後面附一行 `USER_LABEL_NOTE` 講清楚這個標籤不能說出口。
     """
     says = [u for u in group_says if (u.content or "").strip()]
     if not says:
@@ -1045,7 +1262,264 @@ def group_discussion_block(
             f"  {'使用者' if u.is_user else u.speaker}:{u.content.strip()}"
             for u in recent
         ]
+        if any(u.is_user for u in recent):
+            lines.append(USER_LABEL_NOTE)
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# 群面一題一輪
+# ---------------------------------------------------------------------------
+
+
+def _round_answers(state: RoundState) -> list[str]:
+    """這一題的回答,一則一行。真人標成「使用者」,理由同 `group_discussion_block`。"""
+    return [
+        f"  {'使用者' if u.is_user else u.speaker}:{u.content.strip()}"
+        for u in state.answers
+    ]
+
+
+def round_peer_prompt(state: RoundState, speaker: str, position: int) -> str:
+    """輪到某位 AI 應徵者答這一題時的 user prompt。
+
+    題目放第一行:這一輪要回應的是主持方的題目,不是上一位講的話——
+    沿用自由討論那套把「使用者剛剛說的」排第一,模型會變成在回應他。
+    前面的回答整題列出來,一題最多五則,不會淹掉題目。
+    """
+    asker = state.asker or "主考官"
+    parts = [f"【{asker}問的這一題】{state.question or '(未提供)'}"]
+    if state.answers:
+        parts.append("【這一題已經回答的人(由先到後)】\n" + "\n".join(_round_answers(state)))
+        if state.user_answered:
+            parts.append(USER_LABEL_NOTE)
+        parts.append(
+            f"輪到你回答,你是第 {position} 個。可以接前面的人的說法:附和之後再往前推一步、"
+            "提出不同的看法,或把兩個說法整合成你的做法。但主體是你自己對這一題的回答,"
+            "前面講過的論點不要原樣再講一次。"
+        )
+    else:
+        parts.append("你是這一題第一個回答的人,直接回答題目。")
+    parts.append("只回答這一題,講完就停,不發問。")
+    return "\n\n".join(parts)
+
+
+def round_host_prompt(state: RoundState, host: str) -> str:
+    """全員答完、主持方出下一題時的 user prompt。問過的題目全部列出來給它避開。"""
+    parts = [f"【上一題】{state.question or '(未提供)'}"]
+    if state.answers:
+        parts.append("【大家的回答(由先到後)】\n" + "\n".join(_round_answers(state)))
+        if state.user_answered:
+            parts.append(USER_LABEL_NOTE)
+    if state.asked:
+        parts.append("【本場已經問過的題目】\n" + "\n".join(f"  {q}" for q in state.asked))
+    parts.append(
+        f"每個人都回答完這一題了。請以{host}的身分提出下一題,給全組每個人輪流回答。"
+        "可以先用一句話過場,不評論任何人的回答。下一題不能跟問過的題目重複。"
+    )
+    return "\n\n".join(parts)
+
+
+def _unused_question(pool: Sequence[str], asked: Sequence[str]) -> str:
+    """備援池裡第一題跟問過的不重複的。全部重複回空字串。"""
+    return next(
+        (q for q in pool if (q or "").strip() and not is_near_duplicate(q, asked)), ""
+    )
+
+
+def _round_fallback(
+    state: RoundState,
+    step: RoundStep,
+    fallback: Sequence[str],
+    said: Sequence[str],
+    notices: list[str],
+) -> TurnResponse:
+    """一題一輪生成失敗時的退路。說話者不換,只換內容。
+
+    主持方:前端帶來的備援題(開場生成的)優先,再來是寫死的那幾題,挑沒問過的。
+    應徵者:寫死的通用做法,挑這場還沒出現過的。說話者不交給主持方——
+    大家還沒答完主持方就出題,「每題每人答一次」就斷了。
+    """
+    if step.kind == "host":
+        pool = list(fallback) + list(DEFAULT_GROUP_ROUND_QUESTIONS)
+        line = _unused_question(pool, state.asked) or DEFAULT_GROUP_ROUND_QUESTIONS[
+            state.index % len(DEFAULT_GROUP_ROUND_QUESTIONS)
+        ]
+    else:
+        line = next(
+            (x for x in DEFAULT_ROUND_PEER_LINES if not is_verbatim_repeat(x, said)),
+            DEFAULT_ROUND_PEER_LINES[0],
+        )
+    return TurnResponse(
+        speaker=step.speaker,
+        next_question=line,
+        reaction="",
+        is_follow_up=False,
+        should_advance=False,
+        topic="",
+        delay_ms=step.delay_ms,
+        notices=notices + ["本輪:已使用備援句"],
+    )
+
+
+async def round_turn(
+    *,
+    mode: str,
+    asked_questions: Sequence[str],
+    question: str,
+    prev_topic: str,
+    fallback: Sequence[str],
+    llm: LLMCall,
+    context: InterviewContext | None,
+    jd: JDInput | None,
+    group_says: Sequence[UtteranceDTO],
+    session_id: str = "",
+) -> TurnResponse:
+    """群面一題一輪的一步。誰開口、要等多久由 `group_round` 決定,這裡只生成內容。
+
+    【三種結果】
+        AI 應徵者回答   speaker 是他,delay_ms 是他的反應時間(使用者答過就是 0)
+        等使用者       await_user 為真,不呼叫模型——沒有東西要生成
+        主持方出下一題  全員答完才會走到
+
+    【沿用自由討論的檢查】
+    說出「使用者」、跟前面講過的幾乎同一句、應徵者發問,這三道照舊一次重生成。
+    主持方另外看新題目跟問過的題目像不像——一題一輪最怕的是同一題問兩次。
+    """
+    gi = context.group_interviewers if context else 1
+    gs = context.group_size if context else 4
+    opening = next((q for q in asked_questions if (q or "").strip()), "") or question
+    state = round_state(
+        group_says, group_interviewers=gi, group_size=gs, fallback_question=opening
+    )
+    step = next_step(state, seed=session_id)
+    where = f"第 {state.index} 題"
+    if step.kind == "await_user":
+        return TurnResponse(
+            speaker="",
+            next_question="",
+            reaction="",
+            is_follow_up=False,
+            should_advance=False,
+            topic="",
+            await_user=True,
+            notices=[f"本輪:一題一輪{where},AI 都答完了,等使用者回答"],
+        )
+
+    host = step.kind == "host"
+    speaker = step.speaker
+    if host:
+        user = round_host_prompt(state, speaker)
+        notices = [f"本輪:一題一輪{where}全員答完,由「{speaker}」出第 {state.index + 1} 題"]
+    else:
+        user = round_peer_prompt(state, speaker, step.position)
+        wait = (
+            f",等 {step.delay_ms / 1000:.1f} 秒"
+            if step.delay_ms
+            else ",使用者已答過,不等"
+        )
+        notices = [f"本輪:一題一輪{where},「{speaker}」第 {step.position} 個回答{wait}"]
+    if context:
+        # 群面不帶履歷:同場的應徵者看不到使用者的履歷。
+        user += "\n\n【職位脈絡】\n" + context_block(context, jd, ())
+
+    system = compose_turn_prompt(
+        mode,
+        list(state.asked),
+        group_interviewers=gi,
+        group_size=gs,
+        focus_speaker=speaker,
+        engine=context.transcription_engine if context else "api",
+        difficulty=context.difficulty if context else "中等",
+        group_role=context.group_role if context else "一般應徵者",
+        group_flow=ROUND,
+    )
+    said = [q for q in asked_questions if (q or "").strip()] + [
+        u.content for u in group_says if not u.is_user and (u.content or "").strip()
+    ]
+
+    try:
+        raw = await asyncio.to_thread(llm, system, user)
+    except Exception as exc:  # noqa: BLE001
+        notices.append(f"本輪:生成失敗({type(exc).__name__})")
+        return _round_fallback(state, step, fallback, said, notices)
+
+    data = parse_obj(raw)
+    line = normalize_locale(str(data.get("nextQuestion", "")).strip())
+    if not line:
+        rescued = salvage_question(raw)
+        if rescued:
+            line = normalize_locale(rescued)
+            notices.append("本輪:模型沒有包成 JSON,已直接採用它產出的那一句")
+        else:
+            snippet = (raw or "").strip().replace("\n", " ")[:120] or "(空)"
+            notices.append(f"本輪:模型沒有產出內容。原始輸出:{snippet}")
+            return _round_fallback(state, step, fallback, said, notices)
+
+    got = str(data.get("speaker", "")).strip()
+    if got and got != speaker:
+        notices.append(f"本輪:模型填的說話者是「{got}」,已改回「{speaker}」")
+
+    def faults_of(text: str) -> list[tuple[str, str]]:
+        found = _question_faults(
+            text, said, is_follow_up=False, clarify=False, group=True, peer=not host
+        )
+        if host:
+            dup = is_near_duplicate(text, state.asked)
+            if dup:
+                found.append(
+                    (f"與問過的題目重複({dup[:20]})", _FIX_ROUND_REPEAT.format(repeat=dup))
+                )
+        return found
+
+    faults = faults_of(line)
+    if faults:
+        why = "、".join(label for label, _ in faults)
+        again = await _regenerate(llm, system, user, faults)
+        left = faults_of(again) if again else [("沒有產出", "")]
+        if left:
+            notices.append(
+                f"本輪:這句{why},重生成沒有改善"
+                f"({'、'.join(label for label, _ in left)}),已照原樣送出。"
+            )
+        else:
+            notices.append(f"本輪:這句{why},已重生成。原本:{line[:30]}")
+            line = again
+
+    topic = ""
+    if host:
+        # 重生成後還是同一題的話換備援題。同一題問兩次,大家就得把同樣的話再講一遍。
+        if is_near_duplicate(line, state.asked):
+            alt = _unused_question(list(fallback) + list(DEFAULT_GROUP_ROUND_QUESTIONS), state.asked)
+            if alt:
+                notices.append(f"本輪:新題目跟問過的重複,改用備援題。原本:{line[:30]}")
+                line = alt
+        topic = (
+            normalize_locale(str(data.get("topic", "")).strip())
+            or prev_topic
+            or GROUP_OPENING_TOPIC
+        )
+    else:
+        # 應徵者的問句重生成也擋不住時刪掉。整句都是問句就換備援句,
+        # 不交給主持方——大家還沒答完,主持方不能出題。
+        kept, dropped = drop_questions(line)
+        if dropped and kept:
+            notices.append(f"本輪:{speaker}的問句已刪除({'、'.join(d[:20] for d in dropped)})")
+            line = kept
+        elif dropped:
+            notices.append(f"本輪:{speaker}整句都是問句。原本:{line[:30]}")
+            return _round_fallback(state, step, fallback, said, notices)
+
+    return TurnResponse(
+        speaker=speaker,
+        next_question=line,
+        reaction="",
+        is_follow_up=False,
+        should_advance=False,
+        topic=topic,
+        delay_ms=step.delay_ms,
+        notices=notices,
+    )
 
 
 async def next_turn(
@@ -1067,8 +1541,17 @@ async def next_turn(
     experiences: Sequence[ExperienceDTO] = (),
     force_speaker: str = "",
     group_says: Sequence[UtteranceDTO] = (),
+    group_flow: str = DISCUSSION,
+    session_id: str = "",
 ) -> TurnResponse:
     """一輪接話。
+
+    【群面一題一輪】
+    `group_flow` 不是 "discussion" 的群面整段交給 `round_turn`,下面的派發、
+    點名、主考官連問上限那些都是自由討論的規則,一題一輪用不到。
+    預設是 discussion,因為直接呼叫這支函式的是測試與量測工具,它們量的是
+    自由討論;API 那一層從 `context.group_flow` 帶值進來,預設是 round。
+    `session_id` 只給一題一輪的反應時間當隨機種子用。
 
     follow_up_idx 達到上限時強制推進,不問模型——
     「這是第幾次追問」是確定性事實,交給模型判斷會讓它有時多追一次。
@@ -1114,6 +1597,20 @@ async def next_turn(
     10/30 定案。prompt 寫了,重生成擋一次,最後程式把問句刪掉;整句都是
     問句的話,這一輪改由主持人推進。三道的理由見 `question_form` 檔尾。
     """
+    if mode == "group" and group_flow != DISCUSSION:
+        return await round_turn(
+            mode=mode,
+            asked_questions=asked_questions,
+            question=question,
+            prev_topic=prev_topic,
+            fallback=fallback,
+            llm=llm,
+            context=context,
+            jd=jd,
+            group_says=group_says,
+            session_id=session_id,
+        )
+
     cap = turn_cap_for(mode)
     must_advance = cap is not None and follow_up_idx >= cap
     if decision is not None and must_advance:
@@ -1167,14 +1664,23 @@ async def next_turn(
     names = speaker_names(mode, gi, gs)
     # force_speaker 走的是既有的 forced 路徑,不另開分支——
     # 派發那次呼叫一樣被跳過,下游一樣只看到一個已經決定好的說話者。
-    forced = force_speaker or required_speaker(
+    #
+    # 使用者當面問某一位,排在「誰還沒講過」前面:被問的人先回答,
+    # 還沒開口的那位下一輪再補,見 `addressed_speaker`。
+    addressed = "" if force_speaker else (
+        addressed_speaker(mode, answer, spoken_by, group_says, gi, gs) or ""
+    )
+    forced = force_speaker or addressed or required_speaker(
         mode, spoken_by, follow_up_idx, answer, gi, gs
     )
     counts = {n: list(spoken_by).count(n) for n in names}
 
     # 第一步:決定誰說話。強制指派時跳過這次呼叫——答案已經確定了。
     focus = forced or ""
-    dispatch_note = f"本輪:指派給未發言過的「{forced}」" if forced else ""
+    if addressed:
+        dispatch_note = f"本輪:使用者當面問「{addressed}」,由他接話"
+    else:
+        dispatch_note = f"本輪:指派給未發言過的「{forced}」" if forced else ""
 
     # 缺的維度有負責人就直接給他,不問模型。語意派發是在沒有判準時用的,
     # 有判準的時候問模型只是多一次呼叫加一次不確定。
@@ -1219,6 +1725,19 @@ async def next_turn(
         # 派發失敗:退回發言次數最少的一位,不要讓生成端自己猜。
         focus = min(names, key=lambda n: counts.get(n, 0))
         dispatch_note = "本輪:派發失敗,已改由發言最少的人開口"
+    # 派發選了群面主持方,但他剛講過或已經講到上限:換一位 AI 應徵者。
+    # 放在兩條派發路徑後面,因為「發言最少」那條也可能落到主考官身上——
+    # 討論一長,AI 應徵者每位都講了三四次,主考官只有開場那一兩次。
+    # 強制指派的不擋:被點名的人要回答,見 `addressed_speaker`。
+    if group and focus and not forced:
+        why = moderator_blocked(mode, focus, answer, spoken_by, group_says, gi, gs)
+        peers = [n for n in names if n in _peer_names(mode, gi, gs)]
+        if why and peers:
+            last = last_ai_speaker(spoken_by, group_says)
+            pool = [n for n in peers if n != last] or peers
+            stand_in = min(pool, key=lambda n: counts.get(n, 0))
+            dispatch_note = f"本輪:派發給「{focus}」,但{why},改由「{stand_in}」開口"
+            focus = stand_in
     # 決定已經做完了,告訴生成端。不講的話決定說 NEXT 而模型生出追問,
     # is_follow_up 就會跟實際內容不符,重複偵測會對一句追問做比對。
     #

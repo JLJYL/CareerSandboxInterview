@@ -419,19 +419,62 @@ def _term_key(text: str) -> str:
     return fold_variants(text).replace(" ", "").lower()
 
 
+TERM_ALIASES: tuple[frozenset[str], ...] = (
+    frozenset({"facebook", "fb", "臉書"}),
+    frozenset({"instagram", "ig"}),
+    frozenset({"youtube", "yt"}),
+    frozenset({"powerpoint", "ppt"}),
+    frozenset({"javascript", "js"}),
+    frozenset({"typescript", "ts"}),
+    frozenset({"kubernetes", "k8s"}),
+    frozenset({"postgresql", "postgres"}),
+)
+"""全名與口語縮寫算同一個詞。
+
+longpause-1(前端 11/01 錄的)第 5 題,使用者說「FB 或者是 IG」,better 寫成
+「Facebook、Instagram」,整句被清空。那不是捏造,只是把縮寫寫成全名。
+只收常講、而且沒有歧義的幾組;清單外的照舊逐字比。
+"""
+
+_ALIAS_OF: dict[str, frozenset[str]] = {a: g for g in TERM_ALIASES for a in g}
+
+
+def _said(term: str, src_key: str, src_text: str) -> bool:
+    """這個英文詞,或它在 `TERM_ALIASES` 裡的全名/縮寫,有沒有出現在原文。
+
+    詞本身照舊用子字串比(`src_key`),跟原本的行為一樣。
+    別名用字界比,而且比的是保留空白的 `src_text`:縮寫只有兩三個字母,
+    子字串比的話「design」裡的 ig 就算講過 IG;去掉空白的話「FB IG」會黏成「fbig」,
+    兩個都比不到。
+    """
+    t = term.lower()
+    if t in src_key:
+        return True
+    for alias in _ALIAS_OF.get(t, frozenset()) - {t}:
+        if alias.isascii():
+            if re.search(rf"(?<![a-z0-9]){re.escape(alias)}(?![a-z0-9])", src_text):
+                return True
+        elif _term_key(alias) in src_key:
+            return True
+    return False
+
+
 def ungrounded_terms(better: str, source: str) -> list[str]:
-    """回傳 better 裡有、但原回答沒有的技術名詞。
+    """回傳 better 裡有、但 source 沒有的技術名詞。
 
     兩種:英文詞(工具、縮寫,例如 Tableau、KPI)與 `_METHOD_TERMS` 裡的
-    分析方法與指標。原回答講過的照樣可以出現——這一道擋的是**新加的**。
+    分析方法與指標。講過的照樣可以出現——這一道擋的是**新加的**。
+    縮寫與全名算同一個詞,見 `TERM_ALIASES`。source 用的是整場的回答,
+    見 `gen_question_feedbacks`。
 
     STT 有時把英文詞轉成諧音(「加巴screen」是 JavaScript),改寫把它還原成
     正確拼法的話會被這裡攔下。那是猜的,攔下來比讓使用者背一個猜的詞好。
     """
     src = _term_key(source)
+    text = fold_variants(source).lower()
     bad: list[str] = []
     for m in _LATIN_TERM.finditer(better):
-        if m.group().lower() not in src and m.group() not in bad:
+        if not _said(m.group(), src, text) and m.group() not in bad:
             bad.append(m.group())
     for m in _METHOD_TERMS.finditer(better):
         if _term_key(m.group()) not in src and m.group() not in bad:
@@ -563,9 +606,17 @@ async def gen_question_feedbacks(
     """逐題點評。better 只能重組回答,不吃履歷。
 
     不吃履歷的理由:有履歷模式是捏造的通道,而且跟漏講點區塊重複。
+
+    【名詞比整場,數字只比這一題】
+    名詞原本只跟這一題的回答比。longpause-1(前端 11/01 錄的)第 4 題是接著
+    第 3 題追問「那些小問題怎麼解決」,better 提到第 3 題講過的 SQL,被當成
+    捏造清空了。他自己在這場講過的工具不是新加的,所以名詞比對整場的回答。
+    數字不放寬:數字屬於某一段經歷,把 A 經歷的「三個月」搬進 B 經歷的 better,
+    一樣是在替他編一個他沒講過的事實。
     """
     if not turns:
         return [], []
+    said = "\n".join(t.answer for t in turns)
     body = ["【逐題內容】"]
     for i, t in enumerate(turns, 1):
         body += [f"{i}. 題目:{t.question}", f"   回答:{t.answer}"]
@@ -584,7 +635,7 @@ async def gen_question_feedbacks(
         item = by_id.get(i, {})
         better = normalize_locale(str(item.get("better", "")).strip())
         bad = ungrounded_numbers(better, t.answer)
-        terms = [] if bad else ungrounded_terms(better, t.answer)
+        terms = [] if bad else ungrounded_terms(better, said)
         if bad:
             notices.append(
                 f"報告:第 {i} 題的 better 出現原回答沒有的數字({'、'.join(bad)}),已清空"
@@ -592,7 +643,7 @@ async def gen_question_feedbacks(
             better = ""
         elif terms:
             notices.append(
-                f"報告:第 {i} 題的 better 出現原回答沒有的名詞({'、'.join(terms)}),已清空"
+                f"報告:第 {i} 題的 better 出現整場回答都沒有的名詞({'、'.join(terms)}),已清空"
             )
             better = ""
         out.append(

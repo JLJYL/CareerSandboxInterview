@@ -219,6 +219,39 @@ GROUP_OPENING_OUTPUT = """輸出一個 JSON 物件:
 不要有其他文字或 markdown 標記。"""
 
 
+GROUP_ROUND_OPENING_RULES = """產出這場團體面試的第一題,由主持方對全組提出,每位應徵者輪流回答。
+
+【這不是個人面試的開場】
+同一題每個人都要答,而且答案會不一樣。所以題目不貼著任何一個人的經歷問,
+也不是自我介紹。
+
+【題目的要求】
+    一個這個職位真的會遇到的情境,有取捨、沒有唯一正確答案
+    請每個人說出自己的選擇和理由,不是解釋名詞
+    一到兩句講完背景與要回答的事,主持方唸得出來
+    不需要專業知識也能回答;職稱與產業只用來挑情境
+
+【材料】
+使用者在設定頁填的職位脈絡,JD 可能是空的。空的時候只用職稱與產業挑情境。
+
+【也要產出一組備援題】
+主持方之後可以問的下一題,三到五題。每題獨立、給全組輪流回答,
+要求跟第一題相同,彼此不重複。"""
+"""群面一題一輪的開場。備援題在出下一題失敗時由主持方問,所以要是完整的題目,
+不是自由討論用的推進句。"""
+
+
+GROUP_ROUND_OPENING_OUTPUT = """輸出一個 JSON 物件:
+
+    {
+      "openingQuestion": "主持方對全組提出的第一題",
+      "openingTopic": "這題問什麼,四到八字",
+      "fallbackProbes": ["備援題一", "備援題二", "備援題三"]
+    }
+
+不要有其他文字或 markdown 標記。"""
+
+
 # ---------------------------------------------------------------------------
 # 每輪追問
 # ---------------------------------------------------------------------------
@@ -327,6 +360,27 @@ group-1(10/29)三位 AI 應徵者每一輪都是「你提到…能分享一下�
 【應徵者不發問】
 10/30 定案,取代原本的「先表態再發問」。允許丟一個問句,模型就會把
 問句當成那一句的重點。程式那一側的保證在 `question_form` 檔尾。
+"""
+
+
+GROUP_ROUND_RULES = """【這是輪流回答的團體面試】
+
+主持方一次問一題,在場每位應徵者各回答一次,全部答完,主持方才問下一題。
+同一題裡每個人只講一次,沒有自由討論。
+
+應徵者:回答主持方這一題。可以接前面已經回答的人的說法——附和之後往前推一步、
+提出不同的看法,或把兩個說法整合成自己的做法——但主體是你自己對這一題的回答。
+前面有人講過的論點不要原樣再講一次。應徵者不發問。
+
+主持方:只在每個人都答完之後開口,提出下一題。可以先用一句話過場,
+但不評價任何人的回答,也不追問個人。題目給全組,一次只問一件事,
+跟本場問過的題目不能重複。"""
+"""群面一題一輪時取代 GROUP_TURN_RULES。
+
+【為什麼要另寫一份】
+GROUP_TURN_RULES 寫的是自由討論:主持人只在討論卡住時開口、應徵者要回應
+彼此。一題一輪裡主持方每一題都要開口,應徵者主要是回答題目,兩份規則
+同時出現會互相打架。誰先答、誰答過由 `group_round` 決定,不寫進 prompt。
 """
 
 
@@ -491,7 +545,7 @@ def compose_dispatch_prompt(
 def compose_opening_prompt(
     mode: str, *, group_interviewers: int = 1, group_size: int = 4,
     difficulty: str = "中等", group_role: str = "一般應徵者",
-    has_resume: bool = False,
+    has_resume: bool = False, group_flow: str = "discussion",
 ) -> str:
     parts = [
         "你的工作是替一場模擬面試設計開場問題。",
@@ -499,12 +553,14 @@ def compose_opening_prompt(
         _persona_block(personas_for(mode, group_interviewers, group_size)),
     ]
     if mode == "group":
-        # 群面的開場是全組的討論題,不是請使用者自我介紹。見 GROUP_OPENING_RULES。
+        # 群面的開場是全組的題目,不是請使用者自我介紹。見 GROUP_OPENING_RULES。
+        # 一題一輪時備援的是下一題,不是推進句,見 GROUP_ROUND_OPENING_RULES。
+        round_flow = group_flow == "round"
         parts += [
             GROUP_ROLE_RULES,
             f"使用者的定位:{group_role}",
-            GROUP_OPENING_RULES,
-            GROUP_OPENING_OUTPUT,
+            GROUP_ROUND_OPENING_RULES if round_flow else GROUP_OPENING_RULES,
+            GROUP_ROUND_OPENING_OUTPUT if round_flow else GROUP_OPENING_OUTPUT,
         ]
     else:
         parts += [opening_rules(has_resume), OPENING_OUTPUT]
@@ -516,7 +572,7 @@ def compose_turn_prompt(
     group_interviewers: int = 1, group_size: int = 4,
     difficulty: str = "中等", group_role: str = "一般應徵者",
     focus_speaker: str = "", truncated: bool = False, engine: str = "device",
-    turn_index: int = 0, has_resume: bool = False,
+    turn_index: int = 0, has_resume: bool = False, group_flow: str = "discussion",
 ) -> str:
     """每輪追問的 system prompt。
 
@@ -525,16 +581,24 @@ def compose_turn_prompt(
 
     `turn_index` 決定這一輪換新主問題時問哪一段(履歷 / 職缺),
     見 `probe_rules.interview_phase`。階段只管新主問題,追問不受它限制。
+
+    `group_flow` 只影響群面:"round" 換成一題一輪的規則,而且主持方出題時
+    不附競爭者判準——那一段是寫給應徵者的。
     """
+    personas = personas_for(mode, group_interviewers, group_size)
     parts = [
         "你的工作是在一場模擬面試裡,聽完對方的回答之後接話。",
         LIVE_COMMON,
         stt_caveat_live(engine),
-        _persona_block(personas_for(mode, group_interviewers, group_size), focus_speaker),
+        _persona_block(personas, focus_speaker),
         difficulty_triggers(difficulty),
     ]
     if mode == "group":
         parts += [GROUP_ROLE_RULES, f"使用者的定位:{group_role}"]
+    round_flow = mode == "group" and group_flow == "round"
+    focus_is_peer = any(
+        p.role == "peer" and p.display_name == focus_speaker for p in personas
+    )
 
     # focus 給定時,說話者已經由派發那一步決定,派發規則與名單都是雜訊。
     # 群面的競爭者判準要留著——那是人格的一部分,不是派發規則。
@@ -543,7 +607,7 @@ def compose_turn_prompt(
             parts.append(PANEL_DISPATCH)
         elif mode == "group":
             parts.append(GROUP_DISPATCH)
-    elif mode == "group":
+    elif mode == "group" and (focus_is_peer or not round_flow):
         parts.append(GROUP_PEER_STANCE)
 
     if mode == "group":
@@ -551,7 +615,7 @@ def compose_turn_prompt(
         # 被切斷那一條留著:誰接話都該先讓他把話講完。
         if truncated:
             parts.append(TRUNCATED_ANSWER)
-        parts.append(GROUP_TURN_RULES)
+        parts.append(GROUP_ROUND_RULES if round_flow else GROUP_TURN_RULES)
     else:
         parts.append(
             compose_probe_rules(asked_questions, include_triggers=False, truncated=truncated)

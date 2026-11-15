@@ -17,8 +17,12 @@ import json
 
 from app.pipeline.interview_live import (
     DEFAULT_GROUP_PROBES,
+    MODERATOR_MAX_TURNS,
+    USER_LABEL_NOTE,
+    addressed_speaker,
     group_default_opening,
     group_discussion_block,
+    moderator_blocked,
     next_turn,
     opening_question,
     start_interview,
@@ -41,6 +45,8 @@ from tests.test_api import client  # noqa: F401  (fixture)
 CTX = InterviewContext(
     custom_role="理財專員", custom_company="某銀行", custom_industry="金融",
     custom_seniority="新鮮人", type="行為",
+    # 這個檔測的是自由討論。11/15 起 API 的預設是一題一輪,見 test_group_round。
+    group_flow="discussion",
 )
 
 TOPIC = "假設分行要在一個月內提升年輕客群的開戶數,各位會先做哪一件事?"
@@ -425,3 +431,239 @@ def test_generated_peer_profiles_are_not_primed_to_ask() -> None:
 
     prompt = compose_profile_prompt()
     assert "反問" not in prompt and "先問" not in prompt
+
+
+# ---------------------------------------------------------------------------
+# 誰接話、怎麼稱呼使用者(前端 11/01 錄的 group-1)
+#
+# 那場 AI 應徵者已經不發問了,換成三件事:主考官連著問使用者(第 16、18 則)、
+# 使用者反問 AI-強勢 卻由 AI-邏輯 回答(第 13 則)、AI-親切 說出「使用者提到的流程」。
+# 下面的發言都是那場的原文。
+# ---------------------------------------------------------------------------
+
+G1_TOPIC = "如果你是這個基金會的行政專員，面對一個重要專案，你會如何優先處理文書和資料建檔的工作？"
+G1_HOST_16 = "那如果你需要在文書和資料建檔之間做出選擇，你會怎麼決定？"
+G1_USER_17 = (
+    "就像我們前面提到的，會根據這個任務的優先緊急度下去排序，那緊急度肯定要先排之外，"
+    "我們也要考慮到有可能會有一些時程或者是流程上要跑的這個考量，所以緊急度跟這個下去做"
+    "綜合考量之後，然後就可以將這些任務進行處理的這個優先的排序。"
+)
+G1_STRONG_12 = "我不同意這樣的排序方式。我的做法是先處理那些影響整體專案進度的任務，這樣才能確保專案不會延遲。"
+G1_USER_13 = (
+    "但是你說的專案會延遲，可是有可能會影響到其他的工作。因為一開始的問題是說，"
+    "文書和資料建檔的工作，哪一個比較優先？那假設這兩個都會關係到專案的延遲，那你會先選擇處理哪一個？"
+)
+G1_FRIENDLY_6 = (
+    "我覺得大家的觀點都很有道理，使用者提到的流程和等待時間確實會影響優先順序。"
+    "我會這樣做，先評估每個任務的時間需求，再依據重要性排序。"
+)
+G1_PEERS = ("AI-強勢", "AI-邏輯", "AI-親切")
+
+
+def _dispatching(name: str, *, calls: list, line: str = PEER_LINE):
+    """派發那一步回 name,生成那一步回一句表態。calls 記下每次呼叫是哪一步。"""
+    def call(system: str, user: str) -> str:
+        if "決定這一輪由誰開口" in system:
+            calls.append("dispatch")
+            return name
+        calls.append("generate")
+        return json.dumps({**TURN, "speaker": name, "nextQuestion": line}, ensure_ascii=False)
+
+    return call
+
+
+async def _g1_turn(answer: str, spoken_by: list, says: list, dispatch: str, calls: list, idx: int = 6):
+    return await next_turn(
+        mode="group", answer=answer, follow_up_idx=idx, asked_questions=[G1_TOPIC],
+        spoken_by=spoken_by, fallback=[], llm=_dispatching(dispatch, calls=calls),
+        context=CTX, group_says=says,
+    )
+
+
+async def test_the_moderator_does_not_ask_twice_in_a_row() -> None:
+    """第 18 則:主考官第 16 則才問過,使用者第 17 則答得完整,不該再由主考官問。"""
+    calls: list = []
+    spoken = ["主考官", "AI-強勢", "AI-邏輯", "AI-親切", "主考官", "AI-親切", "AI-強勢", "AI-邏輯", "主考官"]
+    says = [
+        UtteranceDTO(speaker="主考官", content=G1_TOPIC, is_user=False),
+        UtteranceDTO(speaker="主考官", content=G1_HOST_16, is_user=False),
+        UtteranceDTO(speaker="你", content=G1_USER_17, is_user=True),
+    ]
+    r = await _g1_turn(G1_USER_17, spoken, says, "主考官", calls)
+    assert r.speaker in G1_PEERS
+    assert any("主持方上一輪才講過" in n for n in r.notices)
+
+
+async def test_the_moderator_stops_at_the_cap() -> None:
+    """第 16 則:開場加第 8 則已經兩次,派發再選主考官就換人。"""
+    calls: list = []
+    spoken = ["主考官", "AI-強勢", "AI-邏輯", "AI-親切", "主考官", "AI-親切", "AI-強勢", "AI-邏輯"]
+    says = [
+        UtteranceDTO(speaker="AI-邏輯", content="如果這兩個任務都會影響專案進度，我會優先處理對專案影響最大的任務。", is_user=False),
+        UtteranceDTO(speaker="你", content="我覺得你說的很有道理。", is_user=True),
+    ]
+    r = await _g1_turn("我覺得你說的很有道理。", spoken, says, "主考官", calls)
+    assert spoken.count("主考官") == MODERATOR_MAX_TURNS
+    assert r.speaker in G1_PEERS
+    assert r.speaker != "AI-邏輯", "換人的時候不要剛好換給上一位"
+    assert any(f"已經講了 {MODERATOR_MAX_TURNS} 次" in n for n in r.notices)
+
+
+async def test_the_stand_in_is_not_the_peer_who_just_spoke() -> None:
+    """換人時挑發言最少的,但跳過剛講完的那位,免得同一位連講兩次。"""
+    calls: list = []
+    spoken = ["主考官", "AI-強勢", "AI-親切", "主考官", "AI-強勢", "AI-親切", "AI-邏輯"]
+    says = [
+        UtteranceDTO(speaker="AI-邏輯", content="我會先確認每個任務的具體需求。", is_user=False),
+        UtteranceDTO(speaker="你", content="我覺得你說的很有道理。", is_user=True),
+    ]
+    r = await _g1_turn("我覺得你說的很有道理。", spoken, says, "主考官", calls)
+    assert spoken.count("AI-邏輯") < spoken.count("AI-強勢"), "AI-邏輯 講得最少,但它剛講完"
+    assert r.speaker in ("AI-強勢", "AI-親切")
+
+
+async def test_the_moderator_may_still_step_in_once() -> None:
+    """第 8 則:使用者只說「對,我同意」,主考官出來推一下是合理的,那一次照舊放行。"""
+    calls: list = []
+    spoken = ["主考官", "AI-強勢", "AI-邏輯", "AI-親切"]
+    says = [
+        UtteranceDTO(speaker="AI-親切", content="先評估每個任務的時間需求，再依據重要性排序。", is_user=False),
+        UtteranceDTO(speaker="你", content="對，我同意。", is_user=True),
+    ]
+    r = await _g1_turn("對，我同意。", spoken, says, "主考官", calls, idx=3)
+    assert r.speaker == "主考官"
+
+
+async def test_the_moderator_always_catches_a_candidate_who_is_stuck() -> None:
+    """說不會的時候,主考官連著講、超過上限都放行——接住他正是主考官的工作。"""
+    calls: list = []
+    spoken = ["主考官", "AI-強勢", "主考官"]
+    says = [
+        UtteranceDTO(speaker="主考官", content=G1_HOST_16, is_user=False),
+        UtteranceDTO(speaker="你", content="這個我不太清楚。", is_user=True),
+    ]
+    r = await _g1_turn("這個我不太清楚。", spoken, says, "主考官", calls, idx=2)
+    assert r.speaker == "主考官"
+
+
+async def test_the_first_reply_to_the_topic_comes_from_a_competitor() -> None:
+    """開場題剛由主考官出完,使用者第一次表態,先接話的是 AI 應徵者。"""
+    calls: list = []
+    says = [
+        UtteranceDTO(speaker="主考官", content=G1_TOPIC, is_user=False),
+        UtteranceDTO(speaker="你", content="我會先確認這些任務的優先順序。", is_user=True),
+    ]
+    r = await _g1_turn("我會先確認這些任務的優先順序。", ["主考官"], says, "主考官", calls, idx=0)
+    assert r.speaker in G1_PEERS
+
+
+async def test_a_question_back_is_answered_by_the_one_asked() -> None:
+    """第 13 則:使用者反問 AI-強勢,原本接話的是 AI-邏輯。
+
+    被問的人回答排在「誰還沒講過」前面:這裡 AI-親切 還沒開口,
+    照舊規則會強制給它,但被問的是 AI-強勢。也不必再問一次派發。
+    """
+    calls: list = []
+    spoken = ["主考官", "AI-強勢", "AI-邏輯", "AI-強勢"]
+    says = [
+        UtteranceDTO(speaker="主考官", content=G1_TOPIC, is_user=False),
+        UtteranceDTO(speaker="AI-強勢", content=G1_STRONG_12, is_user=False),
+        UtteranceDTO(speaker="你", content=G1_USER_13, is_user=True),
+    ]
+    r = await _g1_turn(G1_USER_13, spoken, says, "AI-邏輯", calls, idx=3)
+    assert r.speaker == "AI-強勢"
+    assert "dispatch" not in calls
+    assert any("使用者當面問「AI-強勢」" in n for n in r.notices)
+
+
+async def test_a_peer_named_in_the_question_is_the_one_who_answers() -> None:
+    calls: list = []
+    says = [UtteranceDTO(speaker="AI-強勢", content=G1_STRONG_12, is_user=False)]
+    answer = "邏輯這位同學，你會先做文書還是資料建檔？"
+    r = await _g1_turn(answer, ["主考官", "AI-強勢"], says, "AI-親切", calls, idx=1)
+    assert r.speaker == "AI-邏輯"
+
+
+async def test_agreeing_with_a_peer_is_not_a_question_to_them() -> None:
+    """「我同意邏輯這位先生說的」是表態,不是在等他回話,照常派發。"""
+    calls: list = []
+    answer = "我同意邏輯這位先生說的，確實每個任務都有具體的需求。"
+    says = [UtteranceDTO(speaker="AI-邏輯", content="我會先確認每個任務的具體需求。", is_user=False)]
+    r = await _g1_turn(answer, ["主考官", "AI-強勢", "AI-邏輯"], says, "AI-親切", calls, idx=1)
+    assert r.speaker == "AI-親切"
+    assert "dispatch" in calls
+
+
+async def test_a_question_back_to_the_moderator_is_answered_by_the_moderator() -> None:
+    """使用者回問主考官的時候,主考官剛講過也由他回。被問的人不回答比他多講一次更怪。"""
+    calls: list = []
+    spoken = ["主考官", "AI-強勢", "AI-邏輯", "AI-親切", "主考官"]
+    says = [UtteranceDTO(speaker="主考官", content=G1_HOST_16, is_user=False)]
+    r = await _g1_turn("你是說兩個都會影響專案的情況嗎？", spoken, says, "AI-親切", calls, idx=4)
+    assert r.speaker == "主考官"
+    assert not any("改由" in n for n in r.notices), "人格要一開始就是主考官,不是先寫成別人再改名"
+
+
+def test_the_three_managers_take_turns_with_the_competitors() -> None:
+    """三位主管的配置一樣:上一位是主管,下一輪先給 AI 應徵者。"""
+    says = [UtteranceDTO(speaker="技術主管", content="這個做法要成立,前提是什麼?", is_user=False)]
+    why = moderator_blocked("group", "HR 主管", ANSWER, ["用人主管", "技術主管"], says, 3, 4)
+    assert why == "主持方上一輪才講過"
+    assert moderator_blocked("group", "AI-強勢", ANSWER, ["用人主管", "技術主管"], says, 3, 4) == ""
+    assert moderator_blocked("panel", "技術主管", ANSWER, ["技術主管"], (), 1, 4) == "", "panel 不歸這裡管"
+
+
+def test_without_group_says_the_last_speaker_comes_from_spoken_by() -> None:
+    assert addressed_speaker("group", "那你會先做哪一個？", ["主考官", "AI-邏輯"]) == "AI-邏輯"
+    assert addressed_speaker("single", "那你會先做哪一個？", ["主考官"]) is None
+
+
+async def test_calling_the_candidate_user_is_regenerated() -> None:
+    """第 6 則:AI-親切 說「使用者提到的流程」。紀錄的標籤不能說出口。"""
+    calls: list = []
+    clean = G1_FRIENDLY_6.replace("使用者提到的", "你剛剛提到的")
+    r = await next_turn(
+        mode="group", answer=ANSWER, follow_up_idx=2, asked_questions=[G1_TOPIC],
+        fallback=[], llm=_scripted(G1_FRIENDLY_6, clean, sink=calls, speaker="AI-親切"),
+        context=CTX, force_speaker="AI-親切", group_says=SAYS,
+    )
+    assert r.next_question == clean
+    assert len(calls) == 2
+    assert "「使用者」是討論紀錄的標籤" in calls[-1], "重生成要講清楚錯在哪"
+    assert any("把真人應徵者叫成「使用者」" in n for n in r.notices)
+
+
+async def test_users_of_a_product_are_not_the_candidate() -> None:
+    """產品職缺天天講「使用者需求」「使用者體驗」,那些不是在叫人。"""
+    calls: list = []
+    line = "我會先整理使用者需求,再決定使用者體驗那一塊的改版順序。"
+    r = await next_turn(
+        mode="group", answer=ANSWER, follow_up_idx=2, asked_questions=[TOPIC],
+        fallback=[], llm=_scripted(line, sink=calls), context=CTX,
+        force_speaker="AI-強勢", group_says=SAYS,
+    )
+    assert r.next_question == line
+    assert len(calls) == 1
+
+
+def test_the_discussion_block_says_the_label_is_not_a_name() -> None:
+    assert USER_LABEL_NOTE in group_discussion_block(SAYS, ANSWER)
+    only_ai = [UtteranceDTO(speaker="主考官", content=TOPIC, is_user=False)]
+    assert USER_LABEL_NOTE not in group_discussion_block(only_ai, ""), "紀錄裡沒有使用者就不用講"
+
+
+async def test_the_last_speaker_comes_from_group_says_first() -> None:
+    """請求失敗、前端改用本機 mock 的那一輪不會進 spokenBy,但會記進 groupSays。
+
+    這裡 spokenBy 的最後一位是 AI-邏輯,實際上最後開口的是 mock 補的 AI-強勢,
+    使用者反問的是他。
+    """
+    calls: list = []
+    says = [
+        UtteranceDTO(speaker="AI-邏輯", content="我會先確認每個任務的具體需求。", is_user=False),
+        UtteranceDTO(speaker="你", content="我同意。", is_user=True),
+        UtteranceDTO(speaker="AI-強勢", content=G1_STRONG_12, is_user=False),
+        UtteranceDTO(speaker="你", content=G1_USER_13, is_user=True),
+    ]
+    r = await _g1_turn(G1_USER_13, ["主考官", "AI-強勢", "AI-邏輯"], says, "AI-親切", calls, idx=1)
+    assert r.speaker == "AI-強勢"
