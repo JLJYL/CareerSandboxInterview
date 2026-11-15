@@ -545,8 +545,13 @@ def opening_intro(
     round_name: str = "初試",
     group_interviewers: int = 1,
     group_size: int = 4,
+    group_flow: str = "discussion",
 ) -> str:
     """開場時面試官先講的那一段。回空字串代表這一場不需要。
+
+    【群面一題一輪要先講規則】
+    使用者要知道每題每人答一次、不用照座位順序,才知道自己可以先開口——
+    誰先答由他什麼時候按錄音決定,沒有另外的搶答按鈕。
 
     【為什麼不問模型】
     面試官是誰、有幾位、各自什麼角色,全部是 `personas_for` 已經決定好的
@@ -575,11 +580,13 @@ def opening_intro(
         who = host.display_name if host and host.display_name else "主考官"
         # 人數講出來,因為使用者在畫面上看得到幾張卡,對不起來會很怪
         job = f"應徵的職缺是{post}," if post else ""
-        return (
+        head = (
             f"你好,我是{who}。這是一場{round_name}團體面試,{job}"
-            f"今天連你在內共{_cn_count(peers + 1)}位應徵者。我會先出一個題目,"
-            "請大家一起討論。"
+            f"今天連你在內共{_cn_count(peers + 1)}位應徵者。"
         )
+        if group_flow == "round":
+            return head + "我會一題一題問,每一題請每位回答一次,不用照座位順序,準備好的人先說。"
+        return head + "我會先出一個題目,請大家一起討論。"
 
     if mode == "panel":
         names = [p.display_name for p in personas if p.display_name]

@@ -181,6 +181,9 @@ async def submit_turn(req: TurnRequest, session_id: str = SESSION_ID) -> TurnRes
         jd=_turn_jd(req),
         experiences=req.experiences,
         group_says=req.group_says,
+        # 群面的流程,前端不帶就是一題一輪。見 InterviewContext.group_flow。
+        group_flow=req.context.group_flow,
+        session_id=session_id,
     )
     # 追問深度的狀態由前端保管,後端只算下一步該是多少——跟 askedTopics
     # 與 followUpIdx 同一個模式。前端不解讀這兩個值,原樣送回就好。

@@ -268,6 +268,17 @@ class InterviewContext(_Base):
     【前端目前沒有帶這一欄】
     同 group_size,選完沒有存進 InterviewConfig。
     """
+
+    group_flow: str = "round"
+    """群面的流程:"round" 一題一輪 / "discussion" 自由討論。
+
+    round(11/15 起的預設):主持方出一題,每位應徵者各答一次,全部答完才換題。
+    誰先答由 AI 的反應速度與使用者什麼時候開口決定,見 `group_round`。
+    discussion:原本的小組討論,由派發決定誰接話,留著給量測工具與回頭比較用。
+
+    前端不帶就是 round。直接呼叫 `next_turn` 的測試與工具不經過這一欄,
+    那裡的預設仍是 discussion,見 `next_turn` 的 group_flow 參數。
+    """
     custom_role: str = ""
     custom_company: str = ""
     custom_seniority: str = "新鮮人"  # 新鮮人 / 1-3年 / 資深
@@ -673,6 +684,18 @@ class TurnResponse(_Base):
 
     換題或被切斷時歸零——被切斷不是使用者的問題,不該算進上限。
     """
+
+    delay_ms: int = 0
+    """群面一題一輪:這一則要等多久才顯示,毫秒。其他模式恆為 0。
+
+    從上一則發言出現在畫面上的那一刻起算。App 在 max(收到回應, 上一則出現 + delay_ms)
+    顯示這一則;在那之前使用者按下錄音的話,這一則丟掉不顯示、不記進 groupSays,
+    讓使用者先答。使用者這一題答過之後一律是 0。主持方出題也是 0。
+    """
+
+    await_user: bool = False
+    """群面一題一輪:這一題的 AI 都答完了,只差使用者。為真時 speaker 與
+    next_question 都是空字串,App 不顯示任何發言,等使用者回答後再呼叫下一輪。"""
 
     notices: list[str] = Field(default_factory=list)
 
