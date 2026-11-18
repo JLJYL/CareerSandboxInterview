@@ -4,11 +4,12 @@
     python tools/group_round_demo.py --fake                # 先確認管線,不打 API
     python tools/group_round_demo.py --role 理財專員 --company 某銀行 --questions 2
 
-App 還沒接上一題一輪之前,用這支看 prompt 的實際效果。每一輪先生成下一位
-AI 的話,再問你要不要搶先:直接按 Enter 讓他講,輸入文字就是你先答——
-那一句 AI 的話會丟掉,跟 App 該做的一樣。輪到只剩你的時候會直接等你輸入。
+不開 App 也能看 prompt 的實際效果。主考官出題時點第一位,每位答完再點下一位。
+每一則(點名句或 AI 的回答)出來之前會問你要不要搶先:直接按 Enter 讓它出來,
+輸入文字就是你先答——那一則會丟掉,跟 App 做的一樣。主考官點到你時直接等你輸入。
 
-印出的「等 x 秒」是 App 要等的時間,這裡不真的等。
+印出的「等 x 秒」是 App 要等的時間(上一則講完加停頓),這裡不真的等。
+加 --notices 會看到點名順序、每位分到的切入角度,和「太像、已重生成」這類紀錄。
 """
 
 from __future__ import annotations
@@ -17,6 +18,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -26,11 +28,29 @@ from app.api.deps import make_llm  # noqa: E402
 from app.pipeline.interview_live import next_turn, start_interview  # noqa: E402
 from app.schemas.interview import InterviewContext, UtteranceDTO  # noqa: E402
 
-FAKE_LINES = iter(f"(假回答 {i})我會先把目標講清楚。" for i in range(1, 1000))
+FAKE_BY_ANGLE = {
+    "結論先行": "結論先講:我選先做小規模試辦,兩週就看得到結果。",
+    "講第一步": "我明天第一件事是約三位資深同事,一小時內把現況盤點出來。",
+    "看數字": "我會看第一週的轉換率,低於百分之三就停掉換方案。",
+    "看風險": "最壞是上線後客訴爆量,所以我會先留一條人工處理的退路。",
+    "看成本": "人力只有兩個人,我寧願砍掉報表功能,保住核心流程。",
+    "從使用者看": "客戶真正在意的是等多久,所以我先把排隊時間砍半。",
+    "從團隊看": "我會先讓業務和工程坐下來對一次目標,不然做出來沒人用。",
+    "點出前提": "這題假設預算固定,如果可以追加,我會先爭取人力而不是砍功能。",
+    "舉經驗": "我之前辦活動也遇過,當時先找十個人試,改完才全面推。",
+    "唱反調": "我跟前面的想法相反,我會先停下來把需求問清楚再動。",
+}
+FAKE_QUESTIONS = iter([
+    "下一題:如果團隊裡有人一直不配合,你會怎麼處理?",
+    "下一題:上線前一天發現重大錯誤,你會怎麼做?",
+    "下一題:主管和客戶的要求互相衝突,你會聽誰的?",
+] + [f"下一題:第 {i} 個假題目,你會怎麼排優先順序?" for i in range(4, 50)])
+ANGLE_RE = re.compile(r"【你這一題的切入角度】([^::\n]+)[::]")
+QUESTION_RE = re.compile(r"問的這一題】(.+)")
 
 
 def fake_llm(system: str, user: str) -> str:
-    """不打 API 的假模型:開場回一題,其餘每次回一句不同的話。"""
+    """不打 API 的假模型。應徵者照分到的切入角度回一句,看得出每個人不一樣。"""
     if "開場問題" in system:
         return json.dumps(
             {"openingQuestion": "假設新產品下個月上線,你會先確認哪一件事?",
@@ -39,12 +59,15 @@ def fake_llm(system: str, user: str) -> str:
         )
     if "【上一題】" in user:
         return json.dumps(
-            {"speaker": "", "nextQuestion": f"下一題:{next(FAKE_LINES)}要怎麼排優先順序?",
-             "topic": "優先順序"},
+            {"speaker": "", "nextQuestion": next(FAKE_QUESTIONS), "topic": "下一題"},
             ensure_ascii=False,
         )
-    return json.dumps({"speaker": "", "nextQuestion": next(FAKE_LINES), "topic": ""},
-                      ensure_ascii=False)
+    m = ANGLE_RE.search(user)
+    angle = m.group(1) if m else ""
+    q = QUESTION_RE.search(user)
+    about = q.group(1).strip()[:12] if q else ""
+    line = f"({angle or '假'}){about}——{FAKE_BY_ANGLE.get(angle, '我會先把目標講清楚。')}"
+    return json.dumps({"speaker": "", "nextQuestion": line, "topic": ""}, ensure_ascii=False)
 
 
 async def main_async(args) -> int:
@@ -71,9 +94,13 @@ async def main_async(args) -> int:
     start = await start_interview(mode="group", context=ctx, llm=llm, llm_exact=exact)
     print(f"\n{start.opening_intro}\n")
     print(f"[{start.opening_speaker}] {start.opening_question}\n")
+    if args.notices:
+        for n in start.notices:
+            print(f"    · {n}")
     says = [UtteranceDTO(speaker=start.opening_speaker, content=start.opening_question)]
     hosts = {p.display_name for p in start.personas if p.role != "peer"}
     asked_count = 1
+    answered = False
 
     while True:
         r = await next_turn(
@@ -86,25 +113,29 @@ async def main_async(args) -> int:
             for n in r.notices:
                 print(f"    · {n}")
         if r.await_user:
-            text = input("  (AI 都答完了,輪到你)你:").strip() or "(使用者沒有輸入)"
+            text = input("  (主考官點到你了)你:").strip() or "(使用者沒有輸入)"
             says.append(UtteranceDTO(speaker="你", content=text, is_user=True))
+            answered = True
             continue
 
-        is_host = r.speaker in hosts
-        if is_host and asked_count >= args.questions:
+        new_question = r.speaker in hosts and not r.cue
+        if new_question and asked_count >= args.questions:
             print("\n(題數到了,結束)")
             return 0
-        if not is_host and r.delay_ms:
-            text = input(f"  ({r.speaker} 再 {r.delay_ms / 1000:.1f} 秒開口,Enter 讓他講,"
+        if not new_question and not answered and r.delay_ms:
+            what = "點名" if r.cue else "開口"
+            text = input(f"  ({r.speaker} 再 {r.delay_ms / 1000:.1f} 秒{what},Enter 繼續,"
                          "或直接輸入搶先回答)你:").strip()
             if text:
                 says.append(UtteranceDTO(speaker="你", content=text, is_user=True))
+                answered = True
                 print(f"    ({r.speaker} 那句丟掉了)")
                 continue
         print(f"[{r.speaker}] {r.next_question}\n")
         says.append(UtteranceDTO(speaker=r.speaker, content=r.next_question))
-        if is_host:
+        if new_question:
             asked_count += 1
+            answered = False
 
 
 def main() -> int:
