@@ -14,7 +14,10 @@
     出題那句最後是「請 X 先說。」,之後每位答完,主持方說一句點名句
     主持方不講第幾題
     搶答保留:使用者在下一則出現前開口,就排到前面,主持方接著點被他搶先的那位
-    使用者答完之後,後面照樣等講話時間
+    使用者答完之後,後面照樣等讀完的時間
+
+11/18 下午實測太慢(第一位 AI 等二十幾秒、兩位 AI 之間十幾秒):
+    等待改成閱讀速度(一字 0.12 秒,最多 8 秒),被點到後停 0.5 到 2 秒
 """
 
 from __future__ import annotations
@@ -202,6 +205,21 @@ def test_speaking_time_counts_characters_not_punctuation() -> None:
     assert speak_ms("  ,。?!「」") == 0
     assert speak_ms("") == 0
     assert speak_ms("字" * 500) == SPEAK_MAX_MS
+
+
+def test_waits_leave_time_to_read_but_keep_the_round_moving() -> None:
+    """11/18 下午實測:第一位 AI 等二十幾秒、兩位 AI 之間十幾秒,太慢。
+
+    四十字的回答之後,主持方要等到讀得完才點名,但不超過 6.5 秒;
+    點名之後 AI 開口不超過 3.5 秒;題目出來到第一位 AI 開口不超過 8 秒。
+    """
+    called = next_step(round_state([qline(), peer(FIRST, FORTY)]), SEED)
+    assert called.kind == "cue"
+    assert speak_ms(FORTY) <= called.delay_ms <= 6500
+    answer = next_step(round_state([qline(), peer(FIRST, FORTY), cue(SECOND, 1)]), SEED)
+    assert answer.kind == "peer"
+    assert answer.delay_ms <= 3500
+    assert next_step(round_state([qline()]), SEED).delay_ms <= 8000
 
 
 # ---------------------------------------------------------------------------
