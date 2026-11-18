@@ -690,12 +690,20 @@ class TurnResponse(_Base):
 
     從上一則發言出現在畫面上的那一刻起算。App 在 max(收到回應, 上一則出現 + delay_ms)
     顯示這一則;在那之前使用者按下錄音的話,這一則丟掉不顯示、不記進 groupSays,
-    讓使用者先答。使用者這一題答過之後一律是 0。主持方出題也是 0。
+    讓使用者先答。
+
+    每一則都等上一則講完(一字 0.22 秒):被點到的 AI 再加自己的停頓,主持方點名
+    或出題再停一秒;上一則是使用者自己的回答時只停一秒。算法見 `group_round.next_step`。
     """
 
     await_user: bool = False
-    """群面一題一輪:這一題的 AI 都答完了,只差使用者。為真時 speaker 與
+    """群面一題一輪:主持方點到使用者了,這一題等他回答。為真時 speaker 與
     next_question 都是空字串,App 不顯示任何發言,等使用者回答後再呼叫下一輪。"""
+
+    cue: bool = False
+    """群面一題一輪:這一句是主持方點名下一位(「謝謝。下一位請 AI-親切。」),
+    不是新的一題。App 判斷「換題了」要看主持方發言而且 cue 為假;點名句照樣
+    顯示、照樣記進 groupSays,伺服器下一輪靠句型認出它。"""
 
     notices: list[str] = Field(default_factory=list)
 

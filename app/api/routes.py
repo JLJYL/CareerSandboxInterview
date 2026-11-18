@@ -42,6 +42,7 @@ from app.api.deps import (
     get_analyzer,
 )
 from app.contracts.interview_protocols import JDInput, Utterance
+from app.pipeline.group_round import is_cue_line
 from app.pipeline.interview_live import next_turn, resume_block, start_interview
 from app.pipeline.interview_report import generate_report
 from app.pipeline.interviewer_spec import derive_specs
@@ -452,6 +453,13 @@ async def create_report(
     if req.mode == "group" and req.group_says:
         try:
             hosts = _interviewer_names(req.mode, req.context)
+            # 一題一輪的點名句(「謝謝。下一位請 AI-親切。」)不是任何人的論點,
+            # 留著只會讓分歧處理那一份多出幾句主考官的流程話。
+            says = [
+                u
+                for u in req.group_says
+                if u.is_user or u.speaker not in hosts or not is_cue_line(u.content)
+            ]
             slices = get_collab().observe(
                 [
                     Utterance(
@@ -463,7 +471,7 @@ async def create_report(
                         or (u.segment_starts_ms[0] if u.segment_starts_ms else 0),
                         end_ms=u.end_ms,
                     )
-                    for u in req.group_says
+                    for u in says
                 ]
             )
         except Exception as exc:  # noqa: BLE001

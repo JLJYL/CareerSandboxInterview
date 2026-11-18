@@ -41,12 +41,25 @@ from typing import TYPE_CHECKING
 
 from app.contracts.interview_protocols import JDInput
 from app.pipeline.group_round import (
+    ANGLES,
     DISCUSSION,
+    DISSENT,
+    DISSENT_FIRST,
+    DISSENT_LATER,
     ROUND,
+    USER_SLOT,
     RoundState,
     RoundStep,
+    clean_question,
+    cue_line,
+    most_similar,
     next_step,
+    round_angles,
+    round_order,
     round_state,
+    strip_question_number,
+    too_similar,
+    with_designation,
 )
 from app.pipeline.jd_normalize import normalize_locale
 from app.pipeline.interviewer_spec import DIMENSION_OWNER
@@ -920,7 +933,8 @@ def group_default_opening(ctx: InterviewContext, group_flow: str = DISCUSSION) -
         f"假設你們剛加入{team},主管只給一個月,要你們決定第一件該先做的事。"
     )
     if group_flow == ROUND:
-        return f"第一題:{situation}請每個人輪流說你的選擇和理由。"
+        # 不講「第一題」,誰先答由 start_interview 補在最後。
+        return f"{situation}請每個人說你的選擇和理由。"
     return f"今天請大家一起討論一個情況:{situation}請每個人先說你的選擇和理由,再互相討論。"
 
 
@@ -957,6 +971,12 @@ DEFAULT_ROUND_PEER_LINES = (
 _FIX_ROUND_REPEAT = (
     "那一題跟本場問過的題目太像:{repeat}\n"
     "換一題:換一個情境,或換一個要大家回答的面向,一次只問一件事。"
+)
+
+_FIX_ROUND_SIMILAR = (
+    "那一句跟{who}的回答太像,只是換句話說:{theirs}\n"
+    "照你這一題的切入角度重講({angle}):講一個{who}沒講到的理由或做法,"
+    "不要再用他的說法,也不要用「我同意」「我也覺得」開頭。"
 )
 DEFAULT_PROBES = (
     "這個判斷你當時是依據什麼下的?",
@@ -1117,6 +1137,14 @@ async def start_interview(
         mode, context.group_interviewers, context.group_size, blurbs
     )
     opening_speaker = personas[0].display_name if personas else ""
+    if mode == "group" and group_flow == ROUND:
+        # 開場題最後補上點名。第 1 題的順序在這裡定,之後每一輪從 groupSays
+        # 推回同一個順序(同樣的場次、同樣的第幾題),見 group_round.round_order。
+        peers = [p.display_name for p in personas if p.role == "peer" and p.display_name]
+        first = round_order(peers, 1, sid)[0]
+        question = with_designation(question, first)
+        probes = [clean_question(p) for p in probes]
+        notices.append(f"開場:第 1 題點{'使用者' if first == USER_SLOT else '「' + first + '」'}先答")
 
     return StartInterviewResponse(
         session_id=sid,
@@ -1280,26 +1308,44 @@ def _round_answers(state: RoundState) -> list[str]:
     ]
 
 
-def round_peer_prompt(state: RoundState, speaker: str, position: int) -> str:
+def round_peer_prompt(
+    state: RoundState, speaker: str, position: int, angle: str = ""
+) -> str:
     """輪到某位 AI 應徵者答這一題時的 user prompt。
 
     題目放第一行:這一輪要回應的是主持方的題目,不是上一位講的話——
     沿用自由討論那套把「使用者剛剛說的」排第一,模型會變成在回應他。
     前面的回答整題列出來,一題最多五則,不會淹掉題目。
+
+    【切入角度】
+    `round_angles` 分給他的角度放在前面的回答之後。唱反調分兩種講法:
+    第一個答的人沒有對象可以反對,改成選多數人不會選的答案。
+
+    【「換句話說也算重複」】
+    11/15 的版本寫「不要原樣再講一次」,模型就照字面守:不照抄,但換句話說。
+    11/17 實測 AI 應徵者答的是同一個答案。所以寫明換句話說也算,開頭的附和也禁掉——
+    「我同意 A 說的」後面接的幾乎都是 A 的話。程式那一側的檢查見 `too_similar`。
     """
     asker = state.asker or "主考官"
+    first = not state.answers
     parts = [f"【{asker}問的這一題】{state.question or '(未提供)'}"]
-    if state.answers:
+    if not first:
         parts.append("【這一題已經回答的人(由先到後)】\n" + "\n".join(_round_answers(state)))
         if state.user_answered:
             parts.append(USER_LABEL_NOTE)
-        parts.append(
-            f"輪到你回答,你是第 {position} 個。可以接前面的人的說法:附和之後再往前推一步、"
-            "提出不同的看法,或把兩個說法整合成你的做法。但主體是你自己對這一題的回答,"
-            "前面講過的論點不要原樣再講一次。"
-        )
-    else:
+    if angle == DISSENT:
+        how = DISSENT_FIRST if first else DISSENT_LATER
+        parts.append(f"【你這一題的切入角度】{DISSENT}:{how}")
+    elif angle in ANGLES:
+        parts.append(f"【你這一題的切入角度】{angle}:{ANGLES[angle]}")
+    if first:
         parts.append("你是這一題第一個回答的人,直接回答題目。")
+    else:
+        parts.append(
+            f"輪到你回答,你是第 {position} 個。可以接前面的人的說法,但接了就要加一個"
+            "他沒講到的理由或做法。前面講過的理由和做法不要再講,換句話說也算重複;"
+            "不要用「我同意」「我也覺得」「跟某某一樣」開頭。"
+        )
     parts.append("只回答這一題,講完就停,不發問。")
     return "\n\n".join(parts)
 
@@ -1314,7 +1360,8 @@ def round_host_prompt(state: RoundState, host: str) -> str:
     if state.asked:
         parts.append("【本場已經問過的題目】\n" + "\n".join(f"  {q}" for q in state.asked))
     parts.append(
-        f"每個人都回答完這一題了。請以{host}的身分提出下一題,給全組每個人輪流回答。"
+        f"每個人都回答完這一題了。請以{host}的身分提出下一題,給全組每個人回答。"
+        "直接講問題,不要說「第幾題」「下一題」,也不要指定誰先答——點名會另外補上。"
         "可以先用一句話過場,不評論任何人的回答。下一題不能跟問過的題目重複。"
     )
     return "\n\n".join(parts)
@@ -1345,6 +1392,7 @@ def _round_fallback(
         line = _unused_question(pool, state.asked) or DEFAULT_GROUP_ROUND_QUESTIONS[
             state.index % len(DEFAULT_GROUP_ROUND_QUESTIONS)
         ]
+        line = with_designation(line, step.target)
     else:
         line = next(
             (x for x in DEFAULT_ROUND_PEER_LINES if not is_verbatim_repeat(x, said)),
@@ -1377,14 +1425,20 @@ async def round_turn(
 ) -> TurnResponse:
     """群面一題一輪的一步。誰開口、要等多久由 `group_round` 決定,這裡只生成內容。
 
-    【三種結果】
-        AI 應徵者回答   speaker 是他,delay_ms 是他的反應時間(使用者答過就是 0)
-        等使用者       await_user 為真,不呼叫模型——沒有東西要生成
-        主持方出下一題  全員答完才會走到
+    【四種結果】
+        AI 應徵者回答   被點到的那位,delay_ms 是點名講完加他的停頓
+        主持方點名     cue 為真,句子是程式套的,不呼叫模型
+        輪到使用者     await_user 為真,不呼叫模型——沒有東西要生成
+        主持方出下一題  全員答完才會走到;題目最後由程式補上「請 X 先說。」
 
     【沿用自由討論的檢查】
     說出「使用者」、跟前面講過的幾乎同一句、應徵者發問,這三道照舊一次重生成。
     主持方另外看新題目跟問過的題目像不像——一題一輪最怕的是同一題問兩次。
+
+    【應徵者多一道:跟這一題前面的回答像不像】
+    每位先由 `round_angles` 分到一個切入角度;生成之後跟這一題前面的回答
+    (含使用者的)比,太像就帶著「你跟誰太像」重生成一次。重生成還是太像,
+    但比原本那句不像,就用新的;其他毛病沒好就照原樣送出。
     """
     gi = context.group_interviewers if context else 1
     gs = context.group_size if context else 4
@@ -1394,6 +1448,7 @@ async def round_turn(
     )
     step = next_step(state, seed=session_id)
     where = f"第 {state.index} 題"
+    wait = f",等 {step.delay_ms / 1000:.1f} 秒"
     if step.kind == "await_user":
         return TurnResponse(
             speaker="",
@@ -1403,22 +1458,42 @@ async def round_turn(
             should_advance=False,
             topic="",
             await_user=True,
-            notices=[f"本輪:一題一輪{where},AI 都答完了,等使用者回答"],
+            notices=[f"本輪:一題一輪{where},點到使用者,等他回答"],
+        )
+    if step.kind == "cue":
+        target = "使用者" if step.target == USER_SLOT else f"「{step.target}」"
+        return TurnResponse(
+            speaker=step.speaker,
+            next_question=cue_line(step.target, last=step.last, turn=len(state.answers)),
+            reaction="",
+            is_follow_up=False,
+            should_advance=False,
+            topic="",
+            cue=True,
+            delay_ms=step.delay_ms,
+            notices=[
+                f"本輪:一題一輪{where},「{step.speaker}」點名{target}"
+                f"{'(最後一位)' if step.last else ''}{wait}"
+            ],
         )
 
     host = step.kind == "host"
     speaker = step.speaker
+    angle = ""
     if host:
         user = round_host_prompt(state, speaker)
-        notices = [f"本輪:一題一輪{where}全員答完,由「{speaker}」出第 {state.index + 1} 題"]
+        first = "使用者" if step.target == USER_SLOT else f"「{step.target}」"
+        notices = [
+            f"本輪:一題一輪{where}全員答完,由「{speaker}」出第 {state.index + 1} 題,"
+            f"點{first}先答{wait}"
+        ]
     else:
-        user = round_peer_prompt(state, speaker, step.position)
-        wait = (
-            f",等 {step.delay_ms / 1000:.1f} 秒"
-            if step.delay_ms
-            else ",使用者已答過,不等"
-        )
-        notices = [f"本輪:一題一輪{where},「{speaker}」第 {step.position} 個回答{wait}"]
+        angle = round_angles(state, seed=session_id).get(speaker, "")
+        user = round_peer_prompt(state, speaker, step.position, angle)
+        notices = [
+            f"本輪:一題一輪{where},「{speaker}」第 {step.position} 個回答,"
+            f"切入角度:{angle or '(未分配)'}{wait}"
+        ]
     if context:
         # 群面不帶履歷:同場的應徵者看不到使用者的履歷。
         user += "\n\n【職位脈絡】\n" + context_block(context, jd, ())
@@ -1460,16 +1535,32 @@ async def round_turn(
     if got and got != speaker:
         notices.append(f"本輪:模型填的說話者是「{got}」,已改回「{speaker}」")
 
-    def faults_of(text: str) -> list[tuple[str, str]]:
+    def base_faults(text: str) -> list[tuple[str, str]]:
         found = _question_faults(
             text, said, is_follow_up=False, clarify=False, group=True, peer=not host
         )
         if host:
-            dup = is_near_duplicate(text, state.asked)
+            dup = is_near_duplicate(clean_question(text), state.asked)
             if dup:
                 found.append(
                     (f"與問過的題目重複({dup[:20]})", _FIX_ROUND_REPEAT.format(repeat=dup))
                 )
+        return found
+
+    def similarity(text: str) -> float:
+        return most_similar(text, state.answers, state.question)[1]
+
+    def faults_of(text: str) -> list[tuple[str, str]]:
+        found = base_faults(text)
+        twin = None if host else too_similar(text, state.answers, state.question)
+        if twin is not None:
+            who = "使用者" if twin.is_user else twin.speaker
+            found.append((
+                f"跟{who}的回答太像",
+                _FIX_ROUND_SIMILAR.format(
+                    who=who, theirs=(twin.content or "").strip(), angle=angle or "你自己的角度"
+                ),
+            ))
         return found
 
     faults = faults_of(line)
@@ -1477,23 +1568,34 @@ async def round_turn(
         why = "、".join(label for label, _ in faults)
         again = await _regenerate(llm, system, user, faults)
         left = faults_of(again) if again else [("沒有產出", "")]
-        if left:
+        if not left:
+            notices.append(f"本輪:這句{why},已重生成。原本:{line[:30]}")
+            line = again
+        elif again and not host and not base_faults(again) and similarity(again) < similarity(line):
+            # 只剩「太像」,而且比原本那句不像。照原樣送出的話使用者看到的是更像的那句。
+            notices.append(
+                f"本輪:這句{why},重生成後還是偏像但比原本好,已採用。原本:{line[:30]}"
+            )
+            line = again
+        else:
             notices.append(
                 f"本輪:這句{why},重生成沒有改善"
                 f"({'、'.join(label for label, _ in left)}),已照原樣送出。"
             )
-        else:
-            notices.append(f"本輪:這句{why},已重生成。原本:{line[:30]}")
-            line = again
 
     topic = ""
     if host:
         # 重生成後還是同一題的話換備援題。同一題問兩次,大家就得把同樣的話再講一遍。
-        if is_near_duplicate(line, state.asked):
+        if is_near_duplicate(clean_question(line), state.asked):
             alt = _unused_question(list(fallback) + list(DEFAULT_GROUP_ROUND_QUESTIONS), state.asked)
             if alt:
                 notices.append(f"本輪:新題目跟問過的重複,改用備援題。原本:{line[:30]}")
                 line = alt
+        # 不講第幾題、點名接在最後。模型照 prompt 做的話 clean_question 不會動到任何字。
+        numbered = strip_question_number(line) != line.strip()
+        line = with_designation(line, step.target)
+        if numbered:
+            notices.append("本輪:主持方講了第幾題,已拿掉")
         topic = (
             normalize_locale(str(data.get("topic", "")).strip())
             or prev_topic

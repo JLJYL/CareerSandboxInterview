@@ -419,6 +419,9 @@ def test_group_says_reach_the_turn_prompt_through_the_api(client, monkeypatch) -
         "/interviews/itv_x/turns",
         json={
             "answer": ANSWER, "followUpIdx": 2, "mode": "group",
+            # 這個檔案測的是自由討論。API 預設是一題一輪,不帶的話這一輪可能是
+            # 主持方點名(不呼叫模型),那就什麼也測不到。
+            "context": {"groupFlow": "discussion"},
             "groupSays": [u.model_dump(by_alias=True) for u in SAYS],
         },
     )
